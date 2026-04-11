@@ -4,6 +4,7 @@ import {
   ageBadgeClass,
   formatDate,
   formatRelativeTime,
+  getDisplayTitle,
   todayIso,
 } from '../format';
 import {
@@ -233,7 +234,9 @@ export default function Detail(props: Props) {
 
   async function handleDelete() {
     if (props.mode !== 'existing') return;
-    const ok = confirm(`Delete "${movie.title}"? This can't be undone.`);
+    const ok = confirm(
+      `Delete "${getDisplayTitle(movie)}"? This can't be undone.`,
+    );
     if (!ok) return;
     await props.onDelete(movie);
   }
@@ -430,7 +433,7 @@ function ViewMode({
         <MoviePoster movie={movie} size="detail" />
         <div className="flex-1 min-w-0 pt-1">
           <h1 className="text-2xl font-bold leading-tight tracking-tight">
-            {movie.title}
+            {getDisplayTitle(movie)}
           </h1>
           {movie.year && (
             <div className="mt-1 text-base font-semibold text-ink-400 tabular-nums">
@@ -706,6 +709,23 @@ function EditForm({
             autoCorrect="off"
           />
         )}
+      </Field>
+
+      <Field label="Display title (optional)">
+        <input
+          type="text"
+          value={draft.displayTitle ?? ''}
+          onChange={(e) => updateStr('displayTitle', e.target.value)}
+          className={inputClass}
+          placeholder="e.g. Lotte from Gadgetville"
+          autoCorrect="off"
+        />
+        <p className="mt-1 text-xs text-ink-500 leading-snug">
+          Overrides how the movie is shown in the app. Useful when OMDB
+          has an original-language title (like &ldquo;Leiutajateküla
+          Lotte&rdquo;) but you watched the English release. Leave
+          blank to use the title above.
+        </p>
       </Field>
 
       {omdbBusy && (

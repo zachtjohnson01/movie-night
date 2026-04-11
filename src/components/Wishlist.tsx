@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Movie } from '../types';
-import { ageBadgeClass } from '../format';
+import { ageBadgeClass, getDisplayTitle } from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
 
@@ -17,11 +17,17 @@ export default function Wishlist({ movies, onSelect, onAdd }: Props) {
     const all = movies
       .filter((m) => !m.watched)
       .sort((a, b) =>
-        a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
+        getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
+          sensitivity: 'base',
+        }),
       );
     const q = query.trim().toLowerCase();
     if (!q) return all;
-    return all.filter((m) => m.title.toLowerCase().includes(q));
+    return all.filter((m) => {
+      const t = m.title.toLowerCase();
+      const d = m.displayTitle?.toLowerCase() ?? '';
+      return t.includes(q) || d.includes(q);
+    });
   }, [movies, query]);
 
   return (
@@ -112,7 +118,7 @@ export default function Wishlist({ movies, onSelect, onAdd }: Props) {
                 <MoviePoster movie={m} size="thumb" />
                 <div className="flex-1 min-w-0">
                   <div className="text-base font-semibold leading-snug truncate">
-                    {m.title}
+                    {getDisplayTitle(m)}
                   </div>
                   <MetricsRow movie={m} />
                 </div>

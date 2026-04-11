@@ -5,6 +5,7 @@ import {
   earliestWatched,
   formatDate,
   formatMonthYear,
+  getDisplayTitle,
   sortWatched,
 } from '../format';
 import BuildStamp from './BuildStamp';
@@ -40,7 +41,14 @@ export default function WatchedList({
   const watched = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return watchedAll;
-    return watchedAll.filter((m) => m.title.toLowerCase().includes(q));
+    // Match against both the canonical title AND the display override
+    // so searching "Lotte" finds a movie stored as
+    // "Leiutajateküla Lotte" with displayTitle "Lotte from Gadgetville".
+    return watchedAll.filter((m) => {
+      const t = m.title.toLowerCase();
+      const d = m.displayTitle?.toLowerCase() ?? '';
+      return t.includes(q) || d.includes(q);
+    });
   }, [watchedAll, query]);
 
   const earliest = useMemo(
@@ -172,7 +180,7 @@ export default function WatchedList({
                 <MoviePoster movie={m} size="thumb" />
                 <div className="flex-1 min-w-0">
                   <div className="text-base font-semibold leading-snug truncate">
-                    {m.title}
+                    {getDisplayTitle(m)}
                   </div>
                   <div className="mt-1 text-sm">
                     {m.dateWatched ? (

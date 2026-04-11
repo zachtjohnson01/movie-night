@@ -95,6 +95,25 @@ export function earliestWatched(movies: Movie[]): string | null {
 }
 
 /**
+ * Return the title to show the user for this movie. Prefers the
+ * optional `displayTitle` override (used for English releases of
+ * foreign-origin films that OMDB stores under the original-language
+ * title), and falls back to the canonical `title` otherwise.
+ *
+ * Use this everywhere a human-readable name appears in the UI: list
+ * rows, Detail header, MoviePoster placeholder letter, RT/CSM search
+ * URLs, delete confirms, etc. Do NOT use it for OMDB linking — that
+ * needs the canonical `title` to match IMDb's primary record.
+ */
+export function getDisplayTitle(
+  movie: Pick<Movie, 'title' | 'displayTitle'>,
+): string {
+  const override = movie.displayTitle?.trim();
+  if (override) return override;
+  return movie.title;
+}
+
+/**
  * Sort watched movies: known dates first (newest first), then undated movies
  * alphabetically at the bottom.
  */
@@ -105,7 +124,9 @@ export function sortWatched(movies: Movie[]): Movie[] {
     }
     if (a.dateWatched) return -1;
     if (b.dateWatched) return 1;
-    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+    return getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
+      sensitivity: 'base',
+    });
   });
 }
 
@@ -113,6 +134,7 @@ export function sortWatched(movies: Movie[]): Movie[] {
 export function emptyMovie(watched: boolean): Movie {
   return {
     title: '',
+    displayTitle: null,
     commonSenseAge: null,
     commonSenseScore: null,
     rottenTomatoes: null,

@@ -1,5 +1,16 @@
 export type Movie = {
   title: string;
+  /**
+   * Optional user override for how the movie is rendered in the UI.
+   * OMDB returns IMDb's primary-language title, which is often the
+   * original language (e.g., "Leiutajateküla Lotte" for the Estonian
+   * animated film whose English release is "Lotte from Gadgetville").
+   * When `displayTitle` is set, it's used everywhere a human-readable
+   * name is shown: list rows, Detail header, RT/CSM search URLs.
+   * `title` stays as the OMDB canonical so `imdbId` linking and
+   * refresh keep working against the canonical IMDb title.
+   */
+  displayTitle: string | null;
   commonSenseAge: string | null;
   commonSenseScore: string | null;
   rottenTomatoes: string | null;
