@@ -10,6 +10,14 @@ type Props = {
   onChange: (value: string) => void;
   onPick: (result: OmdbSearchResult) => void;
   autoFocus?: boolean;
+  /**
+   * When true, start with the dropdown open immediately (so the Link
+   * flow shows suggestions for a pre-filled title without an extra
+   * tap). Default false — the Edit flow uses this combobox for the
+   * title field too, but shouldn't pop a dropdown just because you
+   * opened Edit mode.
+   */
+  autoOpen?: boolean;
 };
 
 /**
@@ -24,17 +32,12 @@ export default function MovieSearchCombobox({
   onChange,
   onPick,
   autoFocus,
+  autoOpen,
 }: Props) {
   const [results, setResults] = useState<OmdbSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Start the dropdown open when the combobox mounts with a pre-filled
-  // value (e.g. the "Link to OMDB" flow hands us the existing movie's
-  // title). Without this, the search effect fires and populates
-  // `results`, but `open` stays false so nothing renders until the
-  // user taps the input. Empty initial value (the add-new flow) starts
-  // closed as expected.
-  const [open, setOpen] = useState(() => value.trim().length >= 3);
+  const [open, setOpen] = useState(() => autoOpen === true);
   const [hasSearched, setHasSearched] = useState(false);
   // Skip the next debounce cycle — used when we just picked a result and
   // programmatically updated the input's value, so we don't immediately
