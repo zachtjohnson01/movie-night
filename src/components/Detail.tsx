@@ -91,15 +91,19 @@ export default function Detail(props: Props) {
   latestMovieRef.current = props.mode === 'existing' ? props.movie : null;
 
   // Lazy poster backfill: if this movie was linked to OMDB before we
-  // started storing posters (imdbId set, poster null), silently fetch it
-  // in the background and write it back. Runs once per Detail mount per
-  // imdbId — the effect re-checks at write-time to avoid double-writes
-  // if the other user's phone beats us to it via realtime sync.
+  // started storing posters (imdbId set, poster null or *undefined*),
+  // silently fetch it in the background and write it back.
+  //
+  // Uses `== null` (loose equality) instead of `=== null` on purpose:
+  // movies linked during PR #5 were written without a `poster` key at
+  // all, so reading the field returns `undefined` — not `null`. A
+  // strict `=== null` check misses them entirely and the effect never
+  // fires. `== null` matches both.
   const backfillImdbId =
     isOmdbConfigured &&
     props.mode === 'existing' &&
-    props.movie.imdbId !== null &&
-    props.movie.poster === null
+    props.movie.imdbId != null &&
+    props.movie.poster == null
       ? props.movie.imdbId
       : null;
 
@@ -112,11 +116,12 @@ export default function Detail(props: Props) {
         if (cancelled) return;
         const latest = latestMovieRef.current;
         // Re-check: if the movie was deleted, re-linked, or already
-        // backfilled from the other device, do nothing.
+        // backfilled from the other device, do nothing. Uses `!= null`
+        // for the poster check to match the initial condition above.
         if (
           !latest ||
           latest.imdbId !== backfillImdbId ||
-          latest.poster !== null
+          latest.poster != null
         ) {
           return;
         }
