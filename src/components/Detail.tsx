@@ -93,10 +93,23 @@ export default function Detail(props: Props) {
   // you into the middle of the Detail screen (often below the poster
   // and title).
   //
-  // useLayoutEffect (not useEffect) so the scroll happens before the
-  // browser paints, avoiding a flash of the wrong scroll position.
+  // Be defensive because a single scrollTo during useLayoutEffect was
+  // observed to be undone on iOS Safari PWA — probably a combination
+  // of CSS scroll anchoring (disabled globally in index.css now) and
+  // layout-shift-on-mount quirks. Reset via both `window.scrollTo`
+  // and `document.scrollingElement.scrollTop`, AND retry on the next
+  // animation frame in case something shifts scroll between the
+  // synchronous effect and the first paint.
   useLayoutEffect(() => {
-    window.scrollTo(0, 0);
+    const toTop = () => {
+      window.scrollTo(0, 0);
+      if (document.scrollingElement) {
+        document.scrollingElement.scrollTop = 0;
+      }
+    };
+    toTop();
+    const rafId = requestAnimationFrame(toTop);
+    return () => cancelAnimationFrame(rafId);
   }, []);
 
   // When the parent passes a new movie object (e.g. after a realtime

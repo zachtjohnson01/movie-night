@@ -21,6 +21,16 @@ body {
   -webkit-tap-highlight-color: transparent;
   font-feature-settings: 'ss01', 'cv11';
   overscroll-behavior-y: none;
+  /*
+   * Disable CSS scroll anchoring. Without this, `window.scrollTo(0, 0)`
+   * inside a useLayoutEffect at Detail mount gets undone by the
+   * browser's scroll-anchoring heuristic when the DOM above the
+   * current scroll position changes (which it does, significantly,
+   * when switching from the list view to the detail view). Tapping a
+   * movie halfway down the list and opening Detail was dropping the
+   * user into the middle of the page.
+   */
+  overflow-anchor: none;
 }
 
 input,
