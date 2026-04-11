@@ -38,11 +38,19 @@ export default function App() {
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
-    await updateMovie(originalTitle, updated);
-    // Follow the movie if its title changed.
+    // If the title is changing, update `screen.title` BEFORE kicking
+    // off the updateMovie write. React 18 auto-batches state updates
+    // within the same synchronous chunk, so setting screen here and
+    // the setMovies inside updateMovie (which runs before its internal
+    // await) land in the same render. Otherwise React renders a
+    // transient state where `movies` has the renamed movie but
+    // `screen.title` still points at the old name, and the
+    // list-bailout effect below fires and kicks the user back to the
+    // list.
     if (updated.title !== originalTitle) {
       setScreen({ name: 'detail', title: updated.title });
     }
+    await updateMovie(originalTitle, updated);
   }
 
   async function handleCreate(created: Movie) {
