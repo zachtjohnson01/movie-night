@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import type { Movie } from '../types';
 import {
+  ageBadgeClass,
   earliestWatched,
   formatDate,
   formatMonthYear,
-  primaryScore,
   sortWatched,
 } from '../format';
 
@@ -79,30 +79,50 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
                   <div className="text-base font-semibold leading-snug truncate">
                     {m.title}
                   </div>
-                  <div className="mt-0.5 text-xs text-ink-400">
+                  <div className="mt-1 text-xs text-ink-400">
                     {m.dateWatched ? (
                       formatDate(m.dateWatched)
                     ) : (
                       <span className="text-ink-500 italic">Date unknown</span>
                     )}
                   </div>
+                  <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-[11px] text-ink-400">
+                    {m.rottenTomatoes && (
+                      <span>
+                        <span className="text-ink-500">RT </span>
+                        <span className="text-ink-300 tabular-nums">
+                          {m.rottenTomatoes}
+                        </span>
+                      </span>
+                    )}
+                    {m.imdb && (
+                      <span>
+                        <span className="text-ink-500">IMDb </span>
+                        <span className="text-ink-300 tabular-nums">
+                          {m.imdb}
+                        </span>
+                      </span>
+                    )}
+                    {!m.rottenTomatoes && !m.imdb && (
+                      <span className="text-ink-600">no ratings</span>
+                    )}
+                  </div>
                 </div>
-                <ScoreChip score={primaryScore(m)} />
+                {m.commonSenseAge && (
+                  <span
+                    className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${ageBadgeClass(
+                      m.commonSenseAge,
+                    )}`}
+                  >
+                    {m.commonSenseAge}
+                  </span>
+                )}
               </button>
             </li>
           ))}
         </ul>
       )}
     </div>
-  );
-}
-
-function ScoreChip({ score }: { score: string | null }) {
-  if (!score) return null;
-  return (
-    <span className="shrink-0 rounded-full border border-amber-glow/30 bg-amber-glow/10 text-amber-glow px-2.5 py-1 text-xs font-semibold tabular-nums">
-      {score}
-    </span>
   );
 }
 
