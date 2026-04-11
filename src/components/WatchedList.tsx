@@ -24,20 +24,23 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
 
   return (
     <div className="mx-auto max-w-xl">
-      <header className="safe-top px-5 pt-6 pb-4">
+      <header
+        className="sticky top-0 z-20 px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
+      >
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-[11px] uppercase tracking-[0.2em] text-crimson-bright/90 font-semibold">
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-crimson-bright font-semibold">
               Friday Movie Night
             </div>
-            <h1 className="mt-2 text-4xl font-bold leading-none tracking-tight">
+            <h1 className="mt-1 text-[32px] font-bold leading-none tracking-tight">
               {watched.length}{' '}
               <span className="text-ink-300 font-semibold">
                 {watched.length === 1 ? 'movie' : 'movies'} watched
               </span>
             </h1>
             {earliest && (
-              <p className="mt-2 text-sm text-ink-400">
+              <p className="mt-1.5 text-xs text-ink-400">
                 since {formatMonthYear(earliest)}
               </p>
             )}
@@ -46,7 +49,7 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
             type="button"
             onClick={onAdd}
             aria-label="Add movie"
-            className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80"
+            className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
           >
             <svg
               viewBox="0 0 24 24"
@@ -67,50 +70,34 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
       {watched.length === 0 ? (
         <EmptyState />
       ) : (
-        <ul className="px-2">
+        <ul className="px-2 pt-1">
           {watched.map((m) => (
             <li key={m.title}>
               <button
                 type="button"
                 onClick={() => onSelect(m)}
-                className="w-full min-h-[64px] flex items-center gap-3 px-3 py-3 rounded-2xl active:bg-ink-800 transition-colors text-left"
+                className="w-full min-h-[72px] flex items-center gap-3 px-3 py-3.5 rounded-2xl active:bg-ink-800 transition-colors text-left"
               >
                 <div className="flex-1 min-w-0">
                   <div className="text-base font-semibold leading-snug truncate">
                     {m.title}
                   </div>
-                  <div className="mt-1 text-xs text-ink-400">
+                  <div className="mt-1 text-sm">
                     {m.dateWatched ? (
-                      formatDate(m.dateWatched)
+                      <span className="text-ink-300">
+                        {formatDate(m.dateWatched)}
+                      </span>
                     ) : (
-                      <span className="text-ink-500 italic">Date unknown</span>
-                    )}
-                  </div>
-                  <div className="mt-1 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-[11px] text-ink-400">
-                    {m.rottenTomatoes && (
-                      <span>
-                        <span className="text-ink-500">RT </span>
-                        <span className="text-ink-300 tabular-nums">
-                          {m.rottenTomatoes}
-                        </span>
+                      <span className="text-amber-glow/70 italic font-medium">
+                        Date unknown
                       </span>
                     )}
-                    {m.imdb && (
-                      <span>
-                        <span className="text-ink-500">IMDb </span>
-                        <span className="text-ink-300 tabular-nums">
-                          {m.imdb}
-                        </span>
-                      </span>
-                    )}
-                    {!m.rottenTomatoes && !m.imdb && (
-                      <span className="text-ink-600">no ratings</span>
-                    )}
                   </div>
+                  <MetricsRow movie={m} />
                 </div>
                 {m.commonSenseAge && (
                   <span
-                    className={`shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold ${ageBadgeClass(
+                    className={`shrink-0 rounded-full border px-2.5 py-1.5 text-sm font-bold tabular-nums ${ageBadgeClass(
                       m.commonSenseAge,
                     )}`}
                   >
@@ -121,6 +108,38 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+function MetricsRow({ movie: m }: { movie: Movie }) {
+  if (!m.rottenTomatoes && !m.imdb) {
+    return (
+      <div className="mt-1.5 text-xs text-ink-600 italic">no ratings</div>
+    );
+  }
+  return (
+    <div className="mt-1.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-sm">
+      {m.rottenTomatoes && (
+        <span className="inline-flex items-baseline gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+            RT
+          </span>
+          <span className="text-ink-100 font-semibold tabular-nums">
+            {m.rottenTomatoes}
+          </span>
+        </span>
+      )}
+      {m.imdb && (
+        <span className="inline-flex items-baseline gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+            IMDb
+          </span>
+          <span className="text-ink-100 font-semibold tabular-nums">
+            {m.imdb}
+          </span>
+        </span>
       )}
     </div>
   );
