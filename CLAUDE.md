@@ -121,3 +121,30 @@ The user manages env vars via the Vercel web dashboard, not via CLI. Don't sugge
 6. **PR titles < 70 chars.** Details go in the body.
 7. **The user is on an iPhone almost always.** Any instructions you give them must work from mobile Safari + GitHub mobile + the Vercel/Supabase web dashboards. Never suggest CLI tools they'd have to install on a laptop.
 8. **The Vercel Coding Agent Plugin is installed.** New sessions have access to Vercel MCP tools for read operations (list projects/deploys, view logs, browse docs). Env var mutation and deploy creation still need to happen in the web dashboard.
+
+## Git workflow gotcha: the orphaned-commit trap (read this, seriously)
+
+**Symptom:** I open a PR, do a little more work (maybe in response to a follow-up question), push another commit to the same feature branch, and the commit silently never reaches `main` because the user merged the original PR in between.
+
+**Root cause:** Zach merges PRs fast — often within a minute of me opening one. Between any two of my turns, a PR I opened may already be closed. Pushing to a branch whose PR has been closed creates a dangling commit: it lives on `origin/<branch>` but isn't attached to any open PR, so it never lands.
+
+**This has happened at least three times so far in this project.** Each time costs a recovery cycle (reset → cherry-pick → force-push → new PR). The user has explicitly asked me to stop repeating it.
+
+### Rules to prevent it
+
+1. **Before pushing any follow-up commit to a branch that had a PR, verify the PR is still open.** Call `mcp__github__pull_request_read` with `method: 'get'` on the last PR number you opened. If `state === 'closed'` or `merged === true`, the branch is now stale and you must reset before adding more work.
+
+2. **Before starting new work after a turn boundary, always `git fetch origin main && git log --oneline origin/main -3`** and check whether the head of `main` has moved past where you expect. If it has, a PR was merged and you need to reset the feature branch to `origin/main` before committing anything else.
+
+3. **If you discover you've already made the mistake:**
+   ```bash
+   git fetch origin main
+   git reset --hard origin/main
+   git cherry-pick <dangling-sha>
+   # (build, verify)
+   git push --force-with-lease
+   # open a new PR
+   ```
+   You'll usually only have one dangling commit to cherry-pick, but handle any chain correctly.
+
+4. **Default assumption between turns: the latest PR has probably been merged.** Treat the feature branch as stale unless you can prove otherwise via a fresh `git fetch` or `pull_request_read` call.
