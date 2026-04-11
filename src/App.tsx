@@ -4,6 +4,7 @@ import Wishlist from './components/Wishlist';
 import Detail from './components/Detail';
 import TabBar, { type Tab } from './components/TabBar';
 import SyncBanner from './components/SyncBanner';
+import BulkLinkSheet from './components/BulkLinkSheet';
 import { useMovies } from './useMovies';
 import { emptyMovie } from './format';
 import type { Movie } from './types';
@@ -17,6 +18,7 @@ export default function App() {
   const { movies, status, updateMovie, addMovie, deleteMovie } = useMovies();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
+  const [showBulkLink, setShowBulkLink] = useState(false);
 
   // If the selected movie disappears (deleted by the other user, or
   // renamed), bail back to the list view.
@@ -96,6 +98,7 @@ export default function App() {
             movies={movies}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
+            onBulkLink={() => setShowBulkLink(true)}
           />
         ) : (
           <Wishlist
@@ -106,6 +109,13 @@ export default function App() {
         )}
       </main>
       <TabBar tab={tab} onChange={setTab} />
+      {showBulkLink && (
+        <BulkLinkSheet
+          movies={movies}
+          onUpdateMovie={updateMovie}
+          onClose={() => setShowBulkLink(false)}
+        />
+      )}
     </div>
   );
 }

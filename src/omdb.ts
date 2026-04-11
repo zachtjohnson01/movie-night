@@ -151,6 +151,26 @@ export async function getMovieById(imdbId: string): Promise<OmdbMoviePatch> {
   return extractPatch(data);
 }
 
+/**
+ * Find a movie on OMDB by title and return its full patch. Used by the
+ * bulk-link flow. Tries `?s=` broad search first, takes the top result,
+ * then fetches the full detail response via `?i=`. Returns null if no
+ * match is found (not an error — the caller iterates over many titles
+ * and wants to skip unmatched ones gracefully).
+ */
+export async function linkByTitle(
+  title: string,
+): Promise<OmdbMoviePatch | null> {
+  const results = await searchMovies(title);
+  if (results.length === 0) return null;
+  const top = results[0];
+  try {
+    return await getMovieById(top.imdbId);
+  } catch {
+    return null;
+  }
+}
+
 function extractPatch(data: {
   Title: string;
   Year: string;
