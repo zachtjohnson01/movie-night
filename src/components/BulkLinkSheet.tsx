@@ -12,11 +12,11 @@ type Phase = 'confirm' | 'running' | 'done' | 'cancelled';
 
 type Results = {
   linked: Array<{ originalTitle: string; newTitle: string }>;
-  notFound: string[];
+  skipped: string[]; // OMDB returned nothing OR top result didn't look close enough
   failed: Array<{ title: string; error: string }>;
 };
 
-const INITIAL_RESULTS: Results = { linked: [], notFound: [], failed: [] };
+const INITIAL_RESULTS: Results = { linked: [], skipped: [], failed: [] };
 
 // Small delay between OMDB requests so we're polite to the free tier
 // and so React has time to render the progress counter between each.
@@ -56,7 +56,7 @@ export default function BulkLinkSheet({
   async function run() {
     setPhase('running');
     cancelRef.current = false;
-    const acc: Results = { linked: [], notFound: [], failed: [] };
+    const acc: Results = { linked: [], skipped: [], failed: [] };
 
     for (let i = 0; i < unlinked.length; i++) {
       if (cancelRef.current) {
@@ -69,7 +69,7 @@ export default function BulkLinkSheet({
       try {
         const patch = await linkByTitle(m.title);
         if (!patch) {
-          acc.notFound.push(m.title);
+          acc.skipped.push(m.title);
         } else {
           // Fill semantics: OMDB data fills in nulls, but title and
           // imdbId always get overwritten with OMDB's canonical
@@ -268,7 +268,7 @@ function SummaryView({
   total: number;
   onClose: () => void;
 }) {
-  const { linked, notFound, failed } = results;
+  const { linked, skipped, failed } = results;
   const title =
     phase === 'cancelled'
       ? 'Cancelled'
@@ -283,9 +283,9 @@ function SummaryView({
             {linked.length} movie{linked.length === 1 ? '' : 's'} linked.{' '}
           </>
         )}
-        {notFound.length > 0 && (
+        {skipped.length > 0 && (
           <>
-            {notFound.length} not found on OMDB.{' '}
+            {skipped.length} skipped (no confident match).{' '}
           </>
         )}
         {failed.length > 0 && (
@@ -295,13 +295,13 @@ function SummaryView({
         )}
       </p>
 
-      {notFound.length > 0 && (
+      {skipped.length > 0 && (
         <details className="mt-4">
           <summary className="text-xs uppercase tracking-[0.18em] text-ink-500 font-semibold cursor-pointer">
-            Not found ({notFound.length})
+            Skipped ({skipped.length}) — link manually
           </summary>
           <ul className="mt-2 max-h-40 overflow-auto text-sm text-ink-300 space-y-1">
-            {notFound.map((t) => (
+            {skipped.map((t) => (
               <li key={t}>{t}</li>
             ))}
           </ul>

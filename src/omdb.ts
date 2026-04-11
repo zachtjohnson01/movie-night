@@ -152,11 +152,46 @@ export async function getMovieById(imdbId: string): Promise<OmdbMoviePatch> {
 }
 
 /**
+ * Decide whether an OMDB search result's title is "close enough" to
+ * what the user typed to be trusted as an auto-match. Used by the
+ * bulk-link flow to reject obvious mismatches like "Dog Man" →
+ * "Man Bites Dog" where OMDB's relevance ranking happened to put an
+ * unrelated film at the top.
+ *
+ * Rules after normalization (lowercase, apostrophes stripped, other
+ * punctuation → space, whitespace collapsed):
+ * 1. Exact equality → match
+ * 2. Either title is a contiguous whole-word substring of the other →
+ *    match (so "Totoro" matches "My Neighbor Totoro", and
+ *    "The Dark Knight" matches "Dark Knight")
+ * 3. Otherwise → reject
+ */
+export function isCloseMatch(userTitle: string, omdbTitle: string): boolean {
+  const user = normalizeTitle(userTitle);
+  const omdb = normalizeTitle(omdbTitle);
+  if (!user || !omdb) return false;
+  if (user === omdb) return true;
+  const paddedUser = ` ${user} `;
+  const paddedOmdb = ` ${omdb} `;
+  return paddedOmdb.includes(paddedUser) || paddedUser.includes(paddedOmdb);
+}
+
+function normalizeTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[\u2018\u2019']/g, '') // curly + straight apostrophes → gone
+    .replace(/[^a-z0-9\s]/g, ' ') // other punctuation → space
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Find a movie on OMDB by title and return its full patch. Used by the
  * bulk-link flow. Tries `?s=` broad search first, takes the top result,
  * then fetches the full detail response via `?i=`. Returns null if no
- * match is found (not an error — the caller iterates over many titles
- * and wants to skip unmatched ones gracefully).
+ * match is found or the top result isn't a close enough match to the
+ * input title (not an error — the caller iterates over many titles and
+ * wants to skip unmatched ones gracefully).
  */
 export async function linkByTitle(
   title: string,
@@ -164,6 +199,8 @@ export async function linkByTitle(
   const results = await searchMovies(title);
   if (results.length === 0) return null;
   const top = results[0];
+  // Reject obviously-wrong matches. Prevents Dog Man → Man Bites Dog.
+  if (!isCloseMatch(title, top.title)) return null;
   try {
     return await getMovieById(top.imdbId);
   } catch {

@@ -245,9 +245,18 @@ export default function Detail(props: Props) {
   }
 
   /**
-   * Pick from the search combobox — used in both "link an existing movie"
-   * and "populate a new movie". Fetches full details by imdbId and applies
-   * them as a fill (never clobbering user-entered data).
+   * Pick from the search combobox — used in the new-movie add flow, the
+   * "Link to OMDB" button flow, AND the Title field in edit mode.
+   *
+   * Uses `applyPatchOverwrite` rather than `applyPatchFill` because the
+   * user has explicitly chosen this specific OMDB result, so we trust
+   * their choice and rewrite imdbId + all metric fields to the new
+   * match. Fill semantics would preserve a stale imdbId from a
+   * previous wrong link, which was exactly the "relink" bug from the
+   * Dog Man → Man Bites Dog incident.
+   *
+   * Non-OMDB fields (notes, dateWatched, watched, commonSenseAge) are
+   * still preserved via the spread inside applyPatchOverwrite.
    */
   async function handlePickSearchResult(result: OmdbSearchResult) {
     setOmdbBusy(true);
@@ -255,9 +264,9 @@ export default function Detail(props: Props) {
     try {
       const patch = await getMovieById(result.imdbId);
       if (props.mode === 'new' || editing) {
-        setDraft((prev) => applyPatchFill(prev, patch));
+        setDraft((prev) => applyPatchOverwrite(prev, patch));
       } else {
-        await props.onUpdate(applyPatchFill(props.movie, patch));
+        await props.onUpdate(applyPatchOverwrite(props.movie, patch));
       }
       setShowLinkSearch(false);
     } catch (e) {
@@ -334,7 +343,7 @@ export default function Detail(props: Props) {
             draft={draft}
             onChange={setDraft}
             isNew={isNew}
-            onPickOmdb={isNew ? handlePickSearchResult : undefined}
+            onPickOmdb={handlePickSearchResult}
             omdbBusy={omdbBusy}
             omdbError={omdbError}
           />
@@ -497,6 +506,7 @@ function ViewMode({
                 value={linkQuery}
                 onChange={setLinkQuery}
                 onPick={onPickLinkResult}
+                autoOpen
               />
               <button
                 type="button"
@@ -666,12 +676,12 @@ function EditForm({
       )}
 
       <Field label="Title">
-        {isNew && onPickOmdb ? (
+        {onPickOmdb && isOmdbConfigured ? (
           <MovieSearchCombobox
             value={draft.title}
             onChange={(v) => update('title', v)}
             onPick={onPickOmdb}
-            autoFocus
+            autoFocus={isNew}
           />
         ) : (
           <input
@@ -696,9 +706,32 @@ function EditForm({
           {omdbError}
         </div>
       )}
-      {isNew && draft.imdbId && (
-        <div className="inline-flex items-center gap-1 rounded-full border border-amber-glow/40 bg-amber-glow/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-glow">
-          ✓ Linked to OMDB
+      {draft.imdbId && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="inline-flex items-center gap-1 rounded-full border border-amber-glow/40 bg-amber-glow/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-glow">
+            ✓ Linked to OMDB
+          </div>
+          {!isNew && (
+            <button
+              type="button"
+              onClick={() => {
+                // Break the stale link so the user can manually re-pick
+                // a new OMDB match. Clears all OMDB-sourced fields but
+                // keeps the user-maintained ones (notes, dateWatched,
+                // watched, CSM age).
+                onChange({
+                  ...draft,
+                  imdbId: null,
+                  year: null,
+                  poster: null,
+                  omdbRefreshedAt: null,
+                });
+              }}
+              className="text-xs text-ink-400 underline-offset-2 hover:underline active:text-ink-200"
+            >
+              Unlink
+            </button>
+          )}
         </div>
       )}
 
