@@ -18,6 +18,18 @@ export type Movie = {
    */
   year: number | null;
   /**
+   * Movie poster URL. Filled in by OMDB when a movie is linked or
+   * refreshed. Null for manually-entered movies — the UI shows a
+   * placeholder in that case.
+   */
+  poster: string | null;
+  /**
+   * ISO timestamp of the last successful OMDB fetch (link or refresh).
+   * Null if the movie has never been linked. Used to show "last
+   * refreshed N minutes ago" on the Detail screen.
+   */
+  omdbRefreshedAt: string | null;
+  /**
    * Whether this movie has been watched at all. Independent from
    * `dateWatched` so we can record "we watched this, don't remember when".
    */

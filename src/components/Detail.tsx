@@ -1,6 +1,11 @@
 import { useState } from 'react';
 import type { Movie } from '../types';
-import { ageBadgeClass, formatDate, todayIso } from '../format';
+import {
+  ageBadgeClass,
+  formatDate,
+  formatRelativeTime,
+  todayIso,
+} from '../format';
 import {
   OmdbError,
   commonSenseUrl,
@@ -12,6 +17,7 @@ import {
   type OmdbSearchResult,
 } from '../omdb';
 import MovieSearchCombobox from './MovieSearchCombobox';
+import MoviePoster from './MoviePoster';
 
 type Props =
   | {
@@ -28,7 +34,7 @@ type Props =
       onCreate: (created: Movie) => void | Promise<void>;
     };
 
-/** Overwrite RT/IMDb/year/title with fresh OMDB data. Used by refresh. */
+/** Overwrite fields with fresh OMDB data. Used by refresh. */
 function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
   return {
     ...movie,
@@ -37,6 +43,8 @@ function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
     year: patch.year,
     imdb: patch.imdb ?? movie.imdb,
     rottenTomatoes: patch.rottenTomatoes ?? movie.rottenTomatoes,
+    poster: patch.poster ?? movie.poster,
+    omdbRefreshedAt: new Date().toISOString(),
   };
 }
 
@@ -53,6 +61,8 @@ function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
     year: movie.year ?? patch.year,
     imdb: movie.imdb ?? patch.imdb,
     rottenTomatoes: movie.rottenTomatoes ?? patch.rottenTomatoes,
+    poster: movie.poster ?? patch.poster,
+    omdbRefreshedAt: new Date().toISOString(),
   };
 }
 
@@ -300,38 +310,41 @@ function ViewMode({
 
   return (
     <>
-      <div className="flex items-start justify-between gap-3">
-        <h1 className="text-3xl font-bold leading-tight tracking-tight flex-1 min-w-0">
-          {movie.title}
+      <div className="flex items-start gap-4">
+        <MoviePoster movie={movie} size="detail" />
+        <div className="flex-1 min-w-0 pt-1">
+          <h1 className="text-2xl font-bold leading-tight tracking-tight">
+            {movie.title}
+          </h1>
           {movie.year && (
-            <span className="ml-2 text-lg font-semibold text-ink-400 tabular-nums">
-              ({movie.year})
+            <div className="mt-1 text-base font-semibold text-ink-400 tabular-nums">
+              {movie.year}
+            </div>
+          )}
+          {isLinked && (
+            <span
+              className="mt-2 inline-flex items-center gap-1 rounded-full border border-amber-glow/40 bg-amber-glow/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-glow"
+              title="Linked to OMDB"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-3 h-3"
+                aria-hidden
+              >
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              Linked
             </span>
           )}
-        </h1>
-        {isLinked && (
-          <span
-            className="shrink-0 mt-1 inline-flex items-center gap-1 rounded-full border border-amber-glow/40 bg-amber-glow/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-glow"
-            title="Linked to OMDB"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-3 h-3"
-              aria-hidden
-            >
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-            Linked
-          </span>
-        )}
+        </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="mt-5 grid grid-cols-3 gap-2">
         <StatLink
           label="CSM Age"
           value={movie.commonSenseAge}
@@ -349,29 +362,36 @@ function ViewMode({
       {isOmdbConfigured && (
         <div className="mt-4 space-y-2">
           {!showLinkSearch && (
-            <button
-              type="button"
-              onClick={isLinked ? onRefresh : onToggleLinkSearch}
-              disabled={omdbBusy}
-              className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-100 font-semibold active:bg-ink-700 disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {omdbBusy ? (
-                <>
-                  <Spinner />
-                  <span>Working…</span>
-                </>
-              ) : isLinked ? (
-                <>
-                  <RefreshIcon />
-                  <span>Refresh from OMDB</span>
-                </>
-              ) : (
-                <>
-                  <LinkIcon />
-                  <span>Link to OMDB</span>
-                </>
+            <>
+              <button
+                type="button"
+                onClick={isLinked ? onRefresh : onToggleLinkSearch}
+                disabled={omdbBusy}
+                className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-100 font-semibold active:bg-ink-700 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {omdbBusy ? (
+                  <>
+                    <Spinner />
+                    <span>Working…</span>
+                  </>
+                ) : isLinked ? (
+                  <>
+                    <RefreshIcon />
+                    <span>Refresh from OMDB</span>
+                  </>
+                ) : (
+                  <>
+                    <LinkIcon />
+                    <span>Link to OMDB</span>
+                  </>
+                )}
+              </button>
+              {movie.omdbRefreshedAt && (
+                <p className="text-center text-xs text-ink-500">
+                  Last refreshed {formatRelativeTime(movie.omdbRefreshedAt)}
+                </p>
               )}
-            </button>
+            </>
           )}
 
           {showLinkSearch && (

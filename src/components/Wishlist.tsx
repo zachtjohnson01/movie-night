@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Movie } from '../types';
 import { ageBadgeClass } from '../format';
+import MoviePoster from './MoviePoster';
 
 type Props = {
   movies: Movie[];
@@ -101,8 +102,9 @@ export default function Wishlist({ movies, onSelect, onAdd }: Props) {
               <button
                 type="button"
                 onClick={() => onSelect(m)}
-                className="w-full min-h-[68px] flex items-center gap-3 px-3 py-3.5 rounded-2xl active:bg-ink-800 transition-colors text-left"
+                className="w-full min-h-[88px] flex items-center gap-3 px-3 py-3 rounded-2xl active:bg-ink-800 transition-colors text-left"
               >
+                <MoviePoster movie={m} size="thumb" />
                 <div className="flex-1 min-w-0">
                   <div className="text-base font-semibold leading-snug truncate">
                     {m.title}
