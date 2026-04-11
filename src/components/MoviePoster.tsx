@@ -1,3 +1,4 @@
+import { getDisplayTitle } from '../format';
 import type { Movie } from '../types';
 
 type Size = 'thumb' | 'detail';
@@ -15,7 +16,7 @@ const PLACEHOLDER_TEXT_CLASS: Record<Size, string> = {
 };
 
 type Props = {
-  movie: Pick<Movie, 'title' | 'poster'>;
+  movie: Pick<Movie, 'title' | 'displayTitle' | 'poster'>;
   size?: Size;
 };
 
@@ -39,7 +40,7 @@ export default function MoviePoster({ movie, size = 'thumb' }: Props) {
     );
   }
 
-  const initial = movie.title.trim().charAt(0).toUpperCase() || '?';
+  const initial = getDisplayTitle(movie).trim().charAt(0).toUpperCase() || '?';
 
   return (
     <div

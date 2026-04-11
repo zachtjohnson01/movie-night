@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { Movie } from '../types';
+import { getDisplayTitle } from '../format';
 import { linkByTitle, OmdbError } from '../omdb';
 
 type Props = {
@@ -69,7 +70,9 @@ export default function BulkLinkSheet({
       try {
         const patch = await linkByTitle(m.title);
         if (!patch) {
-          acc.skipped.push(m.title);
+          // Show the user-facing display title in the skipped list so
+          // they can recognize the movie by the name they know.
+          acc.skipped.push(getDisplayTitle(m));
         } else {
           // Fill semantics: OMDB data fills in nulls, but title and
           // imdbId always get overwritten with OMDB's canonical
@@ -92,7 +95,7 @@ export default function BulkLinkSheet({
         }
       } catch (e) {
         acc.failed.push({
-          title: m.title,
+          title: getDisplayTitle(m),
           error:
             e instanceof OmdbError
               ? e.message
@@ -136,7 +139,9 @@ export default function BulkLinkSheet({
             <RunningView
               count={unlinked.length}
               index={index}
-              current={unlinked[index]?.title ?? ''}
+              current={
+                unlinked[index] ? getDisplayTitle(unlinked[index]) : ''
+              }
               onCancel={cancel}
             />
           )}

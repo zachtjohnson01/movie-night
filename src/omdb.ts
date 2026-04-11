@@ -235,25 +235,49 @@ function titleQuery(title: string): string {
 }
 
 /**
- * IMDb URL — deep link to the title page if we have an imdbId, otherwise
- * fall back to IMDb's find-by-title search.
+ * Resolve the title we should use when searching a third-party source
+ * like RT or CSM. Prefers the `displayTitle` override so foreign-origin
+ * films linked to their IMDb original-language entry still find the
+ * right regional page (e.g., "Lotte from Gadgetville" instead of
+ * "Leiutajateküla Lotte").
  */
-export function imdbUrl(movie: Pick<Movie, 'title' | 'imdbId'>): string {
+function searchTitle(
+  movie: Pick<Movie, 'title' | 'displayTitle'>,
+): string {
+  const override = movie.displayTitle?.trim();
+  return override || movie.title;
+}
+
+/**
+ * IMDb URL — deep link to the title page if we have an imdbId, otherwise
+ * fall back to IMDb's find-by-title search using the display title.
+ */
+export function imdbUrl(
+  movie: Pick<Movie, 'title' | 'displayTitle' | 'imdbId'>,
+): string {
   if (movie.imdbId) return `https://www.imdb.com/title/${movie.imdbId}/`;
-  return `https://www.imdb.com/find/?q=${titleQuery(movie.title)}&s=tt&ttype=ft`;
+  return `https://www.imdb.com/find/?q=${titleQuery(searchTitle(movie))}&s=tt&ttype=ft`;
 }
 
 /**
  * Rotten Tomatoes URL — always a search URL. OMDB doesn't expose the RT
  * title page URL directly (the `tomatoURL` field was removed years ago),
  * and RT's slug format is inconsistent enough that guessing it is worse
- * than just searching.
+ * than just searching. Uses `displayTitle` when set so the search lands
+ * on the regional release page instead of the original-language title.
  */
-export function rottenTomatoesUrl(movie: Pick<Movie, 'title'>): string {
-  return `https://www.rottentomatoes.com/search?search=${titleQuery(movie.title)}`;
+export function rottenTomatoesUrl(
+  movie: Pick<Movie, 'title' | 'displayTitle'>,
+): string {
+  return `https://www.rottentomatoes.com/search?search=${titleQuery(searchTitle(movie))}`;
 }
 
-/** Common Sense Media search URL. No deep link available without scraping. */
-export function commonSenseUrl(movie: Pick<Movie, 'title'>): string {
-  return `https://www.commonsensemedia.org/search/${titleQuery(movie.title)}`;
+/**
+ * Common Sense Media search URL. No deep link available without
+ * scraping. Uses `displayTitle` when set, same rationale as RT.
+ */
+export function commonSenseUrl(
+  movie: Pick<Movie, 'title' | 'displayTitle'>,
+): string {
+  return `https://www.commonsensemedia.org/search/${titleQuery(searchTitle(movie))}`;
 }
