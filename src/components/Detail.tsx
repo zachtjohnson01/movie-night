@@ -368,7 +368,13 @@ function ViewMode({
 }) {
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
-  const isLinked = movie.imdbId !== null;
+  // Use loose inequality so movies whose Supabase row literally has no
+  // `imdbId` key (everything from the initial pre-PR-#5 seed) are
+  // correctly treated as unlinked. Strict `!== null` would return true
+  // for `undefined`, which made every seed movie falsely show the
+  // "Linked" badge and surface "Refresh from OMDB" on a button that
+  // would silently do nothing.
+  const isLinked = movie.imdbId != null;
   const [linkQuery, setLinkQuery] = useState(movie.title);
 
   return (
