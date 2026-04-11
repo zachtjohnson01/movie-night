@@ -54,6 +54,7 @@ export type OmdbMoviePatch = {
   year: number | null;
   imdb: string | null;
   rottenTomatoes: string | null;
+  poster: string | null;
 };
 
 export class OmdbError extends Error {
@@ -130,6 +131,7 @@ function extractPatch(data: {
   imdbID: string;
   imdbRating: string;
   Ratings: Array<{ Source: string; Value: string }>;
+  Poster: string;
 }): OmdbMoviePatch {
   const rt = data.Ratings.find((r) => r.Source === 'Rotten Tomatoes');
   const year = parseInt(data.Year, 10);
@@ -139,6 +141,7 @@ function extractPatch(data: {
     year: Number.isFinite(year) ? year : null,
     imdb: data.imdbRating && data.imdbRating !== 'N/A' ? data.imdbRating : null,
     rottenTomatoes: rt ? rt.Value : null,
+    poster: data.Poster && data.Poster !== 'N/A' ? data.Poster : null,
   };
 }
 

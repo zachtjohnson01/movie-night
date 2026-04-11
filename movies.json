@@ -7,6 +7,8 @@
     "imdb": "7.7",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -19,6 +21,8 @@
     "imdb": "8.4",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -31,6 +35,8 @@
     "imdb": "7.8",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -43,6 +49,8 @@
     "imdb": "8.0",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -55,6 +63,8 @@
     "imdb": "7.8",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -67,6 +77,8 @@
     "imdb": "8.0",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -79,6 +91,8 @@
     "imdb": "7.4",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -91,6 +105,8 @@
     "imdb": "8.1",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -103,6 +119,8 @@
     "imdb": "7.3",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -115,6 +133,8 @@
     "imdb": "6.8",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -127,6 +147,8 @@
     "imdb": "7.8",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -139,6 +161,8 @@
     "imdb": "7.4",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": "2026-04-03",
     "notes": null
@@ -151,6 +175,8 @@
     "imdb": "6.3",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -163,6 +189,8 @@
     "imdb": null,
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -175,6 +203,8 @@
     "imdb": "6.7",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -187,6 +217,8 @@
     "imdb": "7.6",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -199,6 +231,8 @@
     "imdb": "5.2",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -211,6 +245,8 @@
     "imdb": "6.1",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -223,6 +259,8 @@
     "imdb": "7.9",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -235,6 +273,8 @@
     "imdb": "7.6",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": "2025-06-06",
     "notes": null
@@ -247,6 +287,8 @@
     "imdb": null,
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": "2024-12-06",
     "notes": null
@@ -259,6 +301,8 @@
     "imdb": "7.6",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -271,6 +315,8 @@
     "imdb": "8.2",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -283,6 +329,8 @@
     "imdb": "7.1",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -295,6 +343,8 @@
     "imdb": "7.6",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -307,6 +357,8 @@
     "imdb": "7.0",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -319,6 +371,8 @@
     "imdb": "7.3",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -331,6 +385,8 @@
     "imdb": "7.7",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -343,6 +399,8 @@
     "imdb": "6.9",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -355,6 +413,8 @@
     "imdb": "7.2",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -367,6 +427,8 @@
     "imdb": "8.1",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -379,6 +441,8 @@
     "imdb": "8.1",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -391,6 +455,8 @@
     "imdb": "7.6",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -403,6 +469,8 @@
     "imdb": "8.2",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -415,6 +483,8 @@
     "imdb": "7.0",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -427,6 +497,8 @@
     "imdb": "6.3",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -439,6 +511,8 @@
     "imdb": "7.5",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -451,6 +525,8 @@
     "imdb": "7.7",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -463,6 +539,8 @@
     "imdb": "7.3",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null
@@ -475,6 +553,8 @@
     "imdb": "8.0",
     "imdbId": null,
     "year": null,
+    "poster": null,
+    "omdbRefreshedAt": null,
     "watched": true,
     "dateWatched": null,
     "notes": null

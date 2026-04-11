@@ -43,6 +43,23 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,json,webmanifest}'],
         navigateFallback: '/index.html',
+        runtimeCaching: [
+          {
+            // OMDB posters are hosted on Amazon's CDN. Cache them
+            // aggressively so they show up instantly on repeat loads
+            // and survive offline (Friday-night flaky-wifi scenario).
+            urlPattern: /^https:\/\/m\.media-amazon\.com\/images\//,
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'movie-posters-v1',
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 60 * 60 * 24 * 90, // 90 days
+              },
+              cacheableResponse: { statuses: [0, 200] },
+            },
+          },
+        ],
       },
     }),
   ],

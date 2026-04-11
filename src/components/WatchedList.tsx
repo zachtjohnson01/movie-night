@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type { Movie } from '../types';
 import {
   ageBadgeClass,
@@ -7,6 +7,7 @@ import {
   formatMonthYear,
   sortWatched,
 } from '../format';
+import MoviePoster from './MoviePoster';
 
 type Props = {
   movies: Movie[];
@@ -15,12 +16,25 @@ type Props = {
 };
 
 export default function WatchedList({ movies, onSelect, onAdd }: Props) {
-  const watched = useMemo(
+  const [query, setQuery] = useState('');
+
+  const watchedAll = useMemo(
     () => sortWatched(movies.filter((m) => m.watched)),
     [movies],
   );
 
-  const earliest = useMemo(() => earliestWatched(watched), [watched]);
+  const watched = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return watchedAll;
+    return watchedAll.filter((m) => m.title.toLowerCase().includes(q));
+  }, [watchedAll, query]);
+
+  const earliest = useMemo(
+    () => earliestWatched(watchedAll),
+    [watchedAll],
+  );
+
+  const searching = query.trim().length > 0;
 
   return (
     <div className="mx-auto max-w-xl">
@@ -36,10 +50,11 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
             <h1 className="mt-1 text-[32px] font-bold leading-none tracking-tight">
               {watched.length}{' '}
               <span className="text-ink-300 font-semibold">
-                {watched.length === 1 ? 'movie' : 'movies'} watched
+                {watched.length === 1 ? 'movie' : 'movies'}{' '}
+                {searching ? 'found' : 'watched'}
               </span>
             </h1>
-            {earliest && (
+            {earliest && !searching && (
               <p className="mt-1.5 text-xs text-ink-400">
                 since {formatMonthYear(earliest)}
               </p>
@@ -65,10 +80,40 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
             </svg>
           </button>
         </div>
+
+        <div className="mt-3 relative">
+          <input
+            type="search"
+            inputMode="search"
+            autoCorrect="off"
+            autoCapitalize="off"
+            placeholder="Search watched movies…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="w-full h-11 rounded-2xl bg-ink-800 border border-ink-700 pl-11 pr-4 text-base placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60 focus:bg-ink-800"
+          />
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-500"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+        </div>
       </header>
 
-      {watched.length === 0 ? (
+      {watchedAll.length === 0 ? (
         <EmptyState />
+      ) : watched.length === 0 ? (
+        <div className="px-6 pt-10 text-center text-ink-400 text-sm">
+          Nothing matches “{query}”
+        </div>
       ) : (
         <ul className="px-2 pt-1">
           {watched.map((m) => (
@@ -76,8 +121,9 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
               <button
                 type="button"
                 onClick={() => onSelect(m)}
-                className="w-full min-h-[72px] flex items-center gap-3 px-3 py-3.5 rounded-2xl active:bg-ink-800 transition-colors text-left"
+                className="w-full min-h-[92px] flex items-center gap-3 px-3 py-3 rounded-2xl active:bg-ink-800 transition-colors text-left"
               >
+                <MoviePoster movie={m} size="thumb" />
                 <div className="flex-1 min-w-0">
                   <div className="text-base font-semibold leading-snug truncate">
                     {m.title}

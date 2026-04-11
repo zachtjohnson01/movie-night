@@ -44,6 +44,36 @@ export function todayIso(): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Format an ISO 8601 timestamp (e.g. "2026-04-11T09:42:15.000Z") as a
+ * short, human-readable relative time. Unlike `formatDate`, this is
+ * safe to parse with `new Date()` because a full timestamp is an
+ * unambiguous moment in time — the "never use new Date()" rule only
+ * applies to pure-date strings like "2024-12-06" which would otherwise
+ * get shifted by the local timezone.
+ */
+export function formatRelativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const ts = new Date(iso).getTime();
+  if (Number.isNaN(ts)) return '';
+  const diffSec = Math.round((Date.now() - ts) / 1000);
+  if (diffSec < 0) return 'in the future';
+  if (diffSec < 45) return 'just now';
+  if (diffSec < 90) return '1 minute ago';
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 45) return `${diffMin} minutes ago`;
+  if (diffMin < 90) return '1 hour ago';
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr} hours ago`;
+  if (diffHr < 48) return 'yesterday';
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 30) return `${diffDay} days ago`;
+  if (diffDay < 60) return 'last month';
+  const diffMonth = Math.round(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth} months ago`;
+  return 'over a year ago';
+}
+
 /** Prefer RT %, fall back to IMDb, fall back to null. */
 export function primaryScore(m: Movie): string | null {
   if (m.rottenTomatoes) return m.rottenTomatoes;
@@ -89,6 +119,8 @@ export function emptyMovie(watched: boolean): Movie {
     imdb: null,
     imdbId: null,
     year: null,
+    poster: null,
+    omdbRefreshedAt: null,
     watched,
     dateWatched: null,
     notes: null,
