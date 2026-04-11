@@ -102,6 +102,13 @@ export default function MovieSearchCombobox({
     onPick(r);
     setOpen(false);
     setResults([]);
+    // Reset hasSearched so a post-pick re-focus (iOS sometimes bounces
+    // focus back to the input after dismissing the dropdown) doesn't
+    // render a stale "No matches on OMDB" message. Combined with
+    // results=[] above, the dropdown's showDropdown condition then
+    // evaluates to false on re-open, and the user sees a clean field
+    // instead of a confusing error.
+    setHasSearched(false);
   }
 
   const showDropdown =
