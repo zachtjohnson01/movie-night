@@ -87,6 +87,8 @@ export function emptyMovie(watched: boolean): Movie {
     commonSenseScore: null,
     rottenTomatoes: null,
     imdb: null,
+    imdbId: null,
+    year: null,
     watched,
     dateWatched: null,
     notes: null,
