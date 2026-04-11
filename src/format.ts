@@ -52,8 +52,8 @@ export function primaryScore(m: Movie): string | null {
 }
 
 /**
- * Find the earliest watched date among a list of movies.
- * Returns an ISO string or null if nothing is watched.
+ * Find the earliest known dateWatched among a list of movies.
+ * Returns an ISO string or null if no movie has a known date.
  */
 export function earliestWatched(movies: Movie[]): string | null {
   let earliest: string | null = null;
@@ -62,6 +62,35 @@ export function earliestWatched(movies: Movie[]): string | null {
     if (earliest === null || m.dateWatched < earliest) earliest = m.dateWatched;
   }
   return earliest;
+}
+
+/**
+ * Sort watched movies: known dates first (newest first), then undated movies
+ * alphabetically at the bottom.
+ */
+export function sortWatched(movies: Movie[]): Movie[] {
+  return [...movies].sort((a, b) => {
+    if (a.dateWatched && b.dateWatched) {
+      return a.dateWatched < b.dateWatched ? 1 : -1;
+    }
+    if (a.dateWatched) return -1;
+    if (b.dateWatched) return 1;
+    return a.title.localeCompare(b.title, undefined, { sensitivity: 'base' });
+  });
+}
+
+/** Produce a fresh, empty Movie with the given `watched` default. */
+export function emptyMovie(watched: boolean): Movie {
+  return {
+    title: '',
+    commonSenseAge: null,
+    commonSenseScore: null,
+    rottenTomatoes: null,
+    imdb: null,
+    watched,
+    dateWatched: null,
+    notes: null,
+  };
 }
 
 /**

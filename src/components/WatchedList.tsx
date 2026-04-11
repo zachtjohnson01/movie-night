@@ -1,18 +1,22 @@
 import { useMemo } from 'react';
 import type { Movie } from '../types';
-import { earliestWatched, formatDate, formatMonthYear, primaryScore } from '../format';
+import {
+  earliestWatched,
+  formatDate,
+  formatMonthYear,
+  primaryScore,
+  sortWatched,
+} from '../format';
 
 type Props = {
   movies: Movie[];
   onSelect: (movie: Movie) => void;
+  onAdd: () => void;
 };
 
-export default function WatchedList({ movies, onSelect }: Props) {
+export default function WatchedList({ movies, onSelect, onAdd }: Props) {
   const watched = useMemo(
-    () =>
-      movies
-        .filter((m) => m.dateWatched)
-        .sort((a, b) => (a.dateWatched! < b.dateWatched! ? 1 : -1)),
+    () => sortWatched(movies.filter((m) => m.watched)),
     [movies],
   );
 
@@ -21,20 +25,43 @@ export default function WatchedList({ movies, onSelect }: Props) {
   return (
     <div className="mx-auto max-w-xl">
       <header className="safe-top px-5 pt-6 pb-4">
-        <div className="text-[11px] uppercase tracking-[0.2em] text-crimson-bright/90 font-semibold">
-          Friday Movie Night
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-crimson-bright/90 font-semibold">
+              Friday Movie Night
+            </div>
+            <h1 className="mt-2 text-4xl font-bold leading-none tracking-tight">
+              {watched.length}{' '}
+              <span className="text-ink-300 font-semibold">
+                {watched.length === 1 ? 'movie' : 'movies'} watched
+              </span>
+            </h1>
+            {earliest && (
+              <p className="mt-2 text-sm text-ink-400">
+                since {formatMonthYear(earliest)}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onAdd}
+            aria-label="Add movie"
+            className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-6 h-6"
+              aria-hidden
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
         </div>
-        <h1 className="mt-2 text-4xl font-bold leading-none tracking-tight">
-          {watched.length}{' '}
-          <span className="text-ink-300 font-semibold">
-            {watched.length === 1 ? 'movie' : 'movies'} watched
-          </span>
-        </h1>
-        {earliest && (
-          <p className="mt-2 text-sm text-ink-400">
-            since {formatMonthYear(earliest)}
-          </p>
-        )}
       </header>
 
       {watched.length === 0 ? (
@@ -53,7 +80,11 @@ export default function WatchedList({ movies, onSelect }: Props) {
                     {m.title}
                   </div>
                   <div className="mt-0.5 text-xs text-ink-400">
-                    {formatDate(m.dateWatched)}
+                    {m.dateWatched ? (
+                      formatDate(m.dateWatched)
+                    ) : (
+                      <span className="text-ink-500 italic">Date unknown</span>
+                    )}
                   </div>
                 </div>
                 <ScoreChip score={primaryScore(m)} />

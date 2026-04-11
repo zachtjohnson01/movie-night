@@ -1,24 +1,40 @@
 import { useState } from 'react';
 import type { Movie } from '../types';
 import { ageBadgeClass, formatDate, todayIso } from '../format';
-import ExportSheet from './ExportSheet';
 
-type Props = {
-  movie: Movie;
-  allMovies: Movie[];
-  onBack: () => void;
-  onUpdate: (updated: Movie) => void;
-};
+type Props =
+  | {
+      mode: 'existing';
+      movie: Movie;
+      onBack: () => void;
+      onUpdate: (updated: Movie) => void | Promise<void>;
+      onDelete: (movie: Movie) => void | Promise<void>;
+    }
+  | {
+      mode: 'new';
+      movie: Movie; // empty template
+      onBack: () => void;
+      onCreate: (created: Movie) => void | Promise<void>;
+    };
 
-export default function Detail({ movie, allMovies, onBack, onUpdate }: Props) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<Movie>(movie);
-  const [showExport, setShowExport] = useState(false);
-  // Snapshot of the list exported on Save. Kept separate so the export sheet
-  // reflects the version that was just committed, not any later edits.
-  const [exportList, setExportList] = useState<Movie[] | null>(null);
+export default function Detail(props: Props) {
+  const isNew = props.mode === 'new';
+  const [editing, setEditing] = useState(isNew);
+  const [draft, setDraft] = useState<Movie>(props.movie);
 
-  const isWatched = !!movie.dateWatched;
+  // When the parent passes a new movie object (e.g. after a realtime
+  // update from Supabase), sync the local draft if we're not actively
+  // editing. This keeps the detail view fresh when the other user edits
+  // the same movie while we're viewing it.
+  if (!editing && props.movie !== draft && draft.title === props.movie.title) {
+    // Only reset if nothing important changed — compare JSON.
+    if (JSON.stringify(draft) !== JSON.stringify(props.movie)) {
+      setDraft(props.movie);
+    }
+  }
+
+  const movie = props.mode === 'existing' ? props.movie : draft;
+  const isWatched = movie.watched;
 
   function startEdit() {
     setDraft(movie);
@@ -26,32 +42,54 @@ export default function Detail({ movie, allMovies, onBack, onUpdate }: Props) {
   }
 
   function cancelEdit() {
+    if (isNew) {
+      props.onBack();
+      return;
+    }
     setEditing(false);
     setDraft(movie);
   }
 
-  function commit(updated: Movie) {
-    onUpdate(updated);
-    const nextList = allMovies.map((m) =>
-      m.title === movie.title ? updated : m,
-    );
-    setExportList(nextList);
-    setShowExport(true);
+  async function saveEdit() {
+    if (!draft.title.trim()) {
+      // Minimal validation — title is required.
+      return;
+    }
+    if (props.mode === 'new') {
+      await props.onCreate(draft);
+    } else {
+      await props.onUpdate(draft);
+      setEditing(false);
+    }
   }
 
-  function saveEdit() {
-    setEditing(false);
-    commit(draft);
+  async function markWatchedTonight() {
+    if (props.mode !== 'existing') return;
+    const updated: Movie = {
+      ...movie,
+      watched: true,
+      dateWatched: todayIso(),
+    };
+    await props.onUpdate(updated);
   }
 
-  function markWatchedTonight() {
-    const updated: Movie = { ...movie, dateWatched: todayIso() };
-    commit(updated);
+  async function markWatchedUndated() {
+    if (props.mode !== 'existing') return;
+    const updated: Movie = { ...movie, watched: true };
+    await props.onUpdate(updated);
   }
 
-  function saveNotesOnly(notes: string) {
+  async function saveNotes(notes: string) {
+    if (props.mode !== 'existing') return;
     const updated: Movie = { ...movie, notes: notes || null };
-    commit(updated);
+    await props.onUpdate(updated);
+  }
+
+  async function handleDelete() {
+    if (props.mode !== 'existing') return;
+    const ok = confirm(`Delete "${movie.title}"? This can't be undone.`);
+    if (!ok) return;
+    await props.onDelete(movie);
   }
 
   return (
@@ -63,7 +101,7 @@ export default function Detail({ movie, allMovies, onBack, onUpdate }: Props) {
         <div className="mx-auto max-w-xl flex items-center justify-between gap-2 px-2 py-2">
           <button
             type="button"
-            onClick={onBack}
+            onClick={props.onBack}
             className="min-h-[44px] min-w-[44px] inline-flex items-center gap-1 px-2 rounded-xl active:bg-ink-800 text-ink-200"
             aria-label="Back"
           >
@@ -101,9 +139,10 @@ export default function Detail({ movie, allMovies, onBack, onUpdate }: Props) {
               <button
                 type="button"
                 onClick={saveEdit}
-                className="min-h-[44px] px-4 rounded-xl bg-amber-glow text-ink-950 font-semibold active:opacity-80"
+                disabled={!draft.title.trim()}
+                className="min-h-[44px] px-4 rounded-xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40"
               >
-                Save
+                {isNew ? 'Add' : 'Save'}
               </button>
             </div>
           )}
@@ -112,23 +151,20 @@ export default function Detail({ movie, allMovies, onBack, onUpdate }: Props) {
 
       <main className="mx-auto max-w-xl w-full px-5 pt-4 pb-28 flex-1">
         {editing ? (
-          <EditForm draft={draft} onChange={setDraft} />
+          <EditForm draft={draft} onChange={setDraft} isNew={isNew} />
         ) : (
-          <ViewMode
-            movie={movie}
-            isWatched={isWatched}
-            onMarkWatched={markWatchedTonight}
-            onSaveNotes={saveNotesOnly}
-          />
+          props.mode === 'existing' && (
+            <ViewMode
+              movie={movie}
+              isWatched={isWatched}
+              onMarkWatchedTonight={markWatchedTonight}
+              onMarkWatchedUndated={markWatchedUndated}
+              onSaveNotes={saveNotes}
+              onDelete={handleDelete}
+            />
+          )
         )}
       </main>
-
-      {showExport && exportList && (
-        <ExportSheet
-          movies={exportList}
-          onClose={() => setShowExport(false)}
-        />
-      )}
     </div>
   );
 }
@@ -136,13 +172,17 @@ export default function Detail({ movie, allMovies, onBack, onUpdate }: Props) {
 function ViewMode({
   movie,
   isWatched,
-  onMarkWatched,
+  onMarkWatchedTonight,
+  onMarkWatchedUndated,
   onSaveNotes,
+  onDelete,
 }: {
   movie: Movie;
   isWatched: boolean;
-  onMarkWatched: () => void;
+  onMarkWatchedTonight: () => void;
+  onMarkWatchedUndated: () => void;
   onSaveNotes: (notes: string) => void;
+  onDelete: () => void;
 }) {
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
@@ -165,8 +205,17 @@ function ViewMode({
             Watched
           </div>
           <div className="mt-1 text-lg text-ink-100 font-semibold">
-            {formatDate(movie.dateWatched)}
+            {movie.dateWatched ? (
+              formatDate(movie.dateWatched)
+            ) : (
+              <span className="text-ink-400 italic">Date unknown</span>
+            )}
           </div>
+          {!movie.dateWatched && (
+            <p className="mt-2 text-xs text-ink-500">
+              Tap Edit to set the date when you remember it.
+            </p>
+          )}
 
           <label className="mt-6 block text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
             Notes
@@ -188,19 +237,36 @@ function ViewMode({
           </button>
         </section>
       ) : (
-        <section className="mt-10">
+        <section className="mt-10 space-y-3">
           <button
             type="button"
-            onClick={onMarkWatched}
+            onClick={onMarkWatchedTonight}
             className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
           >
             Mark as watched tonight
           </button>
-          <p className="mt-3 text-center text-xs text-ink-500">
+          <p className="text-center text-xs text-ink-500">
             Sets the date to today ({formatDate(todayIso())}).
           </p>
+          <button
+            type="button"
+            onClick={onMarkWatchedUndated}
+            className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
+          >
+            Mark watched · date unknown
+          </button>
         </section>
       )}
+
+      <section className="mt-12 pt-6 border-t border-ink-800/70">
+        <button
+          type="button"
+          onClick={onDelete}
+          className="w-full min-h-[48px] rounded-2xl text-rose-400 font-medium active:bg-rose-950/40"
+        >
+          Delete movie
+        </button>
+      </section>
     </>
   );
 }
@@ -241,9 +307,11 @@ function Stat({
 function EditForm({
   draft,
   onChange,
+  isNew,
 }: {
   draft: Movie;
   onChange: (m: Movie) => void;
+  isNew: boolean;
 }) {
   function update<K extends keyof Movie>(key: K, value: Movie[K]) {
     onChange({ ...draft, [key]: value });
@@ -257,12 +325,20 @@ function EditForm({
 
   return (
     <div className="space-y-5">
+      {isNew && (
+        <div className="text-sm text-ink-400">
+          Fill in whatever you know. Only the title is required.
+        </div>
+      )}
+
       <Field label="Title">
         <input
           type="text"
           value={draft.title}
           onChange={(e) => update('title', e.target.value)}
           className={inputClass}
+          placeholder="Movie title"
+          autoFocus={isNew}
           autoCorrect="off"
         />
       </Field>
@@ -298,14 +374,46 @@ function EditForm({
         </Field>
       </div>
 
-      <Field label="Date watched (YYYY-MM-DD)">
-        <input
-          type="date"
-          value={draft.dateWatched ?? ''}
-          onChange={(e) => updateStr('dateWatched', e.target.value)}
-          className={inputClass}
-        />
+      <Field label="Status">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => update('watched', false)}
+            className={`min-h-[48px] rounded-2xl border font-semibold ${
+              !draft.watched
+                ? 'bg-amber-glow/20 border-amber-glow/60 text-amber-glow'
+                : 'bg-ink-800 border-ink-700 text-ink-300'
+            }`}
+          >
+            Wishlist
+          </button>
+          <button
+            type="button"
+            onClick={() => update('watched', true)}
+            className={`min-h-[48px] rounded-2xl border font-semibold ${
+              draft.watched
+                ? 'bg-amber-glow/20 border-amber-glow/60 text-amber-glow'
+                : 'bg-ink-800 border-ink-700 text-ink-300'
+            }`}
+          >
+            Watched
+          </button>
+        </div>
       </Field>
+
+      {draft.watched && (
+        <Field label="Date watched (optional)">
+          <input
+            type="date"
+            value={draft.dateWatched ?? ''}
+            onChange={(e) => updateStr('dateWatched', e.target.value)}
+            className={inputClass}
+          />
+          <p className="mt-1 text-xs text-ink-500">
+            Leave blank if you don't remember.
+          </p>
+        </Field>
+      )}
 
       <Field label="Notes">
         <textarea
