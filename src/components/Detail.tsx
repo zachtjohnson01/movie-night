@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Movie } from '../types';
 import {
   ageBadgeClass,
@@ -83,6 +83,54 @@ export default function Detail(props: Props) {
       setDraft(props.movie);
     }
   }
+
+  // Ref to the latest existing-mode movie. The lazy poster backfill uses
+  // this at write-time so a concurrent edit from the other user's phone
+  // (between fetch start and fetch resolve) isn't clobbered.
+  const latestMovieRef = useRef<Movie | null>(null);
+  latestMovieRef.current = props.mode === 'existing' ? props.movie : null;
+
+  // Lazy poster backfill: if this movie was linked to OMDB before we
+  // started storing posters (imdbId set, poster null), silently fetch it
+  // in the background and write it back. Runs once per Detail mount per
+  // imdbId — the effect re-checks at write-time to avoid double-writes
+  // if the other user's phone beats us to it via realtime sync.
+  const backfillImdbId =
+    isOmdbConfigured &&
+    props.mode === 'existing' &&
+    props.movie.imdbId !== null &&
+    props.movie.poster === null
+      ? props.movie.imdbId
+      : null;
+
+  useEffect(() => {
+    if (!backfillImdbId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const patch = await getMovieById(backfillImdbId);
+        if (cancelled) return;
+        const latest = latestMovieRef.current;
+        // Re-check: if the movie was deleted, re-linked, or already
+        // backfilled from the other device, do nothing.
+        if (
+          !latest ||
+          latest.imdbId !== backfillImdbId ||
+          latest.poster !== null
+        ) {
+          return;
+        }
+        if (props.mode !== 'existing') return;
+        await props.onUpdate(applyPatchFill(latest, patch));
+      } catch {
+        // Silent — background operation, no user-facing error.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backfillImdbId]);
 
   const movie = props.mode === 'existing' ? props.movie : draft;
   const isWatched = movie.watched;
