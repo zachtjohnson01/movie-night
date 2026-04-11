@@ -49,14 +49,25 @@ function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
 }
 
 /**
- * Fill in missing fields from OMDB, but never clobber anything the user
- * already set. Used when linking a manually-entered movie for the first
- * time, or when picking a result in the new-movie combobox.
+ * Fill in missing fields from OMDB. Used when linking a manually-entered
+ * movie for the first time, when picking a result in the new-movie
+ * combobox, or during the lazy poster backfill.
+ *
+ * The title always gets rewritten to OMDB's canonical version, even if
+ * the user already typed one — so "A Bugs Life" becomes "A Bug's Life"
+ * after linking, and "Totoro" becomes "My Neighbor Totoro". The user
+ * explicitly asked for this because they want external IMDb/RT links
+ * to match the movie's display name and to avoid drift over time.
+ *
+ * All other fields follow fill semantics: user-entered values are
+ * preserved, only `null`/`undefined` gets replaced with patch data.
+ * Notes, dateWatched, watched status, and CSM age are never touched —
+ * OMDB doesn't know about those anyway.
  */
 function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
   return {
     ...movie,
-    title: movie.title.trim() || patch.title,
+    title: patch.title,
     imdbId: movie.imdbId ?? patch.imdbId,
     year: movie.year ?? patch.year,
     imdb: movie.imdb ?? patch.imdb,

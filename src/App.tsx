@@ -4,6 +4,7 @@ import Wishlist from './components/Wishlist';
 import Detail from './components/Detail';
 import TabBar, { type Tab } from './components/TabBar';
 import SyncBanner from './components/SyncBanner';
+import BulkLinkSheet from './components/BulkLinkSheet';
 import { useMovies } from './useMovies';
 import { emptyMovie } from './format';
 import type { Movie } from './types';
@@ -17,6 +18,7 @@ export default function App() {
   const { movies, status, updateMovie, addMovie, deleteMovie } = useMovies();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
+  const [showBulkLink, setShowBulkLink] = useState(false);
 
   // If the selected movie disappears (deleted by the other user, or
   // renamed), bail back to the list view.
@@ -38,11 +40,19 @@ export default function App() {
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
-    await updateMovie(originalTitle, updated);
-    // Follow the movie if its title changed.
+    // If the title is changing, update `screen.title` BEFORE kicking
+    // off the updateMovie write. React 18 auto-batches state updates
+    // within the same synchronous chunk, so setting screen here and
+    // the setMovies inside updateMovie (which runs before its internal
+    // await) land in the same render. Otherwise React renders a
+    // transient state where `movies` has the renamed movie but
+    // `screen.title` still points at the old name, and the
+    // list-bailout effect below fires and kicks the user back to the
+    // list.
     if (updated.title !== originalTitle) {
       setScreen({ name: 'detail', title: updated.title });
     }
+    await updateMovie(originalTitle, updated);
   }
 
   async function handleCreate(created: Movie) {
@@ -88,6 +98,7 @@ export default function App() {
             movies={movies}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
+            onBulkLink={() => setShowBulkLink(true)}
           />
         ) : (
           <Wishlist
@@ -98,6 +109,13 @@ export default function App() {
         )}
       </main>
       <TabBar tab={tab} onChange={setTab} />
+      {showBulkLink && (
+        <BulkLinkSheet
+          movies={movies}
+          onUpdateMovie={updateMovie}
+          onClose={() => setShowBulkLink(false)}
+        />
+      )}
     </div>
   );
 }

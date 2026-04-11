@@ -14,13 +14,26 @@ type Props = {
   movies: Movie[];
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
+  onBulkLink: () => void;
 };
 
-export default function WatchedList({ movies, onSelect, onAdd }: Props) {
+export default function WatchedList({
+  movies,
+  onSelect,
+  onAdd,
+  onBulkLink,
+}: Props) {
   const [query, setQuery] = useState('');
 
   const watchedAll = useMemo(
     () => sortWatched(movies.filter((m) => m.watched)),
+    [movies],
+  );
+
+  const unlinkedCount = useMemo(
+    () =>
+      movies.filter((m) => m.imdbId == null && m.title.trim().length >= 3)
+        .length,
     [movies],
   );
 
@@ -112,6 +125,34 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
           <BuildStamp />
         </div>
       </header>
+
+      {unlinkedCount > 0 && !query && (
+        <div className="px-4 pt-3">
+          <button
+            type="button"
+            onClick={onBulkLink}
+            className="w-full min-h-[48px] rounded-2xl bg-amber-glow/10 border border-amber-glow/30 text-amber-glow font-semibold active:bg-amber-glow/20 flex items-center justify-center gap-2"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-5 h-5"
+              aria-hidden
+            >
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07L11.76 5.24" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            <span>
+              Link {unlinkedCount} unlinked{' '}
+              {unlinkedCount === 1 ? 'movie' : 'movies'}
+            </span>
+          </button>
+        </div>
+      )}
 
       {watchedAll.length === 0 ? (
         <EmptyState />
