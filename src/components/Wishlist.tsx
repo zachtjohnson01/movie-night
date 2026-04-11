@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { Movie } from '../types';
 import { ageBadgeClass } from '../format';
+import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
 
 type Props = {
@@ -86,6 +87,10 @@ export default function Wishlist({ movies, onSelect, onAdd }: Props) {
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
           </svg>
+        </div>
+
+        <div className="mt-2">
+          <BuildStamp />
         </div>
       </header>
 

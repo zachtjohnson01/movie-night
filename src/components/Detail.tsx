@@ -122,8 +122,18 @@ export default function Detail(props: Props) {
         }
         if (props.mode !== 'existing') return;
         await props.onUpdate(applyPatchFill(latest, patch));
-      } catch {
-        // Silent — background operation, no user-facing error.
+      } catch (e) {
+        // Surface backfill errors so we can actually see why this
+        // silently isn't working. Prefixed with "Auto-fill" to
+        // distinguish from user-triggered Refresh errors.
+        if (cancelled) return;
+        setOmdbError(
+          `Auto-fill failed: ${
+            e instanceof OmdbError
+              ? e.message
+              : (e as Error).message || 'unknown error'
+          }`,
+        );
       }
     })();
     return () => {
