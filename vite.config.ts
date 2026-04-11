@@ -1,9 +1,32 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+// Inject build metadata as compile-time constants so we can render a
+// visible build stamp in the app. Helps diagnose PWA cache staleness
+// — you can look at the app and immediately tell which bundle your
+// phone is actually running.
+function resolveCommitSha(): string {
+  if (process.env.VERCEL_GIT_COMMIT_SHA) {
+    return process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7);
+  }
+  try {
+    return execSync('git rev-parse HEAD').toString().trim().slice(0, 7);
+  } catch {
+    return 'unknown';
+  }
+}
+
+const BUILD_COMMIT = resolveCommitSha();
+const BUILD_TIME = new Date().toISOString();
+
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    __BUILD_COMMIT__: JSON.stringify(BUILD_COMMIT),
+    __BUILD_TIME__: JSON.stringify(BUILD_TIME),
+  },
   plugins: [
     react(),
     VitePWA({
@@ -41,6 +64,14 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Bumped cache id forces any PWA that still has an old service
+        // worker to treat the new SW as a completely fresh install
+        // instead of trying to reuse old cache entries. Effectively a
+        // one-shot cache bust for anyone stuck on an old bundle.
+        cacheId: 'movie-night-v2',
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,json,webmanifest}'],
         navigateFallback: '/index.html',
         runtimeCaching: [

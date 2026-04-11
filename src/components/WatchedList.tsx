@@ -7,6 +7,7 @@ import {
   formatMonthYear,
   sortWatched,
 } from '../format';
+import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
 
 type Props = {
@@ -105,6 +106,10 @@ export default function WatchedList({ movies, onSelect, onAdd }: Props) {
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
           </svg>
+        </div>
+
+        <div className="mt-2">
+          <BuildStamp />
         </div>
       </header>
 
