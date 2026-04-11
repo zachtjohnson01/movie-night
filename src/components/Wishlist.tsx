@@ -5,14 +5,15 @@ import { ageBadgeClass } from '../format';
 type Props = {
   movies: Movie[];
   onSelect: (movie: Movie) => void;
+  onAdd: () => void;
 };
 
-export default function Wishlist({ movies, onSelect }: Props) {
+export default function Wishlist({ movies, onSelect, onAdd }: Props) {
   const [query, setQuery] = useState('');
 
   const wishlist = useMemo(() => {
     const all = movies
-      .filter((m) => !m.dateWatched)
+      .filter((m) => !m.watched)
       .sort((a, b) =>
         a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }),
       );
@@ -24,15 +25,38 @@ export default function Wishlist({ movies, onSelect }: Props) {
   return (
     <div className="mx-auto max-w-xl">
       <header className="safe-top px-5 pt-6 pb-4">
-        <div className="text-[11px] uppercase tracking-[0.2em] text-crimson-bright/90 font-semibold">
-          Wishlist
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-crimson-bright/90 font-semibold">
+              Wishlist
+            </div>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">
+              {wishlist.length}{' '}
+              <span className="text-ink-300 font-semibold">
+                {wishlist.length === 1 ? 'movie' : 'movies'} to watch
+              </span>
+            </h1>
+          </div>
+          <button
+            type="button"
+            onClick={onAdd}
+            aria-label="Add movie"
+            className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.75"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-6 h-6"
+              aria-hidden
+            >
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
         </div>
-        <h1 className="mt-2 text-3xl font-bold tracking-tight">
-          {wishlist.length}{' '}
-          <span className="text-ink-300 font-semibold">
-            {wishlist.length === 1 ? 'movie' : 'movies'} to watch
-          </span>
-        </h1>
 
         <div className="mt-4 relative">
           <input
@@ -65,7 +89,7 @@ export default function Wishlist({ movies, onSelect }: Props) {
         <div className="px-6 pt-10 text-center text-ink-400 text-sm">
           {query
             ? `Nothing matches “${query}”`
-            : 'Your wishlist is empty. Add a title to movies.json.'}
+            : 'Your wishlist is empty. Tap + to add a movie.'}
         </div>
       ) : (
         <ul className="px-2">

@@ -5,6 +5,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "7.7",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -14,6 +15,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "95%",
     "imdb": "8.4",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -23,6 +25,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "90%",
     "imdb": "7.8",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -32,6 +35,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "99%",
     "imdb": "8.0",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -41,6 +45,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "7.8",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -50,6 +55,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "98%",
     "imdb": "8.0",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -59,6 +65,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "91%",
     "imdb": "7.4",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -68,6 +75,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "99%",
     "imdb": "8.1",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -77,6 +85,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "7.3",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -86,6 +95,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "94%",
     "imdb": "6.8",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -95,6 +105,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "99%",
     "imdb": "7.8",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -104,6 +115,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": null,
     "imdb": "7.4",
+    "watched": true,
     "dateWatched": "2026-04-03",
     "notes": null
   },
@@ -113,6 +125,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "82%",
     "imdb": "6.3",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -122,6 +135,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": null,
     "imdb": null,
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -131,6 +145,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "76%",
     "imdb": "6.7",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -140,6 +155,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "81%",
     "imdb": "7.6",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -149,6 +165,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": null,
     "imdb": "5.2",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -158,6 +175,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": null,
     "imdb": "6.1",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -167,6 +185,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "7.9",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -176,6 +195,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "96%",
     "imdb": "7.6",
+    "watched": true,
     "dateWatched": "2025-06-06",
     "notes": null
   },
@@ -185,6 +205,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": null,
     "imdb": null,
+    "watched": true,
     "dateWatched": "2024-12-06",
     "notes": null
   },
@@ -194,6 +215,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "92%",
     "imdb": "7.6",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -203,6 +225,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "94%",
     "imdb": "8.2",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -212,6 +235,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "89%",
     "imdb": "7.1",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -221,6 +245,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "95%",
     "imdb": "7.6",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -230,6 +255,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "7.0",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -239,6 +265,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "99%",
     "imdb": "7.3",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -248,6 +275,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "96%",
     "imdb": "7.7",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -257,6 +285,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "87%",
     "imdb": "6.9",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -266,6 +295,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "92%",
     "imdb": "7.2",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -275,6 +305,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "96%",
     "imdb": "8.1",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -284,6 +315,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "96%",
     "imdb": "8.1",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -293,6 +325,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "87%",
     "imdb": "7.6",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -302,6 +335,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "8.2",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -311,6 +345,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "74%",
     "imdb": "7.0",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -320,6 +355,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "58%",
     "imdb": "6.3",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -329,6 +365,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "93%",
     "imdb": "7.5",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -338,6 +375,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": null,
     "imdb": "7.7",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -347,6 +385,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "90%",
     "imdb": "7.3",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   },
@@ -356,6 +395,7 @@
     "commonSenseScore": null,
     "rottenTomatoes": "97%",
     "imdb": "8.0",
+    "watched": true,
     "dateWatched": null,
     "notes": null
   }

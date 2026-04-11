@@ -1,66 +1,99 @@
 import { useEffect, useMemo, useState } from 'react';
-import seed from '../movies.json';
-import type { Movie } from './types';
 import WatchedList from './components/WatchedList';
 import Wishlist from './components/Wishlist';
 import Detail from './components/Detail';
 import TabBar, { type Tab } from './components/TabBar';
+import SyncBanner from './components/SyncBanner';
+import { useMovies } from './useMovies';
+import { emptyMovie } from './format';
+import type { Movie } from './types';
 
-const SEED: Movie[] = seed as Movie[];
+type Screen =
+  | { name: 'list' }
+  | { name: 'detail'; title: string }
+  | { name: 'new'; template: Movie };
 
 export default function App() {
-  const [movies, setMovies] = useState<Movie[]>(SEED);
+  const { movies, status, updateMovie, addMovie, deleteMovie } = useMovies();
   const [tab, setTab] = useState<Tab>('watched');
-  // Identify a selected movie by its original title (stable within a session).
-  const [selectedTitle, setSelectedTitle] = useState<string | null>(null);
+  const [screen, setScreen] = useState<Screen>({ name: 'list' });
 
-  // If the user edits a movie and renames it, keep the selection in sync.
+  // If the selected movie disappears (deleted by the other user, or
+  // renamed), bail back to the list view.
   useEffect(() => {
-    if (selectedTitle === null) return;
-    if (!movies.some((m) => m.title === selectedTitle)) {
-      setSelectedTitle(null);
+    if (screen.name !== 'detail') return;
+    if (!movies.some((m) => m.title === screen.title)) {
+      setScreen({ name: 'list' });
     }
-  }, [movies, selectedTitle]);
+  }, [movies, screen]);
 
-  const selected = useMemo(
-    () =>
-      selectedTitle === null
-        ? null
-        : movies.find((m) => m.title === selectedTitle) ?? null,
-    [movies, selectedTitle],
-  );
+  const selected = useMemo(() => {
+    if (screen.name !== 'detail') return null;
+    return movies.find((m) => m.title === screen.title) ?? null;
+  }, [movies, screen]);
 
-  function updateMovie(originalTitle: string, updated: Movie) {
-    setMovies((prev) =>
-      prev.map((m) => (m.title === originalTitle ? updated : m)),
-    );
+  function openAdd() {
+    const template = emptyMovie(tab === 'watched');
+    setScreen({ name: 'new', template });
+  }
+
+  async function handleUpdate(originalTitle: string, updated: Movie) {
+    await updateMovie(originalTitle, updated);
     // Follow the movie if its title changed.
-    setSelectedTitle(updated.title);
+    if (updated.title !== originalTitle) {
+      setScreen({ name: 'detail', title: updated.title });
+    }
+  }
+
+  async function handleCreate(created: Movie) {
+    await addMovie(created);
+    setTab(created.watched ? 'watched' : 'wishlist');
+    setScreen({ name: 'list' });
+  }
+
+  async function handleDelete(movie: Movie) {
+    await deleteMovie(movie.title);
+    setScreen({ name: 'list' });
+  }
+
+  if (screen.name === 'new') {
+    return (
+      <Detail
+        mode="new"
+        movie={screen.template}
+        onBack={() => setScreen({ name: 'list' })}
+        onCreate={handleCreate}
+      />
+    );
   }
 
   if (selected) {
     return (
       <Detail
+        mode="existing"
         movie={selected}
-        allMovies={movies}
-        onBack={() => setSelectedTitle(null)}
-        onUpdate={(updated) => updateMovie(selected.title, updated)}
+        onBack={() => setScreen({ name: 'list' })}
+        onUpdate={(updated) => handleUpdate(selected.title, updated)}
+        onDelete={handleDelete}
       />
     );
   }
 
   return (
     <div className="min-h-full flex flex-col">
+      <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
         {tab === 'watched' ? (
           <WatchedList
             movies={movies}
-            onSelect={(m) => setSelectedTitle(m.title)}
+            onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+            onAdd={openAdd}
           />
         ) : (
           <Wishlist
             movies={movies}
-            onSelect={(m) => setSelectedTitle(m.title)}
+            onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+            onAdd={openAdd}
           />
         )}
       </main>
