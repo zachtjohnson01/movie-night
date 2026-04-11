@@ -1,6 +1,17 @@
 import { useState } from 'react';
 import type { Movie } from '../types';
 import { ageBadgeClass, formatDate, todayIso } from '../format';
+import {
+  OmdbError,
+  commonSenseUrl,
+  getMovieById,
+  imdbUrl,
+  isOmdbConfigured,
+  rottenTomatoesUrl,
+  type OmdbMoviePatch,
+  type OmdbSearchResult,
+} from '../omdb';
+import MovieSearchCombobox from './MovieSearchCombobox';
 
 type Props =
   | {
@@ -17,17 +28,47 @@ type Props =
       onCreate: (created: Movie) => void | Promise<void>;
     };
 
+/** Overwrite RT/IMDb/year/title with fresh OMDB data. Used by refresh. */
+function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
+  return {
+    ...movie,
+    title: patch.title,
+    imdbId: patch.imdbId,
+    year: patch.year,
+    imdb: patch.imdb ?? movie.imdb,
+    rottenTomatoes: patch.rottenTomatoes ?? movie.rottenTomatoes,
+  };
+}
+
+/**
+ * Fill in missing fields from OMDB, but never clobber anything the user
+ * already set. Used when linking a manually-entered movie for the first
+ * time, or when picking a result in the new-movie combobox.
+ */
+function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
+  return {
+    ...movie,
+    title: movie.title.trim() || patch.title,
+    imdbId: movie.imdbId ?? patch.imdbId,
+    year: movie.year ?? patch.year,
+    imdb: movie.imdb ?? patch.imdb,
+    rottenTomatoes: movie.rottenTomatoes ?? patch.rottenTomatoes,
+  };
+}
+
 export default function Detail(props: Props) {
   const isNew = props.mode === 'new';
   const [editing, setEditing] = useState(isNew);
   const [draft, setDraft] = useState<Movie>(props.movie);
+  const [omdbBusy, setOmdbBusy] = useState(false);
+  const [omdbError, setOmdbError] = useState<string | null>(null);
+  const [showLinkSearch, setShowLinkSearch] = useState(false);
 
   // When the parent passes a new movie object (e.g. after a realtime
   // update from Supabase), sync the local draft if we're not actively
-  // editing. This keeps the detail view fresh when the other user edits
+  // editing. Keeps the detail view fresh when the other user edits
   // the same movie while we're viewing it.
   if (!editing && props.movie !== draft && draft.title === props.movie.title) {
-    // Only reset if nothing important changed — compare JSON.
     if (JSON.stringify(draft) !== JSON.stringify(props.movie)) {
       setDraft(props.movie);
     }
@@ -51,10 +92,7 @@ export default function Detail(props: Props) {
   }
 
   async function saveEdit() {
-    if (!draft.title.trim()) {
-      // Minimal validation — title is required.
-      return;
-    }
+    if (!draft.title.trim()) return;
     if (props.mode === 'new') {
       await props.onCreate(draft);
     } else {
@@ -65,24 +103,21 @@ export default function Detail(props: Props) {
 
   async function markWatchedTonight() {
     if (props.mode !== 'existing') return;
-    const updated: Movie = {
+    await props.onUpdate({
       ...movie,
       watched: true,
       dateWatched: todayIso(),
-    };
-    await props.onUpdate(updated);
+    });
   }
 
   async function markWatchedUndated() {
     if (props.mode !== 'existing') return;
-    const updated: Movie = { ...movie, watched: true };
-    await props.onUpdate(updated);
+    await props.onUpdate({ ...movie, watched: true });
   }
 
   async function saveNotes(notes: string) {
     if (props.mode !== 'existing') return;
-    const updated: Movie = { ...movie, notes: notes || null };
-    await props.onUpdate(updated);
+    await props.onUpdate({ ...movie, notes: notes || null });
   }
 
   async function handleDelete() {
@@ -90,6 +125,52 @@ export default function Detail(props: Props) {
     const ok = confirm(`Delete "${movie.title}"? This can't be undone.`);
     if (!ok) return;
     await props.onDelete(movie);
+  }
+
+  /** Refresh fetches fresh OMDB data by imdbId and overwrites RT/IMDb/year. */
+  async function handleRefresh() {
+    if (props.mode !== 'existing' || !props.movie.imdbId) return;
+    setOmdbBusy(true);
+    setOmdbError(null);
+    try {
+      const patch = await getMovieById(props.movie.imdbId);
+      await props.onUpdate(applyPatchOverwrite(props.movie, patch));
+    } catch (e) {
+      setOmdbError(
+        e instanceof OmdbError
+          ? e.message
+          : (e as Error).message || 'Failed to refresh from OMDB',
+      );
+    } finally {
+      setOmdbBusy(false);
+    }
+  }
+
+  /**
+   * Pick from the search combobox — used in both "link an existing movie"
+   * and "populate a new movie". Fetches full details by imdbId and applies
+   * them as a fill (never clobbering user-entered data).
+   */
+  async function handlePickSearchResult(result: OmdbSearchResult) {
+    setOmdbBusy(true);
+    setOmdbError(null);
+    try {
+      const patch = await getMovieById(result.imdbId);
+      if (props.mode === 'new' || editing) {
+        setDraft((prev) => applyPatchFill(prev, patch));
+      } else {
+        await props.onUpdate(applyPatchFill(props.movie, patch));
+      }
+      setShowLinkSearch(false);
+    } catch (e) {
+      setOmdbError(
+        e instanceof OmdbError
+          ? e.message
+          : (e as Error).message || 'Failed to load from OMDB',
+      );
+    } finally {
+      setOmdbBusy(false);
+    }
   }
 
   return (
@@ -151,7 +232,14 @@ export default function Detail(props: Props) {
 
       <main className="mx-auto max-w-xl w-full px-5 pt-4 pb-28 flex-1">
         {editing ? (
-          <EditForm draft={draft} onChange={setDraft} isNew={isNew} />
+          <EditForm
+            draft={draft}
+            onChange={setDraft}
+            isNew={isNew}
+            onPickOmdb={isNew ? handlePickSearchResult : undefined}
+            omdbBusy={omdbBusy}
+            omdbError={omdbError}
+          />
         ) : (
           props.mode === 'existing' && (
             <ViewMode
@@ -161,6 +249,15 @@ export default function Detail(props: Props) {
               onMarkWatchedUndated={markWatchedUndated}
               onSaveNotes={saveNotes}
               onDelete={handleDelete}
+              onRefresh={handleRefresh}
+              showLinkSearch={showLinkSearch}
+              onToggleLinkSearch={() => {
+                setShowLinkSearch((v) => !v);
+                setOmdbError(null);
+              }}
+              onPickLinkResult={handlePickSearchResult}
+              omdbBusy={omdbBusy}
+              omdbError={omdbError}
             />
           )
         )}
@@ -176,6 +273,12 @@ function ViewMode({
   onMarkWatchedUndated,
   onSaveNotes,
   onDelete,
+  onRefresh,
+  showLinkSearch,
+  onToggleLinkSearch,
+  onPickLinkResult,
+  omdbBusy,
+  omdbError,
 }: {
   movie: Movie;
   isWatched: boolean;
@@ -183,21 +286,121 @@ function ViewMode({
   onMarkWatchedUndated: () => void;
   onSaveNotes: (notes: string) => void;
   onDelete: () => void;
+  onRefresh: () => void;
+  showLinkSearch: boolean;
+  onToggleLinkSearch: () => void;
+  onPickLinkResult: (r: OmdbSearchResult) => void;
+  omdbBusy: boolean;
+  omdbError: string | null;
 }) {
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
+  const isLinked = movie.imdbId !== null;
+  const [linkQuery, setLinkQuery] = useState(movie.title);
 
   return (
     <>
-      <h1 className="text-3xl font-bold leading-tight tracking-tight">
-        {movie.title}
-      </h1>
+      <div className="flex items-start justify-between gap-3">
+        <h1 className="text-3xl font-bold leading-tight tracking-tight flex-1 min-w-0">
+          {movie.title}
+          {movie.year && (
+            <span className="ml-2 text-lg font-semibold text-ink-400 tabular-nums">
+              ({movie.year})
+            </span>
+          )}
+        </h1>
+        {isLinked && (
+          <span
+            className="shrink-0 mt-1 inline-flex items-center gap-1 rounded-full border border-amber-glow/40 bg-amber-glow/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-glow"
+            title="Linked to OMDB"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-3 h-3"
+              aria-hidden
+            >
+              <path d="M20 6 9 17l-5-5" />
+            </svg>
+            Linked
+          </span>
+        )}
+      </div>
 
       <div className="mt-4 grid grid-cols-3 gap-2">
-        <Stat label="CSM Age" value={movie.commonSenseAge} accent="age" />
-        <Stat label="RT" value={movie.rottenTomatoes} />
-        <Stat label="IMDb" value={movie.imdb} />
+        <StatLink
+          label="CSM Age"
+          value={movie.commonSenseAge}
+          href={commonSenseUrl(movie)}
+          accent="age"
+        />
+        <StatLink
+          label="RT"
+          value={movie.rottenTomatoes}
+          href={rottenTomatoesUrl(movie)}
+        />
+        <StatLink label="IMDb" value={movie.imdb} href={imdbUrl(movie)} />
       </div>
+
+      {isOmdbConfigured && (
+        <div className="mt-4 space-y-2">
+          {!showLinkSearch && (
+            <button
+              type="button"
+              onClick={isLinked ? onRefresh : onToggleLinkSearch}
+              disabled={omdbBusy}
+              className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-100 font-semibold active:bg-ink-700 disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {omdbBusy ? (
+                <>
+                  <Spinner />
+                  <span>Working…</span>
+                </>
+              ) : isLinked ? (
+                <>
+                  <RefreshIcon />
+                  <span>Refresh from OMDB</span>
+                </>
+              ) : (
+                <>
+                  <LinkIcon />
+                  <span>Link to OMDB</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {showLinkSearch && (
+            <div className="rounded-2xl bg-ink-900/70 border border-ink-800 p-3 space-y-2">
+              <div className="text-[11px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+                Find this movie on OMDB
+              </div>
+              <MovieSearchCombobox
+                value={linkQuery}
+                onChange={setLinkQuery}
+                onPick={onPickLinkResult}
+              />
+              <button
+                type="button"
+                onClick={onToggleLinkSearch}
+                className="w-full min-h-[40px] text-sm text-ink-400 active:text-ink-200"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
+          {omdbError && (
+            <div className="rounded-xl bg-rose-950/40 border border-rose-900/60 px-3 py-2 text-xs text-rose-200">
+              {omdbError}
+            </div>
+          )}
+        </div>
+      )}
 
       {isWatched ? (
         <section className="mt-8">
@@ -271,21 +474,30 @@ function ViewMode({
   );
 }
 
-function Stat({
+function StatLink({
   label,
   value,
+  href,
   accent,
 }: {
   label: string;
   value: string | null;
+  href: string;
   accent?: 'age';
 }) {
   const pillClass =
     accent === 'age' && value
       ? ageBadgeClass(value)
       : 'bg-ink-800 border-ink-700 text-ink-100';
+  // Make the whole card tappable. Even when `value` is null we still link
+  // out so the user can look it up at the source and fill it in manually.
   return (
-    <div className="rounded-2xl bg-ink-900/70 border border-ink-800 p-3">
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block rounded-2xl bg-ink-900/70 border border-ink-800 p-3 active:bg-ink-800/80 transition-colors"
+    >
       <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
         {label}
       </div>
@@ -297,10 +509,10 @@ function Stat({
             {value}
           </span>
         ) : (
-          <span className="text-ink-600 text-sm">—</span>
+          <span className="text-ink-500 text-sm italic">Look up ↗</span>
         )}
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -308,10 +520,16 @@ function EditForm({
   draft,
   onChange,
   isNew,
+  onPickOmdb,
+  omdbBusy,
+  omdbError,
 }: {
   draft: Movie;
   onChange: (m: Movie) => void;
   isNew: boolean;
+  onPickOmdb?: (r: OmdbSearchResult) => void;
+  omdbBusy: boolean;
+  omdbError: string | null;
 }) {
   function update<K extends keyof Movie>(key: K, value: Movie[K]) {
     onChange({ ...draft, [key]: value });
@@ -327,21 +545,48 @@ function EditForm({
     <div className="space-y-5">
       {isNew && (
         <div className="text-sm text-ink-400">
-          Fill in whatever you know. Only the title is required.
+          {isOmdbConfigured
+            ? 'Start typing a title — we’ll search OMDB for matches. Pick one to auto-fill the ratings.'
+            : 'Fill in whatever you know. Only the title is required.'}
         </div>
       )}
 
       <Field label="Title">
-        <input
-          type="text"
-          value={draft.title}
-          onChange={(e) => update('title', e.target.value)}
-          className={inputClass}
-          placeholder="Movie title"
-          autoFocus={isNew}
-          autoCorrect="off"
-        />
+        {isNew && onPickOmdb ? (
+          <MovieSearchCombobox
+            value={draft.title}
+            onChange={(v) => update('title', v)}
+            onPick={onPickOmdb}
+            autoFocus
+          />
+        ) : (
+          <input
+            type="text"
+            value={draft.title}
+            onChange={(e) => update('title', e.target.value)}
+            className={inputClass}
+            placeholder="Movie title"
+            autoCorrect="off"
+          />
+        )}
       </Field>
+
+      {omdbBusy && (
+        <div className="flex items-center gap-2 text-sm text-ink-400">
+          <Spinner />
+          Fetching details from OMDB…
+        </div>
+      )}
+      {omdbError && (
+        <div className="rounded-xl bg-rose-950/40 border border-rose-900/60 px-3 py-2 text-xs text-rose-200">
+          {omdbError}
+        </div>
+      )}
+      {isNew && draft.imdbId && (
+        <div className="inline-flex items-center gap-1 rounded-full border border-amber-glow/40 bg-amber-glow/10 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-amber-glow">
+          ✓ Linked to OMDB
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3">
         <Field label="CSM Age">
@@ -410,7 +655,7 @@ function EditForm({
             className={inputClass}
           />
           <p className="mt-1 text-xs text-ink-500">
-            Leave blank if you don't remember.
+            Leave blank if you don&apos;t remember.
           </p>
         </Field>
       )}
@@ -442,6 +687,70 @@ function Field({
       </div>
       {children}
     </label>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className="w-4 h-4 animate-spin text-ink-300"
+      aria-hidden
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeOpacity="0.25"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function RefreshIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden
+    >
+      <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+      <path d="M3 21v-5h5" />
+    </svg>
+  );
+}
+
+function LinkIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.25"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden
+    >
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07L11.76 5.24" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </svg>
   );
 }
 

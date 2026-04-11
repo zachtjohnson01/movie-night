@@ -8,14 +8,22 @@ use one-handed from my iPhone.
 ## What's in the app
 
 - **Watched** tab — count header, date-descending list (known dates first,
-  undated watched movies sorted alphabetically below), one score chip per
-  row (RT %, falling back to IMDb). Tap `+` to add a movie you already saw.
+  undated watched movies sorted alphabetically below), with CSM age pill +
+  RT + IMDb inline on every row. Tap `+` to add a movie you already saw.
 - **Wishlist** tab — alphabetical, title substring search, Common Sense Media
   age pill + inline RT/IMDb numbers. Tap `+` to add a new title.
-- **Detail** screen — all ratings, notes textarea for watched movies, and a
-  big "Mark as watched tonight" button. A secondary "Mark watched · date
-  unknown" option for movies you saw but don't remember when. Edit mode lets
-  you change any field including the date, the watched status, or delete.
+- **OMDB-powered add flow** — the title field on the new-movie screen
+  searches OMDB as you type and shows a poster-thumbnail dropdown. Pick a
+  result and the app auto-fills RT, IMDb, year, and the IMDb ID. Graceful
+  fallback to plain text entry when OMDB isn't configured.
+- **Detail** screen — all ratings as tappable chips that open Common Sense
+  Media, Rotten Tomatoes, and IMDb in Safari (deep-links to the IMDb title
+  page once the movie is linked). A **Link to OMDB** button for manually
+  entered movies and a **Refresh from OMDB** button for linked ones. Notes
+  textarea, watched/date toggles, delete.
+- **Linked badge** — a small ✓ Linked chip appears next to the title when
+  the movie has been matched against OMDB, so you can tell at a glance
+  which entries have verified external data.
 - **Multi-user realtime sync** — powered by a single-row Supabase table.
   Both phones subscribe to `postgres_changes`, so when one person marks a
   movie watched, the other sees it within ~100ms without a refresh.
@@ -72,6 +80,30 @@ just a git-tracked backup / fallback for local dev.
 bundled `movies.json` and shows a banner reminding you to configure
 Supabase. Edits won't persist until sync is wired up.
 
+## OMDB setup (optional, ~2 min from iPhone)
+
+The OMDB integration powers the search-as-you-type add flow, the refresh
+button, and the IMDb deep links. Without it the app still works — the
+search combobox degrades to a plain text input and the refresh button
+hides itself — but the add-movie flow is much nicer with OMDB wired up.
+
+1. **Sign up** at [omdbapi.com/apikey.aspx](https://www.omdbapi.com/apikey.aspx)
+   → pick the **FREE!** tier (1,000 requests/day, plenty for a family
+   tracker) → enter your email → they send a verification email with an
+   **Activate** link → tap it → your key is in the email (a 7–10 char
+   string).
+2. **Add to Vercel** → project → Settings → Environment Variables:
+   - `VITE_OMDB_API_KEY` = your OMDB key
+   - Enable for Production, Preview, and Development.
+3. **Redeploy** on Vercel (or push a new commit).
+
+On the next load the new-movie screen's title input becomes a dropdown
+of matching OMDB results with poster thumbnails, and the Detail screen
+gains a **Refresh from OMDB** / **Link to OMDB** button. Tapping a
+metric chip (CSM / RT / IMDb) opens the source in Safari — IMDb deep
+links to the title page once a movie is linked, the others fall back
+to search.
+
 ## Deploying to Vercel
 
 The app is a static Vite bundle, so Vercel's defaults Just Work.
@@ -92,9 +124,20 @@ The app is a static Vite bundle, so Vercel's defaults Just Work.
 - **Mark a movie as watched without a date** → detail screen → secondary
   "date unknown" button. It shows on Watched with "Date unknown" until you
   fill the date in.
-- **Add a new movie** → tap the `+` button on either tab → fill in at least
-  the title → Add. The form lets you toggle between Wishlist and Watched
-  status and pick a date.
+- **Add a new movie** → tap the `+` button on either tab. Start typing the
+  title; if OMDB is configured you'll see a poster-thumbnail dropdown of
+  matching movies. Pick one to auto-fill RT, IMDb, year, and link the IMDb
+  ID. You can still edit anything after picking, or type a custom title
+  and skip the dropdown entirely.
+- **Link a manually-added movie to OMDB** → Detail → **Link to OMDB**
+  button. Same search combobox. Picking a result fills in only missing
+  fields (won't clobber anything you've manually set).
+- **Refresh ratings** → Detail (on a linked movie) → **Refresh from OMDB**
+  button. Re-fetches by IMDb ID and overwrites RT / IMDb / year with
+  fresh values.
+- **Open a source** → tap any metric chip (CSM / RT / IMDb) on the Detail
+  screen to open that source in Safari. IMDb deep-links to the title page
+  once the movie is linked; others are search URLs.
 - **Edit any field** → Detail → Edit → Save. Changes write to Supabase and
   appear on the other phone within ~100ms.
 - **Delete a movie** → Detail → scroll down → red "Delete movie" button.
@@ -111,11 +154,16 @@ type Movie = {
   commonSenseScore: string | null; // reserved, unused for now
   rottenTomatoes: string | null;   // e.g. "97%"
   imdb: string | null;             // e.g. "7.9"
+  imdbId: string | null;           // e.g. "tt0096283" — set when linked to OMDB
+  year: number | null;             // release year, from OMDB
   watched: boolean;                // true → Watched tab, false → Wishlist
   dateWatched: string | null;      // ISO "YYYY-MM-DD" or null if unknown
   notes: string | null;
 };
 ```
+
+`imdbId` doubles as a "linked/verified" indicator — non-null means the
+movie was matched against OMDB and has a canonical IMDb title page.
 
 ## Tech
 
