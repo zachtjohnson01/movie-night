@@ -28,7 +28,13 @@ export default function MovieSearchCombobox({
   const [results, setResults] = useState<OmdbSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  // Start the dropdown open when the combobox mounts with a pre-filled
+  // value (e.g. the "Link to OMDB" flow hands us the existing movie's
+  // title). Without this, the search effect fires and populates
+  // `results`, but `open` stays false so nothing renders until the
+  // user taps the input. Empty initial value (the add-new flow) starts
+  // closed as expected.
+  const [open, setOpen] = useState(() => value.trim().length >= 3);
   const [hasSearched, setHasSearched] = useState(false);
   // Skip the next debounce cycle — used when we just picked a result and
   // programmatically updated the input's value, so we don't immediately

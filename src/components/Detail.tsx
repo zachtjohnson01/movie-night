@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Movie } from '../types';
 import {
   ageBadgeClass,
@@ -73,6 +73,20 @@ export default function Detail(props: Props) {
   const [omdbBusy, setOmdbBusy] = useState(false);
   const [omdbError, setOmdbError] = useState<string | null>(null);
   const [showLinkSearch, setShowLinkSearch] = useState(false);
+
+  // Scroll to the top of the page whenever Detail mounts. The app is a
+  // stateless SPA — switching between list and detail views is just
+  // React rendering different components into the same browser window,
+  // so the body scroll position persists from wherever you were in the
+  // list. Without this, tapping a movie halfway down the list dropped
+  // you into the middle of the Detail screen (often below the poster
+  // and title).
+  //
+  // useLayoutEffect (not useEffect) so the scroll happens before the
+  // browser paints, avoiding a flash of the wrong scroll position.
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // When the parent passes a new movie object (e.g. after a realtime
   // update from Supabase), sync the local draft if we're not actively

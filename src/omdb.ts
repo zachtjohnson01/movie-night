@@ -102,18 +102,44 @@ async function omdbGet<T>(params: Record<string, string>): Promise<T> {
 export async function searchMovies(query: string): Promise<OmdbSearchResult[]> {
   const trimmed = query.trim();
   if (trimmed.length < 3) return [];
+
+  // First try the `?s=` broad search (returns up to 10 matches, good
+  // for autocomplete-style lookups).
   const data = await omdbGet<OmdbSearchResponse>({ s: trimmed, type: 'movie' });
-  if (data.Response === 'False') {
-    // "Movie not found!" isn't really an error for search — just no results.
-    return [];
+  if (data.Response === 'True') {
+    return data.Search.map((r) => ({
+      imdbId: r.imdbID,
+      title: r.Title,
+      year: r.Year,
+      type: r.Type,
+      poster: r.Poster && r.Poster !== 'N/A' ? r.Poster : null,
+    }));
   }
-  return data.Search.map((r) => ({
-    imdbId: r.imdbID,
-    title: r.Title,
-    year: r.Year,
-    type: r.Type,
-    poster: r.Poster && r.Poster !== 'N/A' ? r.Poster : null,
-  }));
+
+  // `?s=` returned nothing. Fall back to `?t=` — OMDB's "find this
+  // specific title" endpoint, which is much more forgiving about
+  // punctuation. "A Bugs Life" won't substring-match "A Bug's Life"
+  // via `?s=`, but `?t=A Bugs Life` does usually return the right
+  // movie. Wrap the single result in an array so callers see the
+  // same shape regardless of which endpoint found it.
+  try {
+    const detail = await omdbGet<OmdbDetailResponse>({ t: trimmed });
+    if (detail.Response === 'True') {
+      return [
+        {
+          imdbId: detail.imdbID,
+          title: detail.Title,
+          year: detail.Year,
+          type: 'movie',
+          poster:
+            detail.Poster && detail.Poster !== 'N/A' ? detail.Poster : null,
+        },
+      ];
+    }
+  } catch {
+    // Fallback failed too — fall through and return empty.
+  }
+  return [];
 }
 
 /** Fetch full movie details by IMDb ID. */
