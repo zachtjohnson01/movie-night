@@ -165,6 +165,45 @@ type Movie = {
 `imdbId` doubles as a "linked/verified" indicator — non-null means the
 movie was matched against OMDB and has a canonical IMDb title page.
 
+## Public API
+
+The app is a client-side SPA, so external AI tools and web crawlers can't
+read the movie data from the HTML. Two JSON API endpoints are available
+for programmatic access:
+
+- **`GET /api/watched`** — returns all watched movies as JSON
+- **`GET /api/movies`** — returns all movies (watched + wishlist) as JSON
+
+Both endpoints are public, unauthenticated, CORS-enabled (`*`), and
+cached for 1 hour (`Cache-Control: public, max-age=3600`). Response
+shape:
+
+```json
+{
+  "count": 41,
+  "lastUpdated": "2026-04-17T12:00:00.000Z",
+  "movies": [
+    {
+      "title": "My Neighbor Totoro",
+      "displayTitle": null,
+      "commonSenseAge": "5+",
+      "rottenTomatoes": "94%",
+      "imdb": "8.2",
+      "imdbId": "tt0096283",
+      "year": 1988,
+      "poster": "https://m.media-amazon.com/images/...",
+      "watched": true,
+      "dateWatched": null,
+      "notes": null
+    }
+  ]
+}
+```
+
+These are Vercel serverless functions in the `api/` directory, separate
+from the Vite SPA build. They read directly from Supabase using the same
+anon key as the client app.
+
 ## Tech
 
 Vite + React + TypeScript + Tailwind CSS + vite-plugin-pwa (Workbox) +
