@@ -13,6 +13,7 @@ import MoviePoster from './MoviePoster';
 
 type Props = {
   movies: Movie[];
+  canWrite: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
   onBulkLink: () => void;
@@ -20,6 +21,7 @@ type Props = {
 
 export default function WatchedList({
   movies,
+  canWrite,
   onSelect,
   onAdd,
   onBulkLink,
@@ -82,25 +84,27 @@ export default function WatchedList({
               </p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={onAdd}
-            aria-label="Add movie"
-            className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-6 h-6"
-              aria-hidden
+          {canWrite && (
+            <button
+              type="button"
+              onClick={onAdd}
+              aria-label="Add movie"
+              className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
             >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-6 h-6"
+                aria-hidden
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className="mt-3 relative">
@@ -134,7 +138,7 @@ export default function WatchedList({
         </div>
       </header>
 
-      {unlinkedCount > 0 && !query && (
+      {canWrite && unlinkedCount > 0 && !query && (
         <div className="px-4 pt-3">
           <button
             type="button"

@@ -6,11 +6,12 @@ import MoviePoster from './MoviePoster';
 
 type Props = {
   movies: Movie[];
+  canWrite: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
 };
 
-export default function Wishlist({ movies, onSelect, onAdd }: Props) {
+export default function Wishlist({ movies, canWrite, onSelect, onAdd }: Props) {
   const [query, setQuery] = useState('');
 
   const wishlist = useMemo(() => {
@@ -48,25 +49,27 @@ export default function Wishlist({ movies, onSelect, onAdd }: Props) {
               </span>
             </h1>
           </div>
-          <button
-            type="button"
-            onClick={onAdd}
-            aria-label="Add movie"
-            className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.75"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="w-6 h-6"
-              aria-hidden
+          {canWrite && (
+            <button
+              type="button"
+              onClick={onAdd}
+              aria-label="Add movie"
+              className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
             >
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.75"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-6 h-6"
+                aria-hidden
+              >
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+          )}
         </div>
 
         <div className="mt-3 relative">
@@ -104,7 +107,9 @@ export default function Wishlist({ movies, onSelect, onAdd }: Props) {
         <div className="px-6 pt-10 text-center text-ink-400 text-sm">
           {query
             ? `Nothing matches “${query}”`
-            : 'Your wishlist is empty. Tap + to add a movie.'}
+            : canWrite
+              ? 'Your wishlist is empty. Tap + to add a movie.'
+              : 'Your wishlist is empty.'}
         </div>
       ) : (
         <ul className="px-2 pt-1">
