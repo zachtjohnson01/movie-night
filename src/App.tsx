@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import WatchedList from './components/WatchedList';
 import Wishlist from './components/Wishlist';
+import Recommendations from './components/Recommendations';
 import Detail from './components/Detail';
 import TabBar, { type Tab } from './components/TabBar';
 import SyncBanner from './components/SyncBanner';
@@ -93,20 +94,22 @@ export default function App() {
     <div className="min-h-full flex flex-col">
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
-        {tab === 'watched' ? (
+        {tab === 'watched' && (
           <WatchedList
             movies={movies}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
             onBulkLink={() => setShowBulkLink(true)}
           />
-        ) : (
+        )}
+        {tab === 'wishlist' && (
           <Wishlist
             movies={movies}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
           />
         )}
+        {tab === 'recs' && <Recommendations movies={movies} />}
       </main>
       <TabBar tab={tab} onChange={setTab} />
       {showBulkLink && (
