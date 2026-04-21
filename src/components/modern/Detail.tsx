@@ -1,0 +1,565 @@
+import { useLayoutEffect, useState } from 'react';
+import type { Movie } from '../../types';
+import {
+  formatDate,
+  getDisplayTitle,
+  todayIso,
+} from '../../format';
+import {
+  AMBER,
+  BG,
+  BG_3,
+  BORDER,
+  CRIMSON,
+  DISPLAY,
+  INK,
+  INK_2,
+  INK_3,
+  SANS,
+  ageTone,
+  formatDateLong,
+  posterFor,
+} from './palette';
+import ModernPoster from './ModernPoster';
+import ClassicDetail from '../Detail';
+
+/*
+ * Same prop surface as the classic Detail component so App.tsx can swap
+ * them interchangeably. For 'new' mode (blank template) we defer to the
+ * classic Detail — the modern hero doesn't apply to an empty movie, and
+ * the new-movie add flow already has a polished classic form. For existing
+ * movies we render a gradient hero + chip stats + core actions, and expose
+ * an "Edit details" entry point that swaps in the classic Detail when the
+ * user needs the full edit / OMDB link / refresh surface.
+ */
+type Props =
+  | {
+      mode: 'existing';
+      canWrite: boolean;
+      movie: Movie;
+      onBack: () => void;
+      onUpdate: (updated: Movie) => void | Promise<void>;
+      onDelete: (movie: Movie) => void | Promise<void>;
+    }
+  | {
+      mode: 'new';
+      canWrite: boolean;
+      movie: Movie;
+      onBack: () => void;
+      onCreate: (created: Movie) => void | Promise<void>;
+    };
+
+export default function ModernDetail(props: Props) {
+  const [showClassic, setShowClassic] = useState(false);
+
+  if (props.mode === 'new') {
+    return <ClassicDetail {...props} />;
+  }
+
+  if (showClassic) {
+    return (
+      <ClassicDetail
+        mode="existing"
+        canWrite={props.canWrite}
+        movie={props.movie}
+        onBack={() => setShowClassic(false)}
+        onUpdate={props.onUpdate}
+        onDelete={props.onDelete}
+      />
+    );
+  }
+
+  return (
+    <ModernView
+      movie={props.movie}
+      canWrite={props.canWrite}
+      onBack={props.onBack}
+      onUpdate={props.onUpdate}
+      onDelete={props.onDelete}
+      onEditDetails={() => setShowClassic(true)}
+    />
+  );
+}
+
+function ModernView({
+  movie,
+  canWrite,
+  onBack,
+  onUpdate,
+  onDelete,
+  onEditDetails,
+}: {
+  movie: Movie;
+  canWrite: boolean;
+  onBack: () => void;
+  onUpdate: (updated: Movie) => void | Promise<void>;
+  onDelete: (movie: Movie) => void | Promise<void>;
+  onEditDetails: () => void;
+}) {
+  const { c1, c2, accent } = posterFor(movie.title);
+  const age = ageTone(movie.commonSenseAge);
+  const [notes, setNotes] = useState(movie.notes ?? '');
+  const notesDirty = (movie.notes ?? '') !== notes;
+
+  // Detail screens are deep-link destinations — scroll to top on mount so
+  // the gradient hero actually appears first. Matches the behaviour of the
+  // classic Detail component.
+  useLayoutEffect(() => {
+    window.scrollTo(0, 0);
+    if (document.scrollingElement) {
+      document.scrollingElement.scrollTop = 0;
+    }
+  }, []);
+
+  const eyebrow = movie.watched
+    ? movie.dateWatched
+      ? formatDateLong(movie.dateWatched)
+      : 'Watched · date unknown'
+    : 'On the wishlist';
+
+  async function markWatchedTonight() {
+    await onUpdate({ ...movie, watched: true, dateWatched: todayIso() });
+  }
+  async function saveNotes() {
+    await onUpdate({ ...movie, notes: notes || null });
+  }
+  async function handleDelete() {
+    if (
+      !confirm(`Delete "${getDisplayTitle(movie)}"? This can't be undone.`)
+    ) {
+      return;
+    }
+    await onDelete(movie);
+  }
+
+  return (
+    <div
+      style={{
+        background: BG,
+        minHeight: '100%',
+        color: INK,
+        fontFamily: SANS,
+        paddingBottom: 60,
+      }}
+    >
+      {/* Gradient hero */}
+      <div
+        style={{
+          position: 'relative',
+          height: 420,
+          background: `linear-gradient(180deg, ${c1} 0%, ${c2} 60%, ${BG} 100%)`,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          aria-hidden
+          style={{ position: 'absolute', inset: 0, opacity: 0.3 }}
+        >
+          <svg
+            width="100%"
+            height="100%"
+            viewBox="0 0 400 420"
+            preserveAspectRatio="xMidYMid slice"
+          >
+            <circle cx="330" cy="140" r="100" fill={accent} opacity="0.6" />
+            <circle cx="60" cy="320" r="140" fill={accent} opacity="0.35" />
+          </svg>
+        </div>
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back"
+          style={{
+            position: 'absolute',
+            top: 'calc(env(safe-area-inset-top) + 12px)',
+            left: 16,
+            zIndex: 2,
+            width: 38,
+            height: 38,
+            minWidth: 44,
+            minHeight: 44,
+            borderRadius: 999,
+            background: 'rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <svg width="11" height="18" viewBox="0 0 12 20" fill="none">
+            <path
+              d="M10 2L2 10l8 8"
+              stroke="#fff"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 24,
+            left: 20,
+            right: 20,
+            display: 'flex',
+            gap: 16,
+            alignItems: 'flex-end',
+          }}
+        >
+          <ModernPoster movie={movie} size={110} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: SANS,
+                fontSize: 11,
+                color: 'rgba(255,255,255,0.75)',
+                letterSpacing: 2,
+                textTransform: 'uppercase',
+                fontWeight: 600,
+              }}
+            >
+              {eyebrow}
+            </div>
+            <div
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: 34,
+                color: '#fff',
+                fontWeight: 500,
+                letterSpacing: -1,
+                lineHeight: 0.95,
+                marginTop: 6,
+                textShadow: '0 2px 12px rgba(0,0,0,0.5)',
+              }}
+            >
+              {getDisplayTitle(movie)}
+            </div>
+            {movie.year && (
+              <div
+                style={{
+                  marginTop: 6,
+                  fontFamily: SANS,
+                  fontSize: 13,
+                  color: 'rgba(255,255,255,0.7)',
+                  fontWeight: 500,
+                }}
+              >
+                {movie.year}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Chip stats */}
+      <div style={{ padding: '24px 20px 0' }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {movie.commonSenseAge && (
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: 12,
+                background: age.bg,
+                border: `1px solid ${age.border}`,
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: SANS,
+                  fontSize: 10,
+                  color: INK_3,
+                  letterSpacing: 1,
+                  textTransform: 'uppercase',
+                  fontWeight: 600,
+                }}
+              >
+                Common Sense
+              </div>
+              <div
+                style={{
+                  fontFamily: DISPLAY,
+                  fontSize: 22,
+                  color: age.fg,
+                  fontWeight: 600,
+                  marginTop: 2,
+                  letterSpacing: -0.3,
+                }}
+              >
+                {movie.commonSenseAge}
+              </div>
+            </div>
+          )}
+          <ChipStat label="Rotten T." value={movie.rottenTomatoes || '—'} />
+          <ChipStat label="IMDb" value={movie.imdb || '—'} />
+        </div>
+      </div>
+
+      {/* Studio / awards block */}
+      {(movie.production || movie.awards) && (
+        <div style={{ padding: '18px 20px 0' }}>
+          <div
+            style={{
+              background: BG_3,
+              border: `1px solid ${BORDER}`,
+              borderRadius: 14,
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            {movie.production && (
+              <div>
+                <div
+                  style={{
+                    fontFamily: SANS,
+                    fontSize: 10,
+                    color: INK_3,
+                    letterSpacing: 1.5,
+                    textTransform: 'uppercase',
+                    fontWeight: 600,
+                  }}
+                >
+                  Studio
+                </div>
+                <div
+                  style={{
+                    fontFamily: SANS,
+                    fontSize: 14,
+                    color: INK,
+                    marginTop: 2,
+                  }}
+                >
+                  {movie.production}
+                </div>
+              </div>
+            )}
+            {movie.awards && (
+              <div>
+                <div
+                  style={{
+                    fontFamily: SANS,
+                    fontSize: 10,
+                    color: INK_3,
+                    letterSpacing: 1.5,
+                    textTransform: 'uppercase',
+                    fontWeight: 600,
+                  }}
+                >
+                  Awards
+                </div>
+                <div
+                  style={{
+                    fontFamily: SANS,
+                    fontSize: 13,
+                    color: AMBER,
+                    marginTop: 2,
+                    lineHeight: 1.4,
+                  }}
+                >
+                  {movie.awards}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Notes */}
+      {movie.watched && (movie.notes || canWrite) && (
+        <div style={{ padding: '22px 20px 0' }}>
+          <div
+            style={{
+              fontFamily: SANS,
+              fontSize: 11,
+              color: INK_3,
+              letterSpacing: 1.5,
+              textTransform: 'uppercase',
+              fontWeight: 600,
+            }}
+          >
+            Note from the night
+          </div>
+          {canWrite ? (
+            <>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={5}
+                placeholder="Favorite scenes, reactions, the moment she gasped…"
+                style={{
+                  marginTop: 8,
+                  width: '100%',
+                  borderRadius: 14,
+                  background: BG_3,
+                  border: `1px solid ${BORDER}`,
+                  padding: 14,
+                  color: INK,
+                  fontFamily: DISPLAY,
+                  fontStyle: 'italic',
+                  fontSize: 17,
+                  lineHeight: 1.45,
+                  letterSpacing: -0.1,
+                  outline: 'none',
+                  resize: 'vertical',
+                }}
+              />
+              <button
+                type="button"
+                disabled={!notesDirty}
+                onClick={() => void saveNotes()}
+                style={{
+                  marginTop: 10,
+                  width: '100%',
+                  minHeight: 48,
+                  borderRadius: 12,
+                  background: notesDirty ? AMBER : BG_3,
+                  color: notesDirty ? '#1a1a1a' : INK_3,
+                  border: notesDirty ? 'none' : `1px solid ${BORDER}`,
+                  fontFamily: SANS,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: notesDirty ? 'pointer' : 'default',
+                }}
+              >
+                Save notes
+              </button>
+            </>
+          ) : movie.notes ? (
+            <div
+              style={{
+                fontFamily: DISPLAY,
+                fontStyle: 'italic',
+                fontSize: 18,
+                color: INK,
+                lineHeight: 1.45,
+                marginTop: 6,
+                letterSpacing: -0.2,
+              }}
+            >
+              “{movie.notes}”
+            </div>
+          ) : null}
+        </div>
+      )}
+
+      {/* Primary action */}
+      {canWrite && (
+        <div
+          style={{
+            padding: '28px 20px 0',
+            display: 'flex',
+            gap: 10,
+          }}
+        >
+          <button
+            type="button"
+            disabled={movie.watched}
+            onClick={() => void markWatchedTonight()}
+            style={{
+              flex: 1,
+              minHeight: 52,
+              borderRadius: 14,
+              background: movie.watched ? BG_3 : CRIMSON,
+              color: movie.watched ? INK_2 : '#fff',
+              border: movie.watched ? `1px solid ${BORDER}` : 'none',
+              fontFamily: SANS,
+              fontSize: 15,
+              fontWeight: 700,
+              cursor: movie.watched ? 'default' : 'pointer',
+            }}
+          >
+            {movie.watched
+              ? movie.dateWatched
+                ? `Watched ${formatDate(movie.dateWatched)}`
+                : 'Already watched'
+              : 'Mark watched tonight'}
+          </button>
+          <button
+            type="button"
+            onClick={onEditDetails}
+            aria-label="Edit details"
+            style={{
+              minHeight: 52,
+              minWidth: 52,
+              width: 52,
+              borderRadius: 14,
+              background: BG_3,
+              color: INK,
+              border: `1px solid ${BORDER}`,
+              fontSize: 20,
+              cursor: 'pointer',
+            }}
+          >
+            ⋯
+          </button>
+        </div>
+      )}
+
+      {canWrite && (
+        <div style={{ padding: '28px 20px 0' }}>
+          <button
+            type="button"
+            onClick={() => void handleDelete()}
+            style={{
+              width: '100%',
+              minHeight: 48,
+              borderRadius: 12,
+              background: 'transparent',
+              border: 'none',
+              color: '#fda4af',
+              fontFamily: SANS,
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            Delete movie
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChipStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div
+      style={{
+        padding: '10px 14px',
+        borderRadius: 12,
+        background: BG_3,
+        border: `1px solid ${BORDER}`,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: SANS,
+          fontSize: 10,
+          color: INK_3,
+          letterSpacing: 1,
+          textTransform: 'uppercase',
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          fontFamily: DISPLAY,
+          fontSize: 22,
+          color: INK,
+          fontWeight: 500,
+          marginTop: 2,
+          letterSpacing: -0.3,
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
