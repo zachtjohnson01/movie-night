@@ -19,6 +19,8 @@ export type AuthStatus =
 export type AuthApi = {
   status: AuthStatus;
   email: string | null;
+  name: string | null;
+  avatarUrl: string | null;
   canWrite: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -30,23 +32,47 @@ function deriveStatus(session: Session | null): AuthStatus {
   return ALLOWED_EMAILS.includes(email) ? 'signed-in' : 'unauthorized';
 }
 
+function extractProfile(session: Session | null): {
+  email: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+} {
+  if (!session) return { email: null, name: null, avatarUrl: null };
+  const meta = (session.user.user_metadata ?? {}) as Record<string, unknown>;
+  const pick = (key: string) =>
+    typeof meta[key] === 'string' ? (meta[key] as string) : null;
+  return {
+    email: session.user.email ?? null,
+    name: pick('full_name') ?? pick('name') ?? null,
+    avatarUrl: pick('avatar_url') ?? pick('picture') ?? null,
+  };
+}
+
 export function useAuth(): AuthApi {
   const [status, setStatus] = useState<AuthStatus>(
     supabase ? 'loading' : 'signed-out',
   );
   const [email, setEmail] = useState<string | null>(null);
+  const [name, setName] = useState<string | null>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!supabase) return;
 
     supabase.auth.getSession().then(({ data }) => {
       setStatus(deriveStatus(data.session));
-      setEmail(data.session?.user.email ?? null);
+      const profile = extractProfile(data.session);
+      setEmail(profile.email);
+      setName(profile.name);
+      setAvatarUrl(profile.avatarUrl);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       setStatus(deriveStatus(session));
-      setEmail(session?.user.email ?? null);
+      const profile = extractProfile(session);
+      setEmail(profile.email);
+      setName(profile.name);
+      setAvatarUrl(profile.avatarUrl);
     });
 
     return () => sub.subscription.unsubscribe();
@@ -68,6 +94,8 @@ export function useAuth(): AuthApi {
   return {
     status,
     email,
+    name,
+    avatarUrl,
     canWrite: status === 'signed-in',
     signIn,
     signOut,

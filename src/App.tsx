@@ -74,14 +74,21 @@ export default function App() {
     setScreen({ name: 'list' });
   }
 
+  // Signing out while scrolled deep into a Detail view left the page
+  // looking blank — the mutating controls vanished and the scroll
+  // position was past the end of the shrunken content. Bouncing back
+  // to the list view guarantees the user lands on something visible.
+  async function handleSignOut() {
+    await auth.signOut();
+    setScreen({ name: 'list' });
+  }
+
   if (screen.name === 'new') {
     return (
       <Detail
         mode="new"
         movie={screen.template}
         canWrite={auth.canWrite}
-        email={auth.email}
-        onSignOut={auth.signOut}
         onBack={() => setScreen({ name: 'list' })}
         onCreate={handleCreate}
       />
@@ -94,8 +101,6 @@ export default function App() {
         mode="existing"
         movie={selected}
         canWrite={auth.canWrite}
-        email={auth.email}
-        onSignOut={auth.signOut}
         onBack={() => setScreen({ name: 'list' })}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
         onDelete={handleDelete}
@@ -108,8 +113,10 @@ export default function App() {
       <AuthBanner
         status={auth.status}
         email={auth.email}
+        name={auth.name}
+        avatarUrl={auth.avatarUrl}
         onSignIn={auth.signIn}
-        onSignOut={auth.signOut}
+        onSignOut={handleSignOut}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
