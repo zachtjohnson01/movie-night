@@ -7,6 +7,7 @@ import MoviePoster from './MoviePoster';
 type Props = {
   movies: Movie[];
   canWrite: boolean;
+  isOwner: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
   onEnhanceAll: () => void;
@@ -16,6 +17,7 @@ type Props = {
 export default function Wishlist({
   movies,
   canWrite,
+  isOwner,
   onSelect,
   onAdd,
   onEnhanceAll,
@@ -164,7 +166,7 @@ export default function Wishlist({
         </div>
       </header>
 
-      {!reordering && canWrite && wishlistAll.length > 0 && !query && (
+      {!reordering && isOwner && wishlistAll.length > 0 && !query && (
         <div className="px-4 pt-3">
           <button
             type="button"

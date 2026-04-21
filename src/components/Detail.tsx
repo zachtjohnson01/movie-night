@@ -828,7 +828,26 @@ function EditForm({
         </Field>
       </div>
 
-      <StudioAwardsBlock movie={draft} />
+      <Field label="Studio">
+        <input
+          type="text"
+          value={draft.production ?? ''}
+          onChange={(e) => updateStr('production', e.target.value)}
+          className={inputClass}
+          placeholder="e.g. Pixar Animation Studios"
+          autoCorrect="off"
+        />
+      </Field>
+
+      <Field label="Awards">
+        <textarea
+          value={draft.awards ?? ''}
+          onChange={(e) => updateStr('awards', e.target.value)}
+          rows={3}
+          className={`${inputClass} leading-relaxed`}
+          placeholder="e.g. Won 1 Oscar. 14 wins & 13 nominations."
+        />
+      </Field>
 
       <Field label="Status">
         <div className="grid grid-cols-2 gap-2">

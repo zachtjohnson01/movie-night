@@ -14,6 +14,7 @@ import MoviePoster from './MoviePoster';
 type Props = {
   movies: Movie[];
   canWrite: boolean;
+  isOwner: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
   onBulkLink: () => void;
@@ -23,6 +24,7 @@ type Props = {
 export default function WatchedList({
   movies,
   canWrite,
+  isOwner,
   onSelect,
   onAdd,
   onBulkLink,
@@ -174,7 +176,7 @@ export default function WatchedList({
         </div>
       )}
 
-      {canWrite && watchedAll.length > 0 && !query && (
+      {isOwner && watchedAll.length > 0 && !query && (
         <div className="px-4 pt-3">
           <button
             type="button"

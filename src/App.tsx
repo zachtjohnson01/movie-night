@@ -134,6 +134,7 @@ export default function App() {
           <WatchedList
             movies={movies}
             canWrite={auth.canWrite}
+            isOwner={auth.isOwner}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
             onBulkLink={() => setShowBulkLink(true)}
@@ -144,6 +145,7 @@ export default function App() {
           <Wishlist
             movies={movies}
             canWrite={auth.canWrite}
+            isOwner={auth.isOwner}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
             onEnhanceAll={() => setEnhanceScope('wishlist')}
