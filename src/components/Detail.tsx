@@ -487,17 +487,7 @@ function ViewMode({
         <StatLink label="IMDb" value={movie.imdb} href={imdbUrl(movie)} />
       </div>
 
-      {(movie.production || movie.awards) && (
-        <div className="mt-4 flex gap-x-3 gap-y-1 flex-wrap text-sm text-ink-400">
-          {movie.production && <span>{movie.production}</span>}
-          {movie.production && movie.awards && (
-            <span className="opacity-50">·</span>
-          )}
-          {movie.awards && (
-            <span className="text-amber-glow/85">{movie.awards}</span>
-          )}
-        </div>
-      )}
+      <StudioAwardsBlock movie={movie} />
 
       {isOmdbConfigured && (
         <div className="mt-4 space-y-2">
@@ -838,6 +828,8 @@ function EditForm({
         </Field>
       </div>
 
+      <StudioAwardsBlock movie={draft} />
+
       <Field label="Status">
         <div className="grid grid-cols-2 gap-2">
           <button
@@ -888,6 +880,34 @@ function EditForm({
           placeholder="Favorite scenes, reactions, the moment she gasped…"
         />
       </Field>
+    </div>
+  );
+}
+
+function StudioAwardsBlock({ movie }: { movie: Movie }) {
+  if (!movie.production && !movie.awards) return null;
+  return (
+    <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-3">
+      {movie.production && (
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+            Studio
+          </div>
+          <div className="mt-1 text-sm text-ink-200 leading-snug">
+            {movie.production}
+          </div>
+        </div>
+      )}
+      {movie.awards && (
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+            Awards
+          </div>
+          <div className="mt-1 text-sm text-amber-glow/90 leading-snug">
+            {movie.awards}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
