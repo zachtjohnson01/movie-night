@@ -1,5 +1,5 @@
 import type { Candidate, Movie } from './types';
-import { enrichCandidate } from './omdb';
+import { enrichCandidate, normalizeTitle } from './omdb';
 import { scoreCandidate } from './scoring';
 import { supabase } from './supabase';
 
@@ -27,9 +27,16 @@ export function rankTopPicks(
   library: Movie[],
   limit: number = DEFAULT_LIMIT,
 ): RankedPick[] {
-  const libraryTitles = new Set(library.map((m) => m.title.toLowerCase()));
+  const libraryImdbIds = new Set(
+    library.map((m) => m.imdbId).filter((id): id is string => !!id),
+  );
+  const libraryTitles = new Set(library.map((m) => normalizeTitle(m.title)));
   const scored: RankedPick[] = candidates
-    .filter((c) => !libraryTitles.has(c.title.toLowerCase()))
+    .filter(
+      (c) =>
+        !(c.imdbId && libraryImdbIds.has(c.imdbId)) &&
+        !libraryTitles.has(normalizeTitle(c.title)),
+    )
     .map((c) => ({ ...c, fitScore: scoreCandidate(c) }));
 
   // Sort descending by score, stable on ties (preserve pool insertion order).
