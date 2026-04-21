@@ -19,7 +19,8 @@ type Screen =
   | { name: 'new'; template: Movie };
 
 export default function App() {
-  const { movies, status, updateMovie, addMovie, deleteMovie } = useMovies();
+  const { movies, status, updateMovie, addMovie, deleteMovie, reorderWishlist } =
+    useMovies();
   const auth = useAuth();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
@@ -146,6 +147,7 @@ export default function App() {
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
             onEnhanceAll={() => setEnhanceScope('wishlist')}
+            onReorder={reorderWishlist}
           />
         )}
         {tab === 'recs' && (

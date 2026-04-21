@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { Movie } from '../types';
-import { ageBadgeClass, getDisplayTitle } from '../format';
+import { ageBadgeClass, getDisplayTitle, sortWishlist } from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
 
@@ -10,6 +10,7 @@ type Props = {
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
   onEnhanceAll: () => void;
+  onReorder: (orderedTitles: string[]) => void;
 };
 
 export default function Wishlist({
@@ -18,18 +19,13 @@ export default function Wishlist({
   onSelect,
   onAdd,
   onEnhanceAll,
+  onReorder,
 }: Props) {
   const [query, setQuery] = useState('');
+  const [reordering, setReordering] = useState(false);
 
   const wishlistAll = useMemo(
-    () =>
-      movies
-        .filter((m) => !m.watched)
-        .sort((a, b) =>
-          getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
-            sensitivity: 'base',
-          }),
-        ),
+    () => sortWishlist(movies.filter((m) => !m.watched)),
     [movies],
   );
 
@@ -50,6 +46,16 @@ export default function Wishlist({
     [wishlistAll],
   );
 
+  const canReorder = canWrite && wishlistAll.length >= 2;
+
+  function move(index: number, direction: -1 | 1) {
+    const target = index + direction;
+    if (target < 0 || target >= wishlistAll.length) return;
+    const next = [...wishlistAll];
+    [next[index], next[target]] = [next[target], next[index]];
+    onReorder(next.map((m) => m.title));
+  }
+
   return (
     <div className="mx-auto max-w-xl">
       <header
@@ -68,61 +74,97 @@ export default function Wishlist({
               </span>
             </h1>
           </div>
-          {canWrite && (
+          {reordering ? (
             <button
               type="button"
-              onClick={onAdd}
-              aria-label="Add movie"
-              className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
+              onClick={() => setReordering(false)}
+              className="shrink-0 min-h-[44px] px-4 rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
+            >
+              Done
+            </button>
+          ) : (
+            canWrite && (
+              <button
+                type="button"
+                onClick={onAdd}
+                aria-label="Add movie"
+                className="shrink-0 min-h-[44px] min-w-[44px] rounded-2xl bg-amber-glow text-ink-950 font-bold flex items-center justify-center active:opacity-80 shadow-lg shadow-amber-glow/10"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-6 h-6"
+                  aria-hidden
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            )
+          )}
+        </div>
+
+        {!reordering && (
+          <div className="mt-3 relative">
+            <input
+              type="search"
+              inputMode="search"
+              autoCorrect="off"
+              autoCapitalize="off"
+              placeholder="Search titles…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="w-full h-12 rounded-2xl bg-ink-800 border border-ink-700 pl-11 pr-4 text-base placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60 focus:bg-ink-800"
+            />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-500"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+          </div>
+        )}
+
+        {!reordering && canReorder && !query && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setReordering(true)}
+              className="min-h-[40px] px-3 rounded-xl text-sm font-semibold text-ink-300 border border-ink-700 active:bg-ink-800 flex items-center gap-1.5"
             >
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2.75"
+                strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                className="w-6 h-6"
+                className="w-4 h-4"
                 aria-hidden
               >
-                <path d="M12 5v14M5 12h14" />
+                <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
               </svg>
+              Reorder
             </button>
-          )}
-        </div>
-
-        <div className="mt-3 relative">
-          <input
-            type="search"
-            inputMode="search"
-            autoCorrect="off"
-            autoCapitalize="off"
-            placeholder="Search titles…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="w-full h-12 rounded-2xl bg-ink-800 border border-ink-700 pl-11 pr-4 text-base placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60 focus:bg-ink-800"
-          />
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-500"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-        </div>
+          </div>
+        )}
 
         <div className="mt-2">
           <BuildStamp />
         </div>
       </header>
 
-      {canWrite && wishlistAll.length > 0 && !query && (
+      {!reordering && canWrite && wishlistAll.length > 0 && !query && (
         <div className="px-4 pt-3">
           <button
             type="button"
@@ -164,32 +206,88 @@ export default function Wishlist({
         </div>
       ) : (
         <ul className="px-2 pt-1">
-          {wishlist.map((m) => (
-            <li key={m.title}>
-              <button
-                type="button"
-                onClick={() => onSelect(m)}
-                className="w-full min-h-[88px] flex items-center gap-3 px-3 py-3 rounded-2xl active:bg-ink-800 transition-colors text-left"
+          {wishlist.map((m, i) =>
+            reordering ? (
+              <li
+                key={m.title}
+                className="flex items-center gap-2 px-3 py-3 min-h-[88px]"
               >
                 <MoviePoster movie={m} size="thumb" />
                 <div className="flex-1 min-w-0">
                   <div className="text-base font-semibold leading-snug truncate">
                     {getDisplayTitle(m)}
                   </div>
-                  <MetricsRow movie={m} />
                 </div>
-                {m.commonSenseAge && (
-                  <span
-                    className={`shrink-0 rounded-full border px-2.5 py-1.5 text-sm font-bold tabular-nums ${ageBadgeClass(
-                      m.commonSenseAge,
-                    )}`}
+                <div className="flex flex-col gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => move(i, -1)}
+                    disabled={i === 0}
+                    aria-label={`Move ${getDisplayTitle(m)} up`}
+                    className="min-h-[44px] min-w-[44px] rounded-xl bg-ink-800 border border-ink-700 text-ink-100 flex items-center justify-center active:bg-ink-700 disabled:opacity-30 disabled:active:bg-ink-800"
                   >
-                    {m.commonSenseAge}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-5 h-5"
+                      aria-hidden
+                    >
+                      <path d="m18 15-6-6-6 6" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => move(i, 1)}
+                    disabled={i === wishlist.length - 1}
+                    aria-label={`Move ${getDisplayTitle(m)} down`}
+                    className="min-h-[44px] min-w-[44px] rounded-xl bg-ink-800 border border-ink-700 text-ink-100 flex items-center justify-center active:bg-ink-700 disabled:opacity-30 disabled:active:bg-ink-800"
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="w-5 h-5"
+                      aria-hidden
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </button>
+                </div>
+              </li>
+            ) : (
+              <li key={m.title}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(m)}
+                  className="w-full min-h-[88px] flex items-center gap-3 px-3 py-3 rounded-2xl active:bg-ink-800 transition-colors text-left"
+                >
+                  <MoviePoster movie={m} size="thumb" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-base font-semibold leading-snug truncate">
+                      {getDisplayTitle(m)}
+                    </div>
+                    <MetricsRow movie={m} />
+                  </div>
+                  {m.commonSenseAge && (
+                    <span
+                      className={`shrink-0 rounded-full border px-2.5 py-1.5 text-sm font-bold tabular-nums ${ageBadgeClass(
+                        m.commonSenseAge,
+                      )}`}
+                    >
+                      {m.commonSenseAge}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ),
+          )}
         </ul>
       )}
     </div>

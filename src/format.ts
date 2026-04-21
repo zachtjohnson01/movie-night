@@ -114,6 +114,23 @@ export function getDisplayTitle(
 }
 
 /**
+ * Sort wishlist movies: user-reordered items first (by `wishlistOrder` asc),
+ * then items without an explicit order, alphabetically.
+ */
+export function sortWishlist(movies: Movie[]): Movie[] {
+  return [...movies].sort((a, b) => {
+    const ao = a.wishlistOrder;
+    const bo = b.wishlistOrder;
+    if (ao != null && bo != null) return ao - bo;
+    if (ao != null) return -1;
+    if (bo != null) return 1;
+    return getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
+      sensitivity: 'base',
+    });
+  });
+}
+
+/**
  * Sort watched movies: known dates first (newest first), then undated movies
  * alphabetically at the bottom.
  */
@@ -148,6 +165,7 @@ export function emptyMovie(watched: boolean): Movie {
     notes: null,
     awards: null,
     production: null,
+    wishlistOrder: null,
   };
 }
 
@@ -168,6 +186,7 @@ export function candidateToTemplate(c: Candidate): Movie {
     notes: null,
     awards: c.awards,
     production: c.studio,
+    wishlistOrder: null,
   };
 }
 
