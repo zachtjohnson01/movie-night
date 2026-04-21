@@ -36,6 +36,7 @@ type Props =
   | {
       mode: 'existing';
       canWrite: boolean;
+      isOwner?: boolean;
       movie: Movie;
       onBack: () => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
@@ -61,6 +62,7 @@ export default function ModernDetail(props: Props) {
       <ClassicDetail
         mode="existing"
         canWrite={props.canWrite}
+        isOwner={props.isOwner}
         movie={props.movie}
         onBack={() => setShowClassic(false)}
         onUpdate={props.onUpdate}
