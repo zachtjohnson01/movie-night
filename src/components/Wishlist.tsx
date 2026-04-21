@@ -146,32 +146,47 @@ export default function Wishlist({ movies, canWrite, onSelect, onAdd }: Props) {
 }
 
 function MetricsRow({ movie: m }: { movie: Movie }) {
-  if (!m.rottenTomatoes && !m.imdb) {
+  if (!m.rottenTomatoes && !m.imdb && !m.production && !m.awards) {
     return (
       <div className="mt-1.5 text-xs text-ink-600 italic">no ratings</div>
     );
   }
   return (
-    <div className="mt-1.5 flex items-center gap-x-3 gap-y-0.5 flex-wrap text-sm">
-      {m.rottenTomatoes && (
-        <span className="inline-flex items-baseline gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">
-            RT
-          </span>
-          <span className="text-ink-100 font-semibold tabular-nums">
-            {m.rottenTomatoes}
-          </span>
-        </span>
+    <div className="mt-1.5 space-y-1">
+      {(m.rottenTomatoes || m.imdb) && (
+        <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap text-sm">
+          {m.rottenTomatoes && (
+            <span className="inline-flex items-baseline gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+                RT
+              </span>
+              <span className="text-ink-100 font-semibold tabular-nums">
+                {m.rottenTomatoes}
+              </span>
+            </span>
+          )}
+          {m.imdb && (
+            <span className="inline-flex items-baseline gap-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">
+                IMDb
+              </span>
+              <span className="text-ink-100 font-semibold tabular-nums">
+                {m.imdb}
+              </span>
+            </span>
+          )}
+        </div>
       )}
-      {m.imdb && (
-        <span className="inline-flex items-baseline gap-1">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">
-            IMDb
-          </span>
-          <span className="text-ink-100 font-semibold tabular-nums">
-            {m.imdb}
-          </span>
-        </span>
+      {(m.production || m.awards) && (
+        <div className="flex gap-2 flex-wrap text-xs text-ink-500 font-medium">
+          {m.production && <span className="truncate">{m.production}</span>}
+          {m.production && m.awards && (
+            <span className="opacity-50">·</span>
+          )}
+          {m.awards && (
+            <span className="text-amber-glow/85 truncate">{m.awards}</span>
+          )}
+        </div>
       )}
     </div>
   );
