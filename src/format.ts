@@ -146,6 +146,8 @@ export function emptyMovie(watched: boolean): Movie {
     watched,
     dateWatched: null,
     notes: null,
+    awards: null,
+    production: null,
   };
 }
 

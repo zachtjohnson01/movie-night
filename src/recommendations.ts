@@ -1,114 +1,69 @@
-import type { Movie } from './types';
+import type { Candidate, Movie } from './types';
+import { enrichCandidate } from './omdb';
+import { scoreCandidate } from './scoring';
 
 /**
- * Recommendations engine. Asks Claude (via the `/api/recommendations`
- * serverless function) for family-film recommendations grounded in the
- * watched list's attributes.
+ * Deterministic top-picks engine. Consumes the candidate pool (persisted in
+ * Supabase, fetched via useCandidatePool) and the user's library, returns
+ * the top N candidates that aren't already on the user's list — ranked by
+ * the pure `scoreCandidate` function. No LLM on the user path; same
+ * inputs produce the same output every session.
  *
- * Results ACCUMULATE in localStorage. "Add more" requests another batch
- * that doesn't overlap what we already have. Every batch is re-ranked
- * globally so the list stays cardinally ordered (best first).
- *
- * Ranking priority, in order:
- *   1. RT + IMDb ratings
- *   2. Common Sense Media age appropriateness
- *   3. Studio pedigree (Ghibli, Pixar, etc.)
- *   4. Major awards (Oscar, Annie, BAFTA, etc.)
- *   5. Notes / vibe match
- *   6. Tonal similarity (tiebreaker)
+ * `expandPool` is the admin-only flow that grows the pool: asks Claude
+ * for a fresh batch of titles, enriches each via OMDB for authoritative
+ * RT / IMDb / Awards, and returns the merged Candidate[] ready to append.
  */
 
-const CACHE_KEY = 'fmn:recs:v1';
-export const RECS_BATCH_SIZE = 10;
+export type RankedPick = Candidate & { fitScore: number };
 
-export type Recommendation = {
+const DEFAULT_LIMIT = 20;
+
+/**
+ * Rank the candidate pool against the user's library. Pure function.
+ */
+export function rankTopPicks(
+  candidates: Candidate[],
+  library: Movie[],
+  limit: number = DEFAULT_LIMIT,
+): RankedPick[] {
+  const libraryTitles = new Set(library.map((m) => m.title.toLowerCase()));
+  const scored: RankedPick[] = candidates
+    .filter((c) => !libraryTitles.has(c.title.toLowerCase()))
+    .map((c) => ({ ...c, fitScore: scoreCandidate(c) }));
+
+  // Sort descending by score, stable on ties (preserve pool insertion order).
+  return scored
+    .map((pick, i) => ({ pick, i }))
+    .sort((a, b) => b.pick.fitScore - a.pick.fitScore || a.i - b.i)
+    .slice(0, limit)
+    .map(({ pick }) => pick);
+}
+
+type RawCandidateFromApi = {
   title: string;
   year: number | null;
   commonSenseAge: string | null;
-  rottenTomatoes: string | null;
-  imdb: string | null;
   studio: string | null;
   awards: string | null;
-  fitScore: number | null;
-  why: string;
+  rottenTomatoes: string | null;
+  imdb: string | null;
 };
-
-export type RecCache = {
-  items: Recommendation[];
-  generatedAt: number;
-  lastAdded: string[];
-  generations: number;
-};
-
-export type AddBatchResult = RecCache & {
-  lastSurvived: number;
-  lastRawCount: number;
-};
-
-function loadCache(): RecCache | null {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as RecCache;
-    if (!parsed || !Array.isArray(parsed.items)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function saveCache(data: RecCache) {
-  try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-  } catch {
-    // Storage full or disabled — soldier on, cache is best-effort.
-  }
-}
-
-export function getCachedRecommendations(): RecCache | null {
-  return loadCache();
-}
-
-export function clearRecommendations() {
-  try {
-    localStorage.removeItem(CACHE_KEY);
-  } catch {
-    // noop
-  }
-}
 
 /**
- * Ask the server for a fresh batch, dedup against the library + previous
- * recs, trim to RECS_BATCH_SIZE, merge with any cached recs, and globally
- * re-rank by fitScore (descending, stable for ties).
+ * Admin-only: request a fresh batch of candidate films from the LLM,
+ * enrich each one via OMDB in parallel, and return a fully-formed
+ * Candidate[] ready to append to the pool. Does NOT write to Supabase —
+ * the caller does that through `useCandidatePool.appendCandidates`.
  */
-export async function addRecommendationBatch(
-  movies: Movie[],
-): Promise<AddBatchResult> {
-  const cached = loadCache() || {
-    items: [],
-    generatedAt: 0,
-    lastAdded: [],
-    generations: 0,
-  };
-
-  const existingRecTitles = cached.items.map((r) => r.title);
-
+export async function expandPool(
+  poolTitles: string[],
+  libraryTitles: string[],
+  batchSize: number = 100,
+): Promise<Candidate[]> {
   const resp = await fetch('/api/recommendations', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      movies: movies.map((m) => ({
-        title: m.title,
-        watched: m.watched,
-        commonSenseAge: m.commonSenseAge,
-        rottenTomatoes: m.rottenTomatoes,
-        imdb: m.imdb,
-        notes: m.notes,
-      })),
-      existingRecs: existingRecTitles,
-      batchSize: RECS_BATCH_SIZE,
-    }),
+    body: JSON.stringify({ poolTitles, libraryTitles, batchSize }),
   });
 
   if (!resp.ok) {
@@ -116,52 +71,39 @@ export async function addRecommendationBatch(
     throw new Error(detail.error || `HTTP ${resp.status}`);
   }
 
-  const data = (await resp.json()) as {
-    items: Recommendation[];
-    rawCount: number;
-  };
-  const fresh = Array.isArray(data.items) ? data.items : [];
+  const data = (await resp.json()) as { items: RawCandidateFromApi[] };
+  const raw = Array.isArray(data.items) ? data.items : [];
+  if (raw.length === 0) return [];
 
-  // Build a lowercase ban set from everything already on the user's
-  // radar so we reject duplicates even if the model slipped one through.
-  const existingLower = new Set<string>();
-  for (const m of movies) existingLower.add(m.title.toLowerCase());
-  for (const t of existingRecTitles) existingLower.add(t.toLowerCase());
+  // OMDB calls in parallel. allSettled so one 404 doesn't nuke the batch.
+  const enriched = await Promise.allSettled(
+    raw.map((r) => enrichCandidate(r.title)),
+  );
 
-  const scored = fresh
-    .filter((r) => !existingLower.has(r.title.toLowerCase()))
-    .slice(0, RECS_BATCH_SIZE)
-    .map((r, i) => ({
-      ...r,
-      fitScore:
-        typeof r.fitScore === 'number' && !Number.isNaN(r.fitScore)
-          ? r.fitScore
-          : Math.max(60, 100 - i * 4),
-    }));
-
-  const merged = [...cached.items, ...scored]
-    .map((r, i) => ({ rec: r, i }))
-    .sort(
-      (a, b) =>
-        (b.rec.fitScore ?? 0) - (a.rec.fitScore ?? 0) || a.i - b.i,
-    )
-    .map(({ rec }) => rec);
-
-  const out: AddBatchResult = {
-    items: merged,
-    generatedAt: Date.now(),
-    generations: (cached.generations || 0) + 1,
-    lastAdded: scored.map((r) => r.title),
-    lastSurvived: scored.length,
-    lastRawCount: data.rawCount ?? fresh.length,
-  };
-
-  saveCache({
-    items: out.items,
-    generatedAt: out.generatedAt,
-    lastAdded: out.lastAdded,
-    generations: out.generations,
+  const now = new Date().toISOString();
+  const out: Candidate[] = raw.map((r, i) => {
+    const omdb =
+      enriched[i].status === 'fulfilled' ? enriched[i].value : null;
+    // Merge rules: OMDB wins for RT / IMDb / awards / year / poster / imdbId.
+    // LLM wins for CSM age (OMDB has none) and studio (OMDB's Production
+    // is usually "N/A" on the free tier).
+    return {
+      title: r.title,
+      year: omdb?.year ?? r.year,
+      imdbId: omdb?.imdbId ?? null,
+      imdb: omdb?.imdb ?? r.imdb,
+      rottenTomatoes: omdb?.rottenTomatoes ?? r.rottenTomatoes,
+      commonSenseAge: r.commonSenseAge,
+      studio: r.studio ?? omdb?.production ?? null,
+      awards: omdb?.awards ?? r.awards,
+      poster: omdb?.poster ?? null,
+      addedAt: now,
+    };
   });
 
-  return out;
+  // Final client-side dedupe against pool + library.
+  const ban = new Set<string>();
+  for (const t of poolTitles) ban.add(t.toLowerCase());
+  for (const t of libraryTitles) ban.add(t.toLowerCase());
+  return out.filter((c) => !ban.has(c.title.toLowerCase()));
 }

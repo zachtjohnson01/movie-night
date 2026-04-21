@@ -40,6 +40,8 @@ type OmdbDetailResponse =
       imdbRating: string; // "8.2" or "N/A"
       Ratings: Array<{ Source: string; Value: string }>;
       Poster: string;
+      Awards: string; // "Won 1 Oscar. Another 14 wins & 13 nominations." or "N/A"
+      Production: string; // often "N/A" on the free tier
     }
   | { Response: 'False'; Error: string };
 
@@ -55,6 +57,8 @@ export type OmdbMoviePatch = {
   imdb: string | null;
   rottenTomatoes: string | null;
   poster: string | null;
+  awards: string | null;
+  production: string | null;
 };
 
 export class OmdbError extends Error {
@@ -208,6 +212,44 @@ export async function linkByTitle(
   }
 }
 
+/**
+ * Authoritative-fields patch for a candidate-pool entry. The LLM seeds
+ * titles with guesses at RT/IMDb/studio/awards; this function overlays
+ * the real values from OMDB where available. Swallows all errors —
+ * callers iterate over 100+ titles and want failures to degrade to
+ * "leave the LLM guess alone" rather than abort the batch.
+ */
+export type CandidateOmdbPatch = {
+  imdbId: string;
+  year: number | null;
+  imdb: string | null;
+  rottenTomatoes: string | null;
+  poster: string | null;
+  awards: string | null;
+  production: string | null;
+};
+
+export async function enrichCandidate(
+  title: string,
+): Promise<CandidateOmdbPatch | null> {
+  if (!OMDB_KEY) return null;
+  try {
+    const patch = await linkByTitle(title);
+    if (!patch) return null;
+    return {
+      imdbId: patch.imdbId,
+      year: patch.year,
+      imdb: patch.imdb,
+      rottenTomatoes: patch.rottenTomatoes,
+      poster: patch.poster,
+      awards: patch.awards,
+      production: patch.production,
+    };
+  } catch {
+    return null;
+  }
+}
+
 function extractPatch(data: {
   Title: string;
   Year: string;
@@ -215,6 +257,8 @@ function extractPatch(data: {
   imdbRating: string;
   Ratings: Array<{ Source: string; Value: string }>;
   Poster: string;
+  Awards?: string;
+  Production?: string;
 }): OmdbMoviePatch {
   const rt = data.Ratings.find((r) => r.Source === 'Rotten Tomatoes');
   const year = parseInt(data.Year, 10);
@@ -225,6 +269,8 @@ function extractPatch(data: {
     imdb: data.imdbRating && data.imdbRating !== 'N/A' ? data.imdbRating : null,
     rottenTomatoes: rt ? rt.Value : null,
     poster: data.Poster && data.Poster !== 'N/A' ? data.Poster : null,
+    awards: data.Awards && data.Awards !== 'N/A' ? data.Awards : null,
+    production: data.Production && data.Production !== 'N/A' ? data.Production : null,
   };
 }
 
