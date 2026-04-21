@@ -718,6 +718,10 @@ function EditForm({
 
   return (
     <div className="space-y-5">
+      <div className="flex justify-center">
+        <MoviePoster movie={draft} size="detail" />
+      </div>
+
       {isNew && (
         <div className="text-sm text-ink-400">
           {isOmdbConfigured
