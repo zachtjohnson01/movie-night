@@ -15,13 +15,14 @@ import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import { useMovies } from './useMovies';
 import { useAuth } from './useAuth';
-import { candidateToTemplate, emptyMovie } from './format';
+import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
 
 type Screen =
   | { name: 'list' }
   | { name: 'detail'; title: string }
-  | { name: 'new'; template: Movie };
+  | { name: 'new'; template: Movie }
+  | { name: 'candidate'; template: Movie };
 
 type Design = 'classic' | 'modern';
 
@@ -92,7 +93,7 @@ export default function App() {
 
   function openPick(c: Candidate) {
     if (!auth.canWrite) return;
-    setScreen({ name: 'new', template: candidateToTemplate(c) });
+    setScreen({ name: 'candidate', template: candidateToTemplate(c) });
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
@@ -116,6 +117,27 @@ export default function App() {
     if (!auth.canWrite) return;
     await addMovie(created);
     setTab(created.watched ? 'watched' : 'wishlist');
+    setScreen({ name: 'list' });
+  }
+
+  async function handleAddCandidateToWishlist(template: Movie) {
+    if (!auth.canWrite) return;
+    await addMovie({ ...template, watched: false, dateWatched: null });
+    setTab('wishlist');
+    setScreen({ name: 'list' });
+  }
+
+  async function handleMarkCandidateWatchedTonight(template: Movie) {
+    if (!auth.canWrite) return;
+    await addMovie({ ...template, watched: true, dateWatched: todayIso() });
+    setTab('watched');
+    setScreen({ name: 'list' });
+  }
+
+  async function handleMarkCandidateWatchedUndated(template: Movie) {
+    if (!auth.canWrite) return;
+    await addMovie({ ...template, watched: true, dateWatched: null });
+    setTab('watched');
     setScreen({ name: 'list' });
   }
 
@@ -145,6 +167,21 @@ export default function App() {
         canWrite={auth.canWrite}
         onBack={() => setScreen({ name: 'list' })}
         onCreate={handleCreate}
+      />
+    );
+  }
+
+  if (screen.name === 'candidate') {
+    const DetailComponent = isModern ? ModernDetail : Detail;
+    return (
+      <DetailComponent
+        mode="candidate"
+        movie={screen.template}
+        canWrite={auth.canWrite}
+        onBack={() => setScreen({ name: 'list' })}
+        onAddToWishlist={handleAddCandidateToWishlist}
+        onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
+        onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
       />
     );
   }

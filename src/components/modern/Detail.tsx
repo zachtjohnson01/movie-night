@@ -47,12 +47,21 @@ type Props =
       movie: Movie;
       onBack: () => void;
       onCreate: (created: Movie) => void | Promise<void>;
+    }
+  | {
+      mode: 'candidate';
+      canWrite: boolean;
+      movie: Movie;
+      onBack: () => void;
+      onAddToWishlist: (movie: Movie) => void | Promise<void>;
+      onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
+      onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
     };
 
 export default function ModernDetail(props: Props) {
   const [showClassic, setShowClassic] = useState(false);
 
-  if (props.mode === 'new') {
+  if (props.mode === 'new' || props.mode === 'candidate') {
     return <ClassicDetail {...props} />;
   }
 

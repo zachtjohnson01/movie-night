@@ -35,6 +35,15 @@ type Props =
       movie: Movie; // empty template
       onBack: () => void;
       onCreate: (created: Movie) => void | Promise<void>;
+    }
+  | {
+      mode: 'candidate';
+      canWrite: boolean;
+      movie: Movie; // template from candidateToTemplate
+      onBack: () => void;
+      onAddToWishlist: (movie: Movie) => void | Promise<void>;
+      onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
+      onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
     };
 
 /** Overwrite fields with fresh OMDB data. Used by refresh. */
@@ -188,7 +197,7 @@ export default function Detail(props: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backfillImdbId]);
 
-  const movie = props.mode === 'existing' ? props.movie : draft;
+  const movie = props.mode === 'new' ? draft : props.movie;
   const isWatched = movie.watched;
 
   function startEdit() {
@@ -209,7 +218,7 @@ export default function Detail(props: Props) {
     if (!draft.title.trim()) return;
     if (props.mode === 'new') {
       await props.onCreate(draft);
-    } else {
+    } else if (props.mode === 'existing') {
       await props.onUpdate(draft);
       setEditing(false);
     }
@@ -283,7 +292,7 @@ export default function Detail(props: Props) {
       const patch = await getMovieById(result.imdbId);
       if (props.mode === 'new' || editing) {
         setDraft((prev) => applyPatchOverwrite(prev, patch));
-      } else {
+      } else if (props.mode === 'existing') {
         await props.onUpdate(applyPatchOverwrite(props.movie, patch));
       }
       setShowLinkSearch(false);
@@ -326,7 +335,7 @@ export default function Detail(props: Props) {
             <span className="text-base font-medium">Back</span>
           </button>
           {!editing ? (
-            props.canWrite ? (
+            props.canWrite && props.mode !== 'candidate' ? (
               <button
                 type="button"
                 onClick={startEdit}
@@ -369,62 +378,69 @@ export default function Detail(props: Props) {
             omdbBusy={omdbBusy}
             omdbError={omdbError}
           />
-        ) : (
-          props.mode === 'existing' && (
-            <ViewMode
-              movie={movie}
-              isWatched={isWatched}
-              canWrite={props.canWrite}
-              onMarkWatchedTonight={markWatchedTonight}
-              onMarkWatchedUndated={markWatchedUndated}
-              onSaveNotes={saveNotes}
-              onDelete={handleDelete}
-              onRefresh={handleRefresh}
-              showLinkSearch={showLinkSearch}
-              onToggleLinkSearch={() => {
-                setShowLinkSearch((v) => !v);
-                setOmdbError(null);
-              }}
-              onPickLinkResult={handlePickSearchResult}
-              omdbBusy={omdbBusy}
-              omdbError={omdbError}
-            />
-          )
-        )}
+        ) : props.mode === 'existing' ? (
+          <ViewMode
+            variant="existing"
+            movie={movie}
+            isWatched={isWatched}
+            canWrite={props.canWrite}
+            onMarkWatchedTonight={markWatchedTonight}
+            onMarkWatchedUndated={markWatchedUndated}
+            onSaveNotes={saveNotes}
+            onDelete={handleDelete}
+            onRefresh={handleRefresh}
+            showLinkSearch={showLinkSearch}
+            onToggleLinkSearch={() => {
+              setShowLinkSearch((v) => !v);
+              setOmdbError(null);
+            }}
+            onPickLinkResult={handlePickSearchResult}
+            omdbBusy={omdbBusy}
+            omdbError={omdbError}
+          />
+        ) : props.mode === 'candidate' ? (
+          <ViewMode
+            variant="candidate"
+            movie={movie}
+            canWrite={props.canWrite}
+            onAddToWishlist={() => props.onAddToWishlist(props.movie)}
+            onMarkWatchedTonight={() => props.onMarkWatchedTonight(props.movie)}
+            onMarkWatchedUndated={() => props.onMarkWatchedUndated(props.movie)}
+          />
+        ) : null}
       </main>
     </div>
   );
 }
 
-function ViewMode({
-  movie,
-  isWatched,
-  canWrite,
-  onMarkWatchedTonight,
-  onMarkWatchedUndated,
-  onSaveNotes,
-  onDelete,
-  onRefresh,
-  showLinkSearch,
-  onToggleLinkSearch,
-  onPickLinkResult,
-  omdbBusy,
-  omdbError,
-}: {
+type ViewModeProps = {
   movie: Movie;
-  isWatched: boolean;
   canWrite: boolean;
-  onMarkWatchedTonight: () => void;
-  onMarkWatchedUndated: () => void;
-  onSaveNotes: (notes: string) => void;
-  onDelete: () => void;
-  onRefresh: () => void;
-  showLinkSearch: boolean;
-  onToggleLinkSearch: () => void;
-  onPickLinkResult: (r: OmdbSearchResult) => void;
-  omdbBusy: boolean;
-  omdbError: string | null;
-}) {
+} & (
+  | {
+      variant: 'existing';
+      isWatched: boolean;
+      onMarkWatchedTonight: () => void;
+      onMarkWatchedUndated: () => void;
+      onSaveNotes: (notes: string) => void;
+      onDelete: () => void;
+      onRefresh: () => void;
+      showLinkSearch: boolean;
+      onToggleLinkSearch: () => void;
+      onPickLinkResult: (r: OmdbSearchResult) => void;
+      omdbBusy: boolean;
+      omdbError: string | null;
+    }
+  | {
+      variant: 'candidate';
+      onAddToWishlist: () => void;
+      onMarkWatchedTonight: () => void;
+      onMarkWatchedUndated: () => void;
+    }
+);
+
+function ViewMode(props: ViewModeProps) {
+  const { movie, canWrite, variant } = props;
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
   // Use loose inequality so movies whose Supabase row literally has no
@@ -489,17 +505,17 @@ function ViewMode({
 
       <StudioAwardsBlock movie={movie} />
 
-      {isOmdbConfigured && (
+      {variant === 'existing' && isOmdbConfigured && (
         <div className="mt-4 space-y-2">
-          {!showLinkSearch && (
+          {!props.showLinkSearch && (
             <>
               <button
                 type="button"
-                onClick={isLinked ? onRefresh : onToggleLinkSearch}
-                disabled={omdbBusy}
+                onClick={isLinked ? props.onRefresh : props.onToggleLinkSearch}
+                disabled={props.omdbBusy}
                 className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-100 font-semibold active:bg-ink-700 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {omdbBusy ? (
+                {props.omdbBusy ? (
                   <>
                     <Spinner />
                     <span>Working…</span>
@@ -524,7 +540,7 @@ function ViewMode({
             </>
           )}
 
-          {showLinkSearch && (
+          {props.showLinkSearch && (
             <div className="rounded-2xl bg-ink-900/70 border border-ink-800 p-3 space-y-2">
               <div className="text-[11px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
                 Find this movie on OMDB
@@ -532,12 +548,12 @@ function ViewMode({
               <MovieSearchCombobox
                 value={linkQuery}
                 onChange={setLinkQuery}
-                onPick={onPickLinkResult}
+                onPick={props.onPickLinkResult}
                 autoOpen
               />
               <button
                 type="button"
-                onClick={onToggleLinkSearch}
+                onClick={props.onToggleLinkSearch}
                 className="w-full min-h-[40px] text-sm text-ink-400 active:text-ink-200"
               >
                 Cancel
@@ -545,90 +561,120 @@ function ViewMode({
             </div>
           )}
 
-          {omdbError && (
+          {props.omdbError && (
             <div className="rounded-xl bg-rose-950/40 border border-rose-900/60 px-3 py-2 text-xs text-rose-200">
-              {omdbError}
+              {props.omdbError}
             </div>
           )}
         </div>
       )}
 
-      {isWatched ? (
-        <section className="mt-8">
-          <div className="text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
-            Watched
-          </div>
-          <div className="mt-1 text-lg text-ink-100 font-semibold">
-            {movie.dateWatched ? (
-              formatDate(movie.dateWatched)
-            ) : (
-              <span className="text-ink-400 italic">Date unknown</span>
+      {variant === 'existing' &&
+        (props.isWatched ? (
+          <section className="mt-8">
+            <div className="text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
+              Watched
+            </div>
+            <div className="mt-1 text-lg text-ink-100 font-semibold">
+              {movie.dateWatched ? (
+                formatDate(movie.dateWatched)
+              ) : (
+                <span className="text-ink-400 italic">Date unknown</span>
+              )}
+            </div>
+            {!movie.dateWatched && canWrite && (
+              <p className="mt-2 text-xs text-ink-500">
+                Tap Edit to set the date when you remember it.
+              </p>
             )}
-          </div>
-          {!movie.dateWatched && canWrite && (
-            <p className="mt-2 text-xs text-ink-500">
-              Tap Edit to set the date when you remember it.
-            </p>
-          )}
 
-          <label className="mt-6 block text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
-            Notes
-          </label>
-          {canWrite ? (
-            <>
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Favorite scenes, reactions, the moment she gasped…"
-                rows={6}
-                className="mt-2 w-full rounded-2xl bg-ink-800 border border-ink-700 p-4 text-base leading-relaxed placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
-              />
+            <label className="mt-6 block text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
+              Notes
+            </label>
+            {canWrite ? (
+              <>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Favorite scenes, reactions, the moment she gasped…"
+                  rows={6}
+                  className="mt-2 w-full rounded-2xl bg-ink-800 border border-ink-700 p-4 text-base leading-relaxed placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+                />
+                <button
+                  type="button"
+                  disabled={!notesDirty}
+                  onClick={() => props.onSaveNotes(notes)}
+                  className="mt-3 w-full min-h-[52px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40 disabled:active:opacity-40"
+                >
+                  Save notes
+                </button>
+              </>
+            ) : movie.notes ? (
+              <p className="mt-2 whitespace-pre-wrap rounded-2xl bg-ink-900/60 border border-ink-800 p-4 text-base leading-relaxed text-ink-200">
+                {movie.notes}
+              </p>
+            ) : (
+              <p className="mt-2 text-sm text-ink-500 italic">No notes yet.</p>
+            )}
+          </section>
+        ) : (
+          canWrite && (
+            <section className="mt-10 space-y-3">
               <button
                 type="button"
-                disabled={!notesDirty}
-                onClick={() => onSaveNotes(notes)}
-                className="mt-3 w-full min-h-[52px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40 disabled:active:opacity-40"
+                onClick={props.onMarkWatchedTonight}
+                className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
               >
-                Save notes
+                Mark as watched tonight
               </button>
-            </>
-          ) : movie.notes ? (
-            <p className="mt-2 whitespace-pre-wrap rounded-2xl bg-ink-900/60 border border-ink-800 p-4 text-base leading-relaxed text-ink-200">
-              {movie.notes}
-            </p>
-          ) : (
-            <p className="mt-2 text-sm text-ink-500 italic">No notes yet.</p>
-          )}
+              <p className="text-center text-xs text-ink-500">
+                Sets the date to today ({formatDate(todayIso())}).
+              </p>
+              <button
+                type="button"
+                onClick={props.onMarkWatchedUndated}
+                className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
+              >
+                Mark watched · date unknown
+              </button>
+            </section>
+          )
+        ))}
+
+      {variant === 'candidate' && canWrite && (
+        <section className="mt-10 space-y-3">
+          <button
+            type="button"
+            onClick={props.onAddToWishlist}
+            className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
+          >
+            Add to wishlist
+          </button>
+          <button
+            type="button"
+            onClick={props.onMarkWatchedTonight}
+            className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
+          >
+            Mark watched tonight
+          </button>
+          <p className="text-center text-xs text-ink-500">
+            Sets the date to today ({formatDate(todayIso())}).
+          </p>
+          <button
+            type="button"
+            onClick={props.onMarkWatchedUndated}
+            className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
+          >
+            Mark watched · date unknown
+          </button>
         </section>
-      ) : (
-        canWrite && (
-          <section className="mt-10 space-y-3">
-            <button
-              type="button"
-              onClick={onMarkWatchedTonight}
-              className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
-            >
-              Mark as watched tonight
-            </button>
-            <p className="text-center text-xs text-ink-500">
-              Sets the date to today ({formatDate(todayIso())}).
-            </p>
-            <button
-              type="button"
-              onClick={onMarkWatchedUndated}
-              className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
-            >
-              Mark watched · date unknown
-            </button>
-          </section>
-        )
       )}
 
-      {canWrite && (
+      {variant === 'existing' && canWrite && (
         <section className="mt-12 pt-6 border-t border-ink-800/70">
           <button
             type="button"
-            onClick={onDelete}
+            onClick={props.onDelete}
             className="w-full min-h-[48px] rounded-2xl text-rose-400 font-medium active:bg-rose-950/40"
           >
             Delete movie
