@@ -253,7 +253,7 @@ export default async function handler(
   }
 
   const auth = await authenticate(req);
-  if (!auth.ok) {
+  if (auth.ok === false) {
     return res.status(auth.status).json({ error: auth.error });
   }
 
