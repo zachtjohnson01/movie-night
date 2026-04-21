@@ -19,8 +19,15 @@ type Screen =
   | { name: 'new'; template: Movie };
 
 export default function App() {
-  const { movies, status, updateMovie, addMovie, deleteMovie, reorderWishlist } =
-    useMovies();
+  const {
+    movies,
+    status,
+    updateMovie,
+    addMovie,
+    deleteMovie,
+    reorderWishlist,
+    reload: reloadMovies,
+  } = useMovies();
   const auth = useAuth();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
@@ -155,6 +162,7 @@ export default function App() {
             movies={movies}
             canWrite={auth.canWrite}
             onSelectPick={openPick}
+            reloadMovies={reloadMovies}
           />
         )}
       </main>

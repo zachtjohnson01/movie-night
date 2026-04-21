@@ -8,13 +8,23 @@ type Props = {
   movies: Movie[];
   canWrite: boolean;
   onSelectPick: (c: Candidate) => void;
+  reloadMovies: () => void;
 };
+
+// Minimum visible spinner time on refresh so the button doesn't flicker
+// when the underlying fetch resolves in < 100ms.
+const MIN_REFRESH_MS = 450;
 
 const TOP_N = 20;
 const EXPAND_BATCH = 100;
 const SEED_BATCHES = 5; // 5 × 100 = 500-film initial pool
 
-export default function Recommendations({ movies, canWrite, onSelectPick }: Props) {
+export default function Recommendations({
+  movies,
+  canWrite,
+  onSelectPick,
+  reloadMovies,
+}: Props) {
   const pool = useCandidatePool();
   const [busy, setBusy] = useState<
     | { kind: 'idle' }
@@ -22,6 +32,7 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
     | { kind: 'expanding' }
   >({ kind: 'idle' });
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const picks = useMemo(
     () => rankTopPicks(pool.candidates, movies, TOP_N),
@@ -78,6 +89,15 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
   const expanding = busy.kind === 'expanding';
   const anyBusy = seeding || expanding;
 
+  const handleRefresh = useCallback(async () => {
+    if (refreshing || loading) return;
+    setRefreshing(true);
+    pool.reload();
+    reloadMovies();
+    await new Promise((r) => setTimeout(r, MIN_REFRESH_MS));
+    setRefreshing(false);
+  }, [refreshing, loading, pool, reloadMovies]);
+
   return (
     <div className="mx-auto max-w-xl">
       <header
@@ -101,6 +121,19 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
               Ranked by RT, IMDb, CSM age, studio, awards.
             </p>
           </div>
+          <button
+            type="button"
+            onClick={() => void handleRefresh()}
+            disabled={refreshing || loading}
+            aria-label="Refresh picks"
+            className={`shrink-0 w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${
+              refreshing || loading
+                ? 'bg-ink-900 border-ink-800 text-ink-500 cursor-default'
+                : 'bg-ink-800 border-ink-700 text-ink-200 active:bg-ink-700'
+            }`}
+          >
+            <RefreshIcon spinning={refreshing} />
+          </button>
         </div>
       </header>
 
@@ -358,6 +391,28 @@ function RecSkeleton() {
         <div className="w-[60%] h-3 rounded bg-ink-800 shimmer" />
       </div>
     </div>
+  );
+}
+
+function RefreshIcon({ spinning }: { spinning: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 24 24"
+      width={20}
+      height={20}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={spinning ? 'animate-spin' : undefined}
+    >
+      <path d="M21 12a9 9 0 0 1-15.36 6.36L3 16" />
+      <path d="M3 12a9 9 0 0 1 15.36-6.36L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M3 21v-5h5" />
+    </svg>
   );
 }
 
