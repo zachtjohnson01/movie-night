@@ -12,6 +12,11 @@ export const isSupabaseConfigured = Boolean(url && anonKey);
  */
 export const supabase: SupabaseClient | null = isSupabaseConfigured
   ? createClient(url!, anonKey!, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
       realtime: { params: { eventsPerSecond: 5 } },
     })
   : null;

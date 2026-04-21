@@ -20,20 +20,26 @@ import {
 import MovieSearchCombobox from './MovieSearchCombobox';
 import MoviePoster from './MoviePoster';
 
+type SharedProps = {
+  canWrite: boolean;
+  email: string | null;
+  onSignOut: () => void | Promise<void>;
+};
+
 type Props =
-  | {
+  | (SharedProps & {
       mode: 'existing';
       movie: Movie;
       onBack: () => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
       onDelete: (movie: Movie) => void | Promise<void>;
-    }
-  | {
+    })
+  | (SharedProps & {
       mode: 'new';
       movie: Movie; // empty template
       onBack: () => void;
       onCreate: (created: Movie) => void | Promise<void>;
-    };
+    });
 
 /** Overwrite fields with fresh OMDB data. Used by refresh. */
 function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
@@ -324,13 +330,17 @@ export default function Detail(props: Props) {
             <span className="text-base font-medium">Back</span>
           </button>
           {!editing ? (
-            <button
-              type="button"
-              onClick={startEdit}
-              className="min-h-[44px] px-4 rounded-xl text-amber-glow font-semibold active:bg-ink-800"
-            >
-              Edit
-            </button>
+            props.canWrite ? (
+              <button
+                type="button"
+                onClick={startEdit}
+                className="min-h-[44px] px-4 rounded-xl text-amber-glow font-semibold active:bg-ink-800"
+              >
+                Edit
+              </button>
+            ) : (
+              <div aria-hidden className="min-h-[44px]" />
+            )
           ) : (
             <div className="flex items-center gap-1">
               <button
@@ -368,6 +378,9 @@ export default function Detail(props: Props) {
             <ViewMode
               movie={movie}
               isWatched={isWatched}
+              canWrite={props.canWrite}
+              email={props.email}
+              onSignOut={props.onSignOut}
               onMarkWatchedTonight={markWatchedTonight}
               onMarkWatchedUndated={markWatchedUndated}
               onSaveNotes={saveNotes}
@@ -392,6 +405,9 @@ export default function Detail(props: Props) {
 function ViewMode({
   movie,
   isWatched,
+  canWrite,
+  email,
+  onSignOut,
   onMarkWatchedTonight,
   onMarkWatchedUndated,
   onSaveNotes,
@@ -405,6 +421,9 @@ function ViewMode({
 }: {
   movie: Movie;
   isWatched: boolean;
+  canWrite: boolean;
+  email: string | null;
+  onSignOut: () => void | Promise<void>;
   onMarkWatchedTonight: () => void;
   onMarkWatchedUndated: () => void;
   onSaveNotes: (notes: string) => void;
@@ -554,7 +573,7 @@ function ViewMode({
               <span className="text-ink-400 italic">Date unknown</span>
             )}
           </div>
-          {!movie.dateWatched && (
+          {!movie.dateWatched && canWrite && (
             <p className="mt-2 text-xs text-ink-500">
               Tap Edit to set the date when you remember it.
             </p>
@@ -563,53 +582,78 @@ function ViewMode({
           <label className="mt-6 block text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
             Notes
           </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Favorite scenes, reactions, the moment she gasped…"
-            rows={6}
-            className="mt-2 w-full rounded-2xl bg-ink-800 border border-ink-700 p-4 text-base leading-relaxed placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
-          />
-          <button
-            type="button"
-            disabled={!notesDirty}
-            onClick={() => onSaveNotes(notes)}
-            className="mt-3 w-full min-h-[52px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40 disabled:active:opacity-40"
-          >
-            Save notes
-          </button>
+          {canWrite ? (
+            <>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Favorite scenes, reactions, the moment she gasped…"
+                rows={6}
+                className="mt-2 w-full rounded-2xl bg-ink-800 border border-ink-700 p-4 text-base leading-relaxed placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+              />
+              <button
+                type="button"
+                disabled={!notesDirty}
+                onClick={() => onSaveNotes(notes)}
+                className="mt-3 w-full min-h-[52px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40 disabled:active:opacity-40"
+              >
+                Save notes
+              </button>
+            </>
+          ) : movie.notes ? (
+            <p className="mt-2 whitespace-pre-wrap rounded-2xl bg-ink-900/60 border border-ink-800 p-4 text-base leading-relaxed text-ink-200">
+              {movie.notes}
+            </p>
+          ) : (
+            <p className="mt-2 text-sm text-ink-500 italic">No notes yet.</p>
+          )}
         </section>
       ) : (
-        <section className="mt-10 space-y-3">
-          <button
-            type="button"
-            onClick={onMarkWatchedTonight}
-            className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
-          >
-            Mark as watched tonight
-          </button>
-          <p className="text-center text-xs text-ink-500">
-            Sets the date to today ({formatDate(todayIso())}).
-          </p>
-          <button
-            type="button"
-            onClick={onMarkWatchedUndated}
-            className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
-          >
-            Mark watched · date unknown
-          </button>
-        </section>
+        canWrite && (
+          <section className="mt-10 space-y-3">
+            <button
+              type="button"
+              onClick={onMarkWatchedTonight}
+              className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
+            >
+              Mark as watched tonight
+            </button>
+            <p className="text-center text-xs text-ink-500">
+              Sets the date to today ({formatDate(todayIso())}).
+            </p>
+            <button
+              type="button"
+              onClick={onMarkWatchedUndated}
+              className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
+            >
+              Mark watched · date unknown
+            </button>
+          </section>
+        )
       )}
 
-      <section className="mt-12 pt-6 border-t border-ink-800/70">
-        <button
-          type="button"
-          onClick={onDelete}
-          className="w-full min-h-[48px] rounded-2xl text-rose-400 font-medium active:bg-rose-950/40"
-        >
-          Delete movie
-        </button>
-      </section>
+      {canWrite && (
+        <section className="mt-12 pt-6 border-t border-ink-800/70 space-y-4">
+          <button
+            type="button"
+            onClick={onDelete}
+            className="w-full min-h-[48px] rounded-2xl text-rose-400 font-medium active:bg-rose-950/40"
+          >
+            Delete movie
+          </button>
+          <div className="text-center text-xs text-ink-500">
+            Signed in as {email}{' '}
+            <span aria-hidden>·</span>{' '}
+            <button
+              type="button"
+              onClick={() => onSignOut()}
+              className="underline-offset-2 hover:underline active:text-ink-300"
+            >
+              Sign out
+            </button>
+          </div>
+        </section>
+      )}
     </>
   );
 }

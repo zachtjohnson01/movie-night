@@ -5,8 +5,10 @@ import Recommendations from './components/Recommendations';
 import Detail from './components/Detail';
 import TabBar, { type Tab } from './components/TabBar';
 import SyncBanner from './components/SyncBanner';
+import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import { useMovies } from './useMovies';
+import { useAuth } from './useAuth';
 import { emptyMovie } from './format';
 import type { Movie } from './types';
 
@@ -17,6 +19,7 @@ type Screen =
 
 export default function App() {
   const { movies, status, updateMovie, addMovie, deleteMovie } = useMovies();
+  const auth = useAuth();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
   const [showBulkLink, setShowBulkLink] = useState(false);
@@ -36,11 +39,13 @@ export default function App() {
   }, [movies, screen]);
 
   function openAdd() {
+    if (!auth.canWrite) return;
     const template = emptyMovie(tab === 'watched');
     setScreen({ name: 'new', template });
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
+    if (!auth.canWrite) return;
     // If the title is changing, update `screen.title` BEFORE kicking
     // off the updateMovie write. React 18 auto-batches state updates
     // within the same synchronous chunk, so setting screen here and
@@ -57,12 +62,14 @@ export default function App() {
   }
 
   async function handleCreate(created: Movie) {
+    if (!auth.canWrite) return;
     await addMovie(created);
     setTab(created.watched ? 'watched' : 'wishlist');
     setScreen({ name: 'list' });
   }
 
   async function handleDelete(movie: Movie) {
+    if (!auth.canWrite) return;
     await deleteMovie(movie.title);
     setScreen({ name: 'list' });
   }
@@ -72,6 +79,9 @@ export default function App() {
       <Detail
         mode="new"
         movie={screen.template}
+        canWrite={auth.canWrite}
+        email={auth.email}
+        onSignOut={auth.signOut}
         onBack={() => setScreen({ name: 'list' })}
         onCreate={handleCreate}
       />
@@ -83,6 +93,9 @@ export default function App() {
       <Detail
         mode="existing"
         movie={selected}
+        canWrite={auth.canWrite}
+        email={auth.email}
+        onSignOut={auth.signOut}
         onBack={() => setScreen({ name: 'list' })}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
         onDelete={handleDelete}
@@ -92,11 +105,18 @@ export default function App() {
 
   return (
     <div className="min-h-full flex flex-col">
+      <AuthBanner
+        status={auth.status}
+        email={auth.email}
+        onSignIn={auth.signIn}
+        onSignOut={auth.signOut}
+      />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
         {tab === 'watched' && (
           <WatchedList
             movies={movies}
+            canWrite={auth.canWrite}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
             onBulkLink={() => setShowBulkLink(true)}
@@ -105,6 +125,7 @@ export default function App() {
         {tab === 'wishlist' && (
           <Wishlist
             movies={movies}
+            canWrite={auth.canWrite}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
           />
