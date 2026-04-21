@@ -487,6 +487,18 @@ function ViewMode({
         <StatLink label="IMDb" value={movie.imdb} href={imdbUrl(movie)} />
       </div>
 
+      {(movie.production || movie.awards) && (
+        <div className="mt-4 flex gap-x-3 gap-y-1 flex-wrap text-sm text-ink-400">
+          {movie.production && <span>{movie.production}</span>}
+          {movie.production && movie.awards && (
+            <span className="opacity-50">·</span>
+          )}
+          {movie.awards && (
+            <span className="text-amber-glow/85">{movie.awards}</span>
+          )}
+        </div>
+      )}
+
       {isOmdbConfigured && (
         <div className="mt-4 space-y-2">
           {!showLinkSearch && (
