@@ -18,6 +18,7 @@ export type MoviesApi = {
   updateMovie: (originalTitle: string, updated: Movie) => Promise<void>;
   addMovie: (movie: Movie) => Promise<void>;
   deleteMovie: (title: string) => Promise<void>;
+  reorderWishlist: (orderedTitles: string[]) => Promise<void>;
 };
 
 /**
@@ -151,5 +152,25 @@ export function useMovies(): MoviesApi {
     [writeRemote],
   );
 
-  return { movies, status, updateMovie, addMovie, deleteMovie };
+  // Assign wishlistOrder based on the supplied title sequence: the first
+  // title gets order 0, the next 1, and so on. Titles missing from
+  // `orderedTitles` keep their existing wishlistOrder — this lets the
+  // caller pass just the currently displayed rows (e.g. search results)
+  // without clobbering orders of hidden wishlist items.
+  const reorderWishlist = useCallback(
+    async (orderedTitles: string[]) => {
+      const orderByTitle = new Map<string, number>();
+      orderedTitles.forEach((t, i) => orderByTitle.set(t, i));
+      const next = latestRef.current.map((m) => {
+        const nextOrder = orderByTitle.get(m.title);
+        if (nextOrder == null) return m;
+        return { ...m, wishlistOrder: nextOrder };
+      });
+      setMovies(next);
+      await writeRemote(next);
+    },
+    [writeRemote],
+  );
+
+  return { movies, status, updateMovie, addMovie, deleteMovie, reorderWishlist };
 }

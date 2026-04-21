@@ -57,6 +57,15 @@ export type Movie = {
    * expect this to be sparse. Null for manually-entered movies.
    */
   production: string | null;
+  /**
+   * User-assigned sort position on the Wishlist tab. Lower values come
+   * first. Null means "no explicit order" — those rows fall to the bottom
+   * of the list and sort alphabetically among themselves. Populated by the
+   * Wishlist's Reorder mode, which rewrites all currently displayed items
+   * with consecutive integers so the order is deterministic. Watched
+   * movies ignore this field entirely (Watched sorts by dateWatched).
+   */
+  wishlistOrder: number | null;
 };
 
 /**
