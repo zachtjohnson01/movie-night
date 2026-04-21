@@ -146,8 +146,8 @@ function ModernView({
       <div
         style={{
           position: 'relative',
-          height: 420,
-          background: `linear-gradient(180deg, ${c1} 0%, ${c2} 60%, ${BG} 100%)`,
+          height: 260,
+          background: `linear-gradient(180deg, ${c1} 0%, ${c2} 65%, ${BG} 100%)`,
           overflow: 'hidden',
         }}
       >
@@ -158,11 +158,11 @@ function ModernView({
           <svg
             width="100%"
             height="100%"
-            viewBox="0 0 400 420"
+            viewBox="0 0 400 260"
             preserveAspectRatio="xMidYMid slice"
           >
-            <circle cx="330" cy="140" r="100" fill={accent} opacity="0.6" />
-            <circle cx="60" cy="320" r="140" fill={accent} opacity="0.35" />
+            <circle cx="330" cy="80" r="75" fill={accent} opacity="0.6" />
+            <circle cx="60" cy="200" r="105" fill={accent} opacity="0.35" />
           </svg>
         </div>
         <button
