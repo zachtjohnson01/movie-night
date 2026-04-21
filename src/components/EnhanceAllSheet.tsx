@@ -11,11 +11,20 @@ type Props = {
   onClose: () => void;
 };
 
+/**
+ * 'fill' processes only movies missing studio or awards.
+ * 'refresh' re-runs OMDB + Claude across every movie on the tab, letting
+ * newer values overwrite older ones. In either mode a blank/unknown
+ * response from OMDB and Claude never clobbers a real stored value
+ * (merge uses `new ?? old`).
+ */
+type Mode = 'fill' | 'refresh';
+
 type Phase = 'confirm' | 'running' | 'done' | 'cancelled';
 
 type Results = {
-  enriched: string[]; // titles where at least one of production/awards was filled in
-  skipped: string[]; // Claude returned both fields blank
+  enriched: string[]; // titles where production or awards changed
+  skipped: string[]; // no new info OR nothing changed after merge
   failed: Array<{ title: string; error: string }>;
 };
 
@@ -26,10 +35,15 @@ const INITIAL_RESULTS: Results = { enriched: [], skipped: [], failed: [] };
 const BATCH_SIZE = 50;
 
 /**
- * Modal sheet that asks Claude to fill in `production` (studio) and `awards`
- * for every movie on the current tab that's missing one or both. Existing
- * non-null values are preserved — Claude only ever fills nulls. Other fields
- * (notes, dates, ratings, posters) are never touched.
+ * Modal sheet that asks Claude (+ OMDB) to fill in `production` (studio)
+ * and `awards` for movies on the current tab. Two modes:
+ *
+ * - Fill: only touches movies missing one or both fields.
+ * - Refresh: re-runs every movie on the tab, letting fresher data
+ *   overwrite stale values. `new ?? old` merge protects against a blank
+ *   response clobbering an existing real value.
+ *
+ * Notes, dates, ratings, and posters are never touched.
  */
 export default function EnhanceAllSheet({
   movies,
@@ -37,21 +51,31 @@ export default function EnhanceAllSheet({
   onUpdateMovie,
   onClose,
 }: Props) {
-  // Snapshot of needs-enriching movies at mount. We don't re-derive from
-  // `movies` during the run because `movies` updates on every write and
-  // we'd end up iterating a moving target.
-  const targets = useMemo(
-    () => movies.filter((m) => m.production == null || m.awards == null),
+  // Snapshot at mount. We don't re-derive from `movies` during the run
+  // because `movies` updates on every write and we'd iterate a moving
+  // target. Both snapshots are stable once we start.
+  const allTargets = useMemo(
+    () => movies.slice(),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  const missingTargets = useMemo(
+    () => allTargets.filter((m) => m.production == null || m.awards == null),
+    [allTargets],
+  );
 
   const [phase, setPhase] = useState<Phase>('confirm');
+  const [mode, setMode] = useState<Mode>('fill');
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<Results>(INITIAL_RESULTS);
   const cancelRef = useRef(false);
 
-  async function run() {
+  const activeTargets = mode === 'refresh' ? allTargets : missingTargets;
+
+  async function run(nextMode: Mode) {
+    const targets =
+      nextMode === 'refresh' ? allTargets : missingTargets;
+    setMode(nextMode);
     setPhase('running');
     setProgress(0);
     cancelRef.current = false;
@@ -83,7 +107,7 @@ export default function EnhanceAllSheet({
         continue;
       }
 
-      // Match by index, since Claude sometimes reformats titles slightly.
+      // Match by index — Claude sometimes reformats titles slightly.
       for (let i = 0; i < batch.length; i++) {
         if (cancelRef.current) {
           setResults(acc);
@@ -97,9 +121,20 @@ export default function EnhanceAllSheet({
           setProgress(start + i + 1);
           continue;
         }
-        // Fill nulls only — never overwrite existing studio/awards.
-        const nextProduction = m.production ?? item.production;
-        const nextAwards = m.awards ?? item.awards;
+
+        // Merge rules:
+        //   fill:    existing value wins, new fills nulls only.
+        //   refresh: new value wins, but a null from the source never
+        //            clobbers an existing real value.
+        const nextProduction =
+          nextMode === 'refresh'
+            ? (item.production ?? m.production)
+            : (m.production ?? item.production);
+        const nextAwards =
+          nextMode === 'refresh'
+            ? (item.awards ?? m.awards)
+            : (m.awards ?? item.awards);
+
         const changed =
           nextProduction !== m.production || nextAwards !== m.awards;
         if (!changed) {
@@ -149,19 +184,21 @@ export default function EnhanceAllSheet({
         <div className="px-5 pt-4 pb-5">
           {phase === 'confirm' && (
             <ConfirmView
-              count={targets.length}
+              missingCount={missingTargets.length}
+              totalCount={allTargets.length}
               scope={scope}
-              onRun={run}
+              onFill={() => void run('fill')}
+              onRefresh={() => void run('refresh')}
               onClose={onClose}
             />
           )}
           {phase === 'running' && (
             <RunningView
-              count={targets.length}
+              count={activeTargets.length}
               progress={progress}
               current={
-                progress < targets.length
-                  ? getDisplayTitle(targets[progress])
+                progress < activeTargets.length
+                  ? getDisplayTitle(activeTargets[progress])
                   : ''
               }
               onCancel={cancel}
@@ -171,7 +208,7 @@ export default function EnhanceAllSheet({
             <SummaryView
               phase={phase}
               results={results}
-              total={targets.length}
+              total={activeTargets.length}
               onClose={onClose}
             />
           )}
@@ -182,23 +219,28 @@ export default function EnhanceAllSheet({
 }
 
 function ConfirmView({
-  count,
+  missingCount,
+  totalCount,
   scope,
-  onRun,
+  onFill,
+  onRefresh,
   onClose,
 }: {
-  count: number;
+  missingCount: number;
+  totalCount: number;
   scope: 'watched' | 'wishlist';
-  onRun: () => void;
+  onFill: () => void;
+  onRefresh: () => void;
   onClose: () => void;
 }) {
-  if (count === 0) {
+  const tabLabel = scope === 'watched' ? 'Watched' : 'Wishlist';
+
+  if (totalCount === 0) {
     return (
       <>
-        <h2 className="text-xl font-bold">Nothing to enhance</h2>
+        <h2 className="text-xl font-bold">No movies to enhance</h2>
         <p className="mt-1 text-sm text-ink-400 leading-relaxed">
-          Every movie on the {scope === 'watched' ? 'Watched' : 'Wishlist'}{' '}
-          tab already has studio and awards data.
+          The {tabLabel} tab is empty.
         </p>
         <button
           type="button"
@@ -213,35 +255,67 @@ function ConfirmView({
 
   return (
     <>
-      <h2 className="text-xl font-bold">
-        Enhance {count} {count === 1 ? 'movie' : 'movies'}
-      </h2>
+      <h2 className="text-xl font-bold">Enhance {tabLabel}</h2>
       <p className="mt-2 text-sm text-ink-400 leading-relaxed">
-        We&apos;ll ask Claude to fill in the lead studio and a brief awards
-        summary for every movie on the{' '}
-        {scope === 'watched' ? 'Watched' : 'Wishlist'} tab that&apos;s missing
-        one or both. Existing values are preserved.
+        Pull the lead studio and a brief awards summary from OMDB (for
+        awards) and Claude (for studio). Notes, dates, ratings, and
+        posters aren&apos;t touched.
       </p>
-      <p className="mt-3 text-xs text-ink-500 leading-relaxed">
-        Notes, dates, ratings, and posters aren&apos;t touched. Claude can be
-        wrong on obscure titles — spot-check after.
-      </p>
-      <div className="mt-5 grid grid-cols-2 gap-3">
+
+      <div className="mt-5 space-y-2.5">
         <button
           type="button"
-          onClick={onClose}
-          className="min-h-[52px] rounded-2xl bg-ink-800 border border-ink-700 font-semibold active:bg-ink-700"
+          onClick={onFill}
+          disabled={missingCount === 0}
+          className={`w-full min-h-[56px] rounded-2xl font-semibold text-left px-4 flex flex-col justify-center gap-0.5 ${
+            missingCount === 0
+              ? 'bg-ink-800/40 border border-ink-800 text-ink-600 cursor-default'
+              : 'bg-amber-glow text-ink-950 active:opacity-80'
+          }`}
         >
-          Cancel
+          <span>
+            Fill {missingCount}{' '}
+            {missingCount === 1 ? 'missing' : 'missing'}
+          </span>
+          <span
+            className={`text-xs font-medium ${
+              missingCount === 0 ? 'text-ink-600' : 'text-ink-950/70'
+            }`}
+          >
+            {missingCount === 0
+              ? 'Everything already has studio + awards.'
+              : 'Only touches movies with a blank studio or awards field.'}
+          </span>
         </button>
+
         <button
           type="button"
-          onClick={onRun}
-          className="min-h-[52px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80"
+          onClick={onRefresh}
+          className="w-full min-h-[56px] rounded-2xl font-semibold text-left px-4 flex flex-col justify-center gap-0.5 bg-ink-800 border border-ink-700 active:bg-ink-700"
         >
-          Enhance {count}
+          <span>
+            Refresh all {totalCount}{' '}
+            {totalCount === 1 ? 'movie' : 'movies'}
+          </span>
+          <span className="text-xs font-medium text-ink-400">
+            Re-runs every movie on the tab; newer values overwrite older
+            ones.
+          </span>
         </button>
       </div>
+
+      <p className="mt-4 text-xs text-ink-500 leading-relaxed">
+        Claude can be wrong on obscure titles — spot-check after. A blank
+        response never clobbers a real stored value.
+      </p>
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="mt-3 w-full min-h-[48px] rounded-2xl bg-transparent text-ink-400 font-medium active:text-ink-200"
+      >
+        Cancel
+      </button>
     </>
   );
 }
@@ -315,7 +389,7 @@ function SummaryView({
         )}
         {skipped.length > 0 && (
           <>
-            {skipped.length} skipped (Claude had no new info).{' '}
+            {skipped.length} skipped (nothing changed).{' '}
           </>
         )}
         {failed.length > 0 && (
