@@ -180,7 +180,7 @@ export function isCloseMatch(userTitle: string, omdbTitle: string): boolean {
   return paddedOmdb.includes(paddedUser) || paddedUser.includes(paddedOmdb);
 }
 
-function normalizeTitle(s: string): string {
+export function normalizeTitle(s: string): string {
   return s
     .toLowerCase()
     .replace(/[\u2018\u2019']/g, '') // curly + straight apostrophes → gone
