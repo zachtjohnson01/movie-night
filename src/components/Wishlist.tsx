@@ -164,12 +164,16 @@ export default function Wishlist({
         </div>
       </header>
 
-      {!reordering && canWrite && enhanceableCount > 0 && !query && (
+      {!reordering && canWrite && wishlistAll.length > 0 && !query && (
         <div className="px-4 pt-3">
           <button
             type="button"
             onClick={onEnhanceAll}
-            className="w-full min-h-[48px] rounded-2xl bg-amber-glow/10 border border-amber-glow/30 text-amber-glow font-semibold active:bg-amber-glow/20 flex items-center justify-center gap-2"
+            className={`w-full min-h-[48px] rounded-2xl font-semibold active:bg-amber-glow/20 flex items-center justify-center gap-2 ${
+              enhanceableCount > 0
+                ? 'bg-amber-glow/10 border border-amber-glow/30 text-amber-glow'
+                : 'bg-ink-800/60 border border-ink-700 text-ink-300 active:bg-ink-700'
+            }`}
           >
             <svg
               viewBox="0 0 24 24"
@@ -184,8 +188,9 @@ export default function Wishlist({
               <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
             </svg>
             <span>
-              Enhance {enhanceableCount}{' '}
-              {enhanceableCount === 1 ? 'movie' : 'movies'} with Claude
+              {enhanceableCount > 0
+                ? `Enhance ${enhanceableCount} ${enhanceableCount === 1 ? 'movie' : 'movies'} with Claude`
+                : 'Refresh studio + awards with Claude'}
             </span>
           </button>
         </div>
