@@ -9,6 +9,7 @@ type Props = {
   canWrite: boolean;
   onSelectPick: (c: Candidate) => void;
   reloadMovies: () => void;
+  onOpenPool: () => void;
 };
 
 // Minimum visible spinner time on refresh so the button doesn't flicker
@@ -24,6 +25,7 @@ export default function Recommendations({
   canWrite,
   onSelectPick,
   reloadMovies,
+  onOpenPool,
 }: Props) {
   const pool = useCandidatePool();
   const [busy, setBusy] = useState<
@@ -249,6 +251,18 @@ export default function Recommendations({
               ) : (
                 <>Pool: {pool.candidates.length} · Expand +{EXPAND_BATCH}</>
               )}
+            </button>
+            <button
+              type="button"
+              disabled={anyBusy}
+              onClick={onOpenPool}
+              className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold transition-colors ${
+                anyBusy
+                  ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
+                  : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
+              }`}
+            >
+              Manage pool →
             </button>
             {error && (
               <p className="text-center text-xs text-crimson-bright">{error}</p>

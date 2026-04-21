@@ -22,7 +22,12 @@ import type { Candidate } from './types';
 export type ScoreInput = Pick<
   Candidate,
   'rottenTomatoes' | 'imdb' | 'commonSenseAge' | 'studio' | 'awards'
->;
+> & { downvoted?: boolean | null };
+
+// Admin downvote penalty. Large enough that any downvoted candidate ranks
+// below every non-downvoted one regardless of signals — satisfies the "push
+// to the bottom of the list" contract without introducing a tuning knob.
+const DOWNVOTE_PENALTY = 1000;
 
 type SignalKey = 'rt' | 'imdb' | 'csm' | 'studio' | 'awards';
 
@@ -81,11 +86,15 @@ export function scoreCandidate(c: ScoreInput): number {
   const awards = awardsStrength(c.awards);
   if (awards != null) parts.push({ weight: WEIGHTS.awards, value: awards });
 
-  if (parts.length === 0) return 0;
+  const base =
+    parts.length === 0
+      ? 0
+      : Math.round(
+          parts.reduce((s, p) => s + p.weight * p.value, 0) /
+            parts.reduce((s, p) => s + p.weight, 0),
+        );
 
-  const totalWeight = parts.reduce((s, p) => s + p.weight, 0);
-  const weighted = parts.reduce((s, p) => s + p.weight * p.value, 0);
-  return Math.round(weighted / totalWeight);
+  return c.downvoted ? base - DOWNVOTE_PENALTY : base;
 }
 
 function parseRt(raw: string | null): number | null {
