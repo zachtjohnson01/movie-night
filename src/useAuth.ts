@@ -10,6 +10,12 @@ const ALLOWED_EMAILS = [
   'alexandrabjohnson01@gmail.com',
 ];
 
+// Zach is the sole owner of the Anthropic credit card, so features that
+// spend money (the "Enhance with Claude" bulk actions) are gated to his
+// account only. Alexandra can still write to the movie list, she just
+// can't kick off anything that hits the paid API.
+const OWNER_EMAIL = 'zachtjohnson01@gmail.com';
+
 export type AuthStatus =
   | 'loading'
   | 'signed-out'
@@ -22,6 +28,7 @@ export type AuthApi = {
   name: string | null;
   avatarUrl: string | null;
   canWrite: boolean;
+  isOwner: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -97,6 +104,10 @@ export function useAuth(): AuthApi {
     name,
     avatarUrl,
     canWrite: status === 'signed-in',
+    isOwner:
+      status === 'signed-in' && email?.toLowerCase() === OWNER_EMAIL
+        ? true
+        : false,
     signIn,
     signOut,
   };
