@@ -20,26 +20,22 @@ import {
 import MovieSearchCombobox from './MovieSearchCombobox';
 import MoviePoster from './MoviePoster';
 
-type SharedProps = {
-  canWrite: boolean;
-  email: string | null;
-  onSignOut: () => void | Promise<void>;
-};
-
 type Props =
-  | (SharedProps & {
+  | {
       mode: 'existing';
+      canWrite: boolean;
       movie: Movie;
       onBack: () => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
       onDelete: (movie: Movie) => void | Promise<void>;
-    })
-  | (SharedProps & {
+    }
+  | {
       mode: 'new';
+      canWrite: boolean;
       movie: Movie; // empty template
       onBack: () => void;
       onCreate: (created: Movie) => void | Promise<void>;
-    });
+    };
 
 /** Overwrite fields with fresh OMDB data. Used by refresh. */
 function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
@@ -379,8 +375,6 @@ export default function Detail(props: Props) {
               movie={movie}
               isWatched={isWatched}
               canWrite={props.canWrite}
-              email={props.email}
-              onSignOut={props.onSignOut}
               onMarkWatchedTonight={markWatchedTonight}
               onMarkWatchedUndated={markWatchedUndated}
               onSaveNotes={saveNotes}
@@ -406,8 +400,6 @@ function ViewMode({
   movie,
   isWatched,
   canWrite,
-  email,
-  onSignOut,
   onMarkWatchedTonight,
   onMarkWatchedUndated,
   onSaveNotes,
@@ -422,8 +414,6 @@ function ViewMode({
   movie: Movie;
   isWatched: boolean;
   canWrite: boolean;
-  email: string | null;
-  onSignOut: () => void | Promise<void>;
   onMarkWatchedTonight: () => void;
   onMarkWatchedUndated: () => void;
   onSaveNotes: (notes: string) => void;
@@ -633,7 +623,7 @@ function ViewMode({
       )}
 
       {canWrite && (
-        <section className="mt-12 pt-6 border-t border-ink-800/70 space-y-4">
+        <section className="mt-12 pt-6 border-t border-ink-800/70">
           <button
             type="button"
             onClick={onDelete}
@@ -641,17 +631,6 @@ function ViewMode({
           >
             Delete movie
           </button>
-          <div className="text-center text-xs text-ink-500">
-            Signed in as {email}{' '}
-            <span aria-hidden>·</span>{' '}
-            <button
-              type="button"
-              onClick={() => onSignOut()}
-              className="underline-offset-2 hover:underline active:text-ink-300"
-            >
-              Sign out
-            </button>
-          </div>
         </section>
       )}
     </>
