@@ -13,6 +13,7 @@ export type CandidatePoolApi = {
   candidates: Candidate[];
   status: PoolStatus;
   appendCandidates: (next: Candidate[]) => Promise<void>;
+  reload: () => void;
 };
 
 /**
@@ -27,12 +28,14 @@ export function useCandidatePool(): CandidatePoolApi {
   const [status, setStatus] = useState<PoolStatus>(
     isSupabaseConfigured ? 'loading' : 'local',
   );
+  const [reloadTick, setReloadTick] = useState(0);
   const latestRef = useRef<Candidate[]>([]);
   latestRef.current = candidates;
 
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
+    setStatus('loading');
 
     async function load() {
       if (!supabase) return;
@@ -86,7 +89,9 @@ export function useCandidatePool(): CandidatePoolApi {
       cancelled = true;
       if (supabase) void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [reloadTick]);
+
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
   const appendCandidates = useCallback(async (next: Candidate[]) => {
     if (!supabase || next.length === 0) return;
@@ -115,5 +120,5 @@ export function useCandidatePool(): CandidatePoolApi {
     }
   }, []);
 
-  return { candidates, status, appendCandidates };
+  return { candidates, status, appendCandidates, reload };
 }

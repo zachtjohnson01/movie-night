@@ -73,6 +73,7 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
 
   const loading = pool.status === 'loading';
   const poolEmpty = pool.status === 'empty';
+  const poolErrored = pool.status === 'error';
   const seeding = busy.kind === 'seeding';
   const expanding = busy.kind === 'expanding';
   const anyBusy = seeding || expanding;
@@ -111,6 +112,25 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
             <RecSkeleton />
             <RecSkeleton />
           </>
+        )}
+
+        {poolErrored && (
+          <div className="mx-5 mt-8 p-5 rounded-2xl bg-ink-900 border border-crimson-deep/40 text-sm text-ink-300 leading-relaxed">
+            <p className="font-semibold text-ink-100 mb-2">
+              Couldn't load the candidate pool
+            </p>
+            <p className="text-ink-400 mb-4">
+              Something went wrong reading from Supabase. Check your
+              connection and try again.
+            </p>
+            <button
+              type="button"
+              onClick={pool.reload}
+              className="w-full min-h-[44px] rounded-2xl text-sm font-semibold bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700"
+            >
+              Try again
+            </button>
+          </div>
         )}
 
         {poolEmpty && !loading && !seeding && (
@@ -156,7 +176,7 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
           </div>
         )}
 
-        {!poolEmpty && !loading && (
+        {!poolEmpty && !loading && !poolErrored && (
           <ul>
             {picks.map((rec, i) => (
               <RecRow
@@ -169,14 +189,14 @@ export default function Recommendations({ movies, canWrite, onSelectPick }: Prop
           </ul>
         )}
 
-        {!poolEmpty && !loading && picks.length === 0 && (
+        {!poolEmpty && !loading && !poolErrored && picks.length === 0 && (
           <div className="px-6 pt-10 text-center text-ink-400 text-sm">
             Every candidate in the pool is already on your list. Expand the
             pool to find new picks.
           </div>
         )}
 
-        {!poolEmpty && !loading && canWrite && (
+        {!poolEmpty && !loading && !poolErrored && canWrite && (
           <div className="px-5 pt-6 pb-4 flex flex-col gap-2">
             <button
               type="button"
