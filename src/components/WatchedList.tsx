@@ -17,6 +17,7 @@ type Props = {
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
   onBulkLink: () => void;
+  onEnhanceAll: () => void;
 };
 
 export default function WatchedList({
@@ -25,6 +26,7 @@ export default function WatchedList({
   onSelect,
   onAdd,
   onBulkLink,
+  onEnhanceAll,
 }: Props) {
   const [query, setQuery] = useState('');
 
@@ -38,6 +40,12 @@ export default function WatchedList({
       movies.filter((m) => m.imdbId == null && m.title.trim().length >= 3)
         .length,
     [movies],
+  );
+
+  const enhanceableCount = useMemo(
+    () =>
+      watchedAll.filter((m) => m.production == null || m.awards == null).length,
+    [watchedAll],
   );
 
   const watched = useMemo(() => {
@@ -161,6 +169,33 @@ export default function WatchedList({
             <span>
               Link {unlinkedCount} unlinked{' '}
               {unlinkedCount === 1 ? 'movie' : 'movies'}
+            </span>
+          </button>
+        </div>
+      )}
+
+      {canWrite && enhanceableCount > 0 && !query && (
+        <div className="px-4 pt-3">
+          <button
+            type="button"
+            onClick={onEnhanceAll}
+            className="w-full min-h-[48px] rounded-2xl bg-amber-glow/10 border border-amber-glow/30 text-amber-glow font-semibold active:bg-amber-glow/20 flex items-center justify-center gap-2"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-5 h-5"
+              aria-hidden
+            >
+              <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+            </svg>
+            <span>
+              Enhance {enhanceableCount}{' '}
+              {enhanceableCount === 1 ? 'movie' : 'movies'} with Claude
             </span>
           </button>
         </div>

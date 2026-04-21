@@ -9,27 +9,46 @@ type Props = {
   canWrite: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
+  onEnhanceAll: () => void;
 };
 
-export default function Wishlist({ movies, canWrite, onSelect, onAdd }: Props) {
+export default function Wishlist({
+  movies,
+  canWrite,
+  onSelect,
+  onAdd,
+  onEnhanceAll,
+}: Props) {
   const [query, setQuery] = useState('');
 
+  const wishlistAll = useMemo(
+    () =>
+      movies
+        .filter((m) => !m.watched)
+        .sort((a, b) =>
+          getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
+            sensitivity: 'base',
+          }),
+        ),
+    [movies],
+  );
+
   const wishlist = useMemo(() => {
-    const all = movies
-      .filter((m) => !m.watched)
-      .sort((a, b) =>
-        getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
-          sensitivity: 'base',
-        }),
-      );
     const q = query.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter((m) => {
+    if (!q) return wishlistAll;
+    return wishlistAll.filter((m) => {
       const t = m.title.toLowerCase();
       const d = m.displayTitle?.toLowerCase() ?? '';
       return t.includes(q) || d.includes(q);
     });
-  }, [movies, query]);
+  }, [wishlistAll, query]);
+
+  const enhanceableCount = useMemo(
+    () =>
+      wishlistAll.filter((m) => m.production == null || m.awards == null)
+        .length,
+    [wishlistAll],
+  );
 
   return (
     <div className="mx-auto max-w-xl">
@@ -102,6 +121,33 @@ export default function Wishlist({ movies, canWrite, onSelect, onAdd }: Props) {
           <BuildStamp />
         </div>
       </header>
+
+      {canWrite && enhanceableCount > 0 && !query && (
+        <div className="px-4 pt-3">
+          <button
+            type="button"
+            onClick={onEnhanceAll}
+            className="w-full min-h-[48px] rounded-2xl bg-amber-glow/10 border border-amber-glow/30 text-amber-glow font-semibold active:bg-amber-glow/20 flex items-center justify-center gap-2"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-5 h-5"
+              aria-hidden
+            >
+              <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+            </svg>
+            <span>
+              Enhance {enhanceableCount}{' '}
+              {enhanceableCount === 1 ? 'movie' : 'movies'} with Claude
+            </span>
+          </button>
+        </div>
+      )}
 
       {wishlist.length === 0 ? (
         <div className="px-6 pt-10 text-center text-ink-400 text-sm">

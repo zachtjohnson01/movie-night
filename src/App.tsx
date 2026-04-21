@@ -7,6 +7,7 @@ import TabBar, { type Tab } from './components/TabBar';
 import SyncBanner from './components/SyncBanner';
 import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
+import EnhanceAllSheet from './components/EnhanceAllSheet';
 import { useMovies } from './useMovies';
 import { useAuth } from './useAuth';
 import { candidateToTemplate, emptyMovie } from './format';
@@ -23,6 +24,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
   const [showBulkLink, setShowBulkLink] = useState(false);
+  const [enhanceScope, setEnhanceScope] = useState<
+    'watched' | 'wishlist' | null
+  >(null);
 
   // If the selected movie disappears (deleted by the other user, or
   // renamed), bail back to the list view.
@@ -132,6 +136,7 @@ export default function App() {
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
             onBulkLink={() => setShowBulkLink(true)}
+            onEnhanceAll={() => setEnhanceScope('watched')}
           />
         )}
         {tab === 'wishlist' && (
@@ -140,6 +145,7 @@ export default function App() {
             canWrite={auth.canWrite}
             onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
             onAdd={openAdd}
+            onEnhanceAll={() => setEnhanceScope('wishlist')}
           />
         )}
         {tab === 'recs' && (
@@ -156,6 +162,16 @@ export default function App() {
           movies={movies}
           onUpdateMovie={updateMovie}
           onClose={() => setShowBulkLink(false)}
+        />
+      )}
+      {enhanceScope && (
+        <EnhanceAllSheet
+          scope={enhanceScope}
+          movies={movies.filter((m) =>
+            enhanceScope === 'watched' ? m.watched : !m.watched,
+          )}
+          onUpdateMovie={updateMovie}
+          onClose={() => setEnhanceScope(null)}
         />
       )}
     </div>
