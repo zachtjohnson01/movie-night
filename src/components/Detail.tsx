@@ -720,7 +720,7 @@ function EditForm({
             value={draft.title}
             onChange={(v) => update('title', v)}
             onPick={onPickOmdb}
-            autoFocus={isNew}
+            autoFocus={isNew && !draft.title.trim()}
           />
         ) : (
           <input
