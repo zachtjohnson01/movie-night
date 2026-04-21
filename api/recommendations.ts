@@ -192,6 +192,53 @@ function parseCandidates(text: string): RawCandidate[] {
   return [];
 }
 
+/**
+ * Reads an Anthropic Messages API SSE stream and returns the concatenated
+ * text output. We only care about `content_block_delta` events with
+ * `text_delta` payloads — everything else (message_start, ping, usage,
+ * message_stop) is metadata we don't need for parsing.
+ */
+async function readAnthropicStream(body: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    // SSE events are separated by blank lines. Process complete events,
+    // keep the trailing partial in the buffer.
+    let idx: number;
+    while ((idx = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, idx);
+      buffer = buffer.slice(idx + 2);
+
+      for (const line of rawEvent.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(data);
+          if (
+            evt.type === 'content_block_delta' &&
+            evt.delta?.type === 'text_delta' &&
+            typeof evt.delta.text === 'string'
+          ) {
+            text += evt.delta.text;
+          }
+        } catch {
+          // skip malformed line
+        }
+      }
+    }
+  }
+
+  return text;
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -244,25 +291,24 @@ export default async function handler(
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
         // 100 candidate items × ~150 tokens each + prompt ≈ 16K-20K tokens.
+        // Streaming is required because Anthropic 400s non-streaming requests
+        // above ~16K max_tokens (HTTP-timeout guard).
         max_tokens: 24000,
+        stream: true,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
-    if (!resp.ok) {
-      const errText = await resp.text();
+    if (!resp.ok || !resp.body) {
+      const errText = resp.body ? await resp.text() : '(no body)';
       console.error('[pool-expand] anthropic error', resp.status, errText);
-      return res
-        .status(502)
-        .json({ error: `Anthropic API returned ${resp.status}` });
+      return res.status(502).json({
+        error: `Anthropic API returned ${resp.status}`,
+        detail: errText.slice(0, 500),
+      });
     }
 
-    const payload = await resp.json();
-    const text = (payload?.content || [])
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
-      .join('\n');
-
+    const text = await readAnthropicStream(resp.body);
     const parsed = parseCandidates(text);
 
     // Server-side dedupe against the ban list as belt-and-suspenders;
