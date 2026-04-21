@@ -1,85 +1,120 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
-type InboundMovie = {
-  title: string;
-  watched?: boolean;
-  commonSenseAge?: string | null;
-  rottenTomatoes?: string | null;
-  imdb?: string | null;
-  notes?: string | null;
-};
+// Supabase env vars are set in Vercel with the VITE_ prefix so the Vite
+// build inlines them for the client. Serverless functions see the same
+// values via process.env regardless of prefix.
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 
-type RecItem = {
+// Mirrors the client list in src/useAuth.ts. Kept in sync manually — for a
+// 2-user family app the drift risk is negligible. Treat as the single source
+// of truth for *write* access; the client check is UI hygiene, this is the
+// enforcement point for anything that spends money (Anthropic credits).
+const ALLOWED_ADMIN_EMAILS = new Set([
+  'zachtjohnson01@gmail.com',
+  'alexandrabjohnson01@gmail.com',
+]);
+
+type AuthResult =
+  | { ok: true; email: string }
+  | { ok: false; status: number; error: string };
+
+async function authenticate(req: VercelRequest): Promise<AuthResult> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return {
+      ok: false,
+      status: 503,
+      error:
+        'Auth is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel.',
+    };
+  }
+  const header = req.headers.authorization ?? '';
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) {
+    return {
+      ok: false,
+      status: 401,
+      error: 'Missing Authorization header',
+    };
+  }
+  const token = match[1];
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return { ok: false, status: 401, error: 'Invalid session' };
+  }
+  const email = (data.user.email ?? '').toLowerCase();
+  if (!ALLOWED_ADMIN_EMAILS.has(email)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Not authorized to expand the recommendation pool',
+    };
+  }
+  return { ok: true, email };
+}
+
+/**
+ * Candidate-pool expansion endpoint. Asks Claude for a batch of family films
+ * not already in `poolTitles` or `libraryTitles`, with LLM-sourced metadata
+ * (the LLM is the only source for CSM age; OMDB is authoritative for RT,
+ * IMDb, and Awards but runs client-side after this endpoint returns).
+ *
+ * POST { poolTitles: string[], libraryTitles: string[], batchSize: number }
+ * -> { items: RawCandidate[], rawCount: number }
+ */
+
+type RawCandidate = {
   title: string;
   year: number | null;
   commonSenseAge: string | null;
-  rottenTomatoes: string | null;
-  imdb: string | null;
   studio: string | null;
   awards: string | null;
-  fitScore: number | null;
-  why: string;
+  // Tentative scores from the LLM. Kept as fallbacks — the client overlays
+  // OMDB's authoritative values on top before scoring.
+  rottenTomatoes: string | null;
+  imdb: string | null;
 };
 
 function buildPrompt(
-  movies: InboundMovie[],
-  existingRecs: string[],
+  poolTitles: string[],
+  libraryTitles: string[],
   batchSize: number,
 ): string {
-  const watchedLines = movies
-    .filter((m) => m.watched)
-    .map((m) => {
-      const meta: string[] = [];
-      if (m.commonSenseAge) meta.push(`CSM${m.commonSenseAge}`);
-      if (m.rottenTomatoes) meta.push(`RT${m.rottenTomatoes}`);
-      if (m.imdb) meta.push(`IMDb${m.imdb}`);
-      const head = meta.length ? `${m.title} [${meta.join(' ')}]` : m.title;
-      return m.notes ? `${head} — "${m.notes}"` : head;
-    })
-    .join('\n');
-
-  const skipWatched = movies.filter((m) => m.watched).map((m) => m.title);
-  const skipWishlist = movies.filter((m) => !m.watched).map((m) => m.title);
-
+  const overRequest = Math.ceil(batchSize * 1.25);
   const skipBlocks: string[] = [];
-  if (skipWatched.length) skipBlocks.push(`Watched:\n${skipWatched.join(', ')}`);
-  if (skipWishlist.length)
-    skipBlocks.push(`Already on wishlist:\n${skipWishlist.join(', ')}`);
-  if (existingRecs.length)
-    skipBlocks.push(`Previously recommended:\n${existingRecs.join(', ')}`);
-  const allSkips = skipBlocks.join('\n\n');
+  if (libraryTitles.length)
+    skipBlocks.push(`Already in the user's library:\n${libraryTitles.join(', ')}`);
+  if (poolTitles.length)
+    skipBlocks.push(`Already in the recommendation pool:\n${poolTitles.join(', ')}`);
+  const banList = skipBlocks.join('\n\n') || '(none)';
 
-  const overRequest = Math.ceil(batchSize * 1.3);
+  return `Building a deterministic recommendation pool of family films for Friday Movie Night (parent + young child, target CSM age 5–8).
 
-  return `Recommending family films for Friday Movie Night (parent + young child).
+BAN LIST — if ANY title in your output appears here the response is INVALID:
 
-❌ BAN LIST — if your response includes ANY of these, it is INVALID:
+${banList}
 
-${allSkips}
+TASK: Return ${overRequest} feature-length family films NOT on the ban list. Include a mix of animated and live-action, major studios and indie/international, across multiple decades. Favor films that are widely respected and would score well on RT + IMDb; the user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
 
-✅ Use these watched favorites as TONAL SIGNALS (do not repeat them):
+Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
 
-${watchedLines}
+For each film, provide best-known metadata. Accuracy matters — the pool is persisted and reused across sessions. Use "N/A" sparingly; "null" is fine for fields you genuinely don't know.
 
-TASK: Return ${overRequest} NEW films NOT on the ban list, ranked best-fit first. Go beyond the obvious — surface films matching the signals above that aren't already on their radar.
+Return ONLY a JSON array. Each object shape:
+{"title":"","year":0,"commonSenseAge":"6+","studio":"","awards":"","rottenTomatoes":"95%","imdb":"7.8"}
 
-Ranking priority:
-1. RT ≥ 90% AND IMDb ≥ 7.5 (hard preference).
-2. CSM age 5–8 (9+ only if exceptional).
-3. Studio pedigree — Ghibli, Cartoon Saloon, Aardman, Laika, Pixar, Disney, DreamWorks, Sony Animation, GKIDS, strong indies.
-4. Major awards — Oscar (Best Animated Feature), Annie, BAFTA, Annecy, Cannes.
-5. Notes/vibe match from the signals above.
-6. Tonal similarity (tiebreaker).
-
-Favor variety across studios and decades. Include international animation, indie, and lesser-known gems alongside sure bets.
-
-Return ONLY a JSON array. Keep "why" to ONE short sentence (<70 chars) referencing a specific watched title. Each object:
-{"title":"","year":0,"commonSenseAge":"6+","rottenTomatoes":"95%","imdb":"7.8","studio":"","awards":"","fitScore":0,"why":""}`;
+- "commonSenseAge": format "N+" like "5+", "6+", "8+"
+- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar")
+- "awards": brief summary like "Won Best Animated Feature Oscar" or "BAFTA-nominated". Empty string if none notable.
+- "rottenTomatoes": "NN%" or null
+- "imdb": "N.N" or null`;
 }
 
-function parseRecs(text: string): RecItem[] {
+function parseCandidates(text: string): RawCandidate[] {
   if (!text) return [];
   let t = text.trim();
   t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -90,7 +125,7 @@ function parseRecs(text: string): RecItem[] {
   const end = t.lastIndexOf(']');
   if (end > start) candidates.push(t.slice(start, end + 1));
 
-  // Recover truncated JSON by finding the last complete `}`.
+  // Recover truncated JSON by finding the last complete `}` at depth 1.
   const body = t.slice(start + 1);
   let depthObj = 0;
   let depthArr = 0;
@@ -127,7 +162,7 @@ function parseRecs(text: string): RecItem[] {
     try {
       const arr = JSON.parse(slice);
       if (!Array.isArray(arr)) continue;
-      const normalized: RecItem[] = arr
+      const normalized: RawCandidate[] = arr
         .filter(
           (r: unknown): r is Record<string, unknown> =>
             !!r &&
@@ -141,15 +176,13 @@ function parseRecs(text: string): RecItem[] {
               ? r.year
               : parseInt(String(r.year ?? ''), 10) || null,
           commonSenseAge: r.commonSenseAge ? String(r.commonSenseAge) : null,
+          studio: r.studio ? String(r.studio).trim() : null,
+          awards:
+            r.awards && String(r.awards).trim()
+              ? String(r.awards).trim()
+              : null,
           rottenTomatoes: r.rottenTomatoes ? String(r.rottenTomatoes) : null,
           imdb: r.imdb ? String(r.imdb) : null,
-          studio: r.studio ? String(r.studio).trim() : null,
-          awards: r.awards ? String(r.awards).trim() : null,
-          fitScore:
-            typeof r.fitScore === 'number'
-              ? r.fitScore
-              : parseInt(String(r.fitScore ?? ''), 10) || null,
-          why: r.why ? String(r.why).trim() : '',
         }));
       if (normalized.length) return normalized;
     } catch {
@@ -172,6 +205,11 @@ export default async function handler(
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const auth = await authenticate(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.error });
+  }
+
   if (!ANTHROPIC_API_KEY) {
     return res.status(503).json({
       error:
@@ -180,20 +218,20 @@ export default async function handler(
   }
 
   const body = req.body || {};
-  const movies: InboundMovie[] = Array.isArray(body.movies) ? body.movies : [];
-  const existingRecs: string[] = Array.isArray(body.existingRecs)
-    ? body.existingRecs.filter((t: unknown): t is string => typeof t === 'string')
+  const poolTitles: string[] = Array.isArray(body.poolTitles)
+    ? body.poolTitles.filter((t: unknown): t is string => typeof t === 'string')
+    : [];
+  const libraryTitles: string[] = Array.isArray(body.libraryTitles)
+    ? body.libraryTitles.filter(
+        (t: unknown): t is string => typeof t === 'string',
+      )
     : [];
   const batchSize: number =
     typeof body.batchSize === 'number' && body.batchSize > 0
-      ? Math.min(body.batchSize, 20)
-      : 10;
+      ? Math.min(body.batchSize, 100)
+      : 100;
 
-  if (movies.length === 0) {
-    return res.status(400).json({ error: 'No movies in library' });
-  }
-
-  const prompt = buildPrompt(movies, existingRecs, batchSize);
+  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize);
 
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -205,14 +243,15 @@ export default async function handler(
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
+        // 100 candidate items × ~150 tokens each + prompt ≈ 16K-20K tokens.
+        max_tokens: 24000,
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
     if (!resp.ok) {
       const errText = await resp.text();
-      console.error('[recommendations] anthropic error', resp.status, errText);
+      console.error('[pool-expand] anthropic error', resp.status, errText);
       return res
         .status(502)
         .json({ error: `Anthropic API returned ${resp.status}` });
@@ -224,14 +263,23 @@ export default async function handler(
       .map((b: { text: string }) => b.text)
       .join('\n');
 
-    const recs = parseRecs(text);
+    const parsed = parseCandidates(text);
+
+    // Server-side dedupe against the ban list as belt-and-suspenders;
+    // client also dedupes before writing to Supabase.
+    const banSet = new Set<string>();
+    for (const t of poolTitles) banSet.add(t.toLowerCase());
+    for (const t of libraryTitles) banSet.add(t.toLowerCase());
+    const deduped = parsed.filter(
+      (c) => !banSet.has(c.title.toLowerCase()),
+    );
 
     return res.json({
-      items: recs,
-      rawCount: recs.length,
+      items: deduped.slice(0, batchSize),
+      rawCount: parsed.length,
     });
   } catch (e) {
-    console.error('[recommendations] fetch error', e);
+    console.error('[pool-expand] fetch error', e);
     return res
       .status(500)
       .json({ error: `Could not reach recommendations service` });

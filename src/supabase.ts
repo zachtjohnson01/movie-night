@@ -26,3 +26,9 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
 // last-write-wins — which is fine for a two-person family movie list.
 export const MOVIE_NIGHT_TABLE = 'movie_night';
 export const MOVIE_NIGHT_ROW_ID = 1;
+/**
+ * Row id=2 in the same `movie_night` table holds the deterministic
+ * recommendation pool (a `Candidate[]` JSONB blob). Reusing the same
+ * table keeps the no-schema-migrations property intact.
+ */
+export const CANDIDATE_POOL_ROW_ID = 2;

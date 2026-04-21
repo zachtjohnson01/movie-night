@@ -1,110 +1,80 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Movie } from '../types';
+import { useCallback, useMemo, useState } from 'react';
+import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
-import {
-  addRecommendationBatch,
-  clearRecommendations,
-  getCachedRecommendations,
-  RECS_BATCH_SIZE,
-  type Recommendation,
-} from '../recommendations';
+import { useCandidatePool } from '../useCandidatePool';
+import { expandPool, rankTopPicks, type RankedPick } from '../recommendations';
 
 type Props = {
   movies: Movie[];
+  canWrite: boolean;
 };
 
-type State =
-  | { status: 'idle'; items: Recommendation[]; lastAdded: string[] }
-  | { status: 'loading'; items: Recommendation[]; lastAdded: string[] }
-  | { status: 'ready'; items: Recommendation[]; lastAdded: string[] }
-  | { status: 'error'; items: Recommendation[]; lastAdded: string[] };
+const TOP_N = 20;
+const EXPAND_BATCH = 100;
+const SEED_BATCHES = 5; // 5 × 100 = 500-film initial pool
 
-export default function Recommendations({ movies }: Props) {
-  const [state, setState] = useState<State>(() => {
-    const cached = getCachedRecommendations();
-    if (cached && cached.items.length) {
-      return {
-        status: 'ready',
-        items: cached.items,
-        lastAdded: cached.lastAdded || [],
-      };
-    }
-    return { status: 'idle', items: [], lastAdded: [] };
-  });
+export default function Recommendations({ movies, canWrite }: Props) {
+  const pool = useCandidatePool();
+  const [busy, setBusy] = useState<
+    | { kind: 'idle' }
+    | { kind: 'seeding'; done: number; total: number; added: number }
+    | { kind: 'expanding' }
+  >({ kind: 'idle' });
   const [error, setError] = useState<string | null>(null);
-  const [addingMore, setAddingMore] = useState(false);
 
-  const watchedCount = useMemo(
-    () => movies.filter((m) => m.watched).length,
+  const picks = useMemo(
+    () => rankTopPicks(pool.candidates, movies, TOP_N),
+    [pool.candidates, movies],
+  );
+
+  const libraryTitles = useMemo(
+    () => movies.map((m) => m.title),
     [movies],
   );
 
-  const loadBatch = useCallback(async () => {
-    if (movies.length === 0) return;
-    setError(null);
-    setAddingMore(true);
-    setState((s) => ({
-      ...s,
-      status: s.items.length ? s.status : 'loading',
-    }));
-    try {
-      const out = await addRecommendationBatch(movies);
-      if (out.lastSurvived === 0) {
-        throw new Error(
-          out.lastRawCount > 0
-            ? 'All suggestions were already on your list. Try again for fresh picks.'
-            : "Couldn't parse response. Try again.",
-        );
+  const runExpansion = useCallback(
+    async (batches: number) => {
+      setError(null);
+      let added = 0;
+      const currentPoolTitles = () => pool.candidates.map((c) => c.title);
+      for (let i = 0; i < batches; i++) {
+        if (batches > 1) {
+          setBusy({
+            kind: 'seeding',
+            done: i,
+            total: batches,
+            added,
+          });
+        } else {
+          setBusy({ kind: 'expanding' });
+        }
+        try {
+          // Build the ban list from the *live* pool each iteration so the
+          // LLM doesn't repeat titles the previous batch just added.
+          const fresh = await expandPool(
+            [...currentPoolTitles()],
+            libraryTitles,
+            EXPAND_BATCH,
+          );
+          if (fresh.length === 0) break;
+          await pool.appendCandidates(fresh);
+          added += fresh.length;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setError(msg);
+          break;
+        }
       }
-      setState({
-        status: 'ready',
-        items: out.items,
-        lastAdded: out.lastAdded,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
-      setState((s) => ({
-        ...s,
-        status: s.items.length ? 'ready' : 'error',
-      }));
-    } finally {
-      setAddingMore(false);
-    }
-  }, [movies]);
-
-  // Auto-load on first visit when there's nothing cached.
-  useEffect(() => {
-    if (state.status === 'idle' && movies.length > 0) {
-      void loadBatch();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [movies.length]);
-
-  // Fade out the "new" highlight after a few seconds.
-  useEffect(() => {
-    if (!state.lastAdded.length) return;
-    const t = setTimeout(
-      () => setState((s) => ({ ...s, lastAdded: [] })),
-      3200,
-    );
-    return () => clearTimeout(t);
-  }, [state.lastAdded]);
-
-  const newSet = useMemo(
-    () => new Set(state.lastAdded.map((t) => t.toLowerCase())),
-    [state.lastAdded],
+      setBusy({ kind: 'idle' });
+    },
+    [libraryTitles, pool],
   );
 
-  function confirmReset() {
-    if (!window.confirm('Clear all recommendations and start over?')) return;
-    clearRecommendations();
-    setState({ status: 'idle', items: [], lastAdded: [] });
-    setError(null);
-    setTimeout(() => void loadBatch(), 50);
-  }
-
-  const loading = state.status === 'loading';
+  const loading = pool.status === 'loading';
+  const poolEmpty = pool.status === 'empty';
+  const seeding = busy.kind === 'seeding';
+  const expanding = busy.kind === 'expanding';
+  const anyBusy = seeding || expanding;
 
   return (
     <div className="mx-auto max-w-xl">
@@ -114,48 +84,26 @@ export default function Recommendations({ movies }: Props) {
       >
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <div className="flex items-center justify-between">
-              <div className="text-[10px] uppercase tracking-[0.22em] text-crimson-bright font-semibold">
-                For you
-              </div>
-              {state.items.length > 0 && (
-                <button
-                  type="button"
-                  onClick={confirmReset}
-                  className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink-400 active:text-ink-200 min-h-[32px] px-2"
-                >
-                  Reset
-                </button>
-              )}
+            <div className="text-[10px] uppercase tracking-[0.22em] text-crimson-bright font-semibold">
+              For you
             </div>
             <h1 className="mt-1 font-display text-[32px] font-medium leading-[0.95] tracking-tight">
-              <span className="italic">Ranked</span>{' '}
-              <span className="text-ink-300 font-normal">for your</span>
+              <span className="italic">Top {TOP_N}</span>{' '}
+              <span className="text-ink-300 font-normal">picks from</span>
               <br />
               <span className="text-ink-300 font-light italic">
-                {watchedCount} nights.
+                {pool.candidates.length} candidates.
               </span>
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">
-              {loading ? (
-                <span className="inline-flex items-center gap-2">
-                  <Spinner size={10} />
-                  Looking through your list…
-                </span>
-              ) : (
-                <>
-                  {state.items.length}{' '}
-                  {state.items.length === 1 ? 'pick' : 'picks'}, best first ·
-                  ranked by RT+IMDb, then CSM age, studio, awards, notes
-                </>
-              )}
+              Ranked by RT, IMDb, CSM age, studio, awards.
             </p>
           </div>
         </div>
       </header>
 
       <div className="pt-2">
-        {loading && state.items.length === 0 && (
+        {loading && (
           <>
             <RecSkeleton />
             <RecSkeleton />
@@ -164,65 +112,88 @@ export default function Recommendations({ movies }: Props) {
           </>
         )}
 
-        <ul>
-          {state.items.map((rec, i) => (
-            <RecRow
-              key={rec.title}
-              rec={rec}
-              rank={i + 1}
-              isNew={newSet.has(rec.title.toLowerCase())}
-            />
-          ))}
-        </ul>
+        {poolEmpty && !loading && !seeding && (
+          <div className="mx-5 mt-8 p-5 rounded-2xl bg-ink-900 border border-ink-800 text-sm text-ink-300 leading-relaxed">
+            <p className="font-semibold text-ink-100 mb-2">
+              No candidate pool yet
+            </p>
+            <p className="text-ink-400 mb-4">
+              Seed a pool of ~{EXPAND_BATCH * SEED_BATCHES} family films to
+              rank against. Each film is enriched with authoritative scores
+              from OMDB. This takes a couple minutes.
+            </p>
+            {canWrite ? (
+              <button
+                type="button"
+                onClick={() => void runExpansion(SEED_BATCHES)}
+                className="w-full min-h-[48px] rounded-2xl font-bold text-base bg-amber-glow text-ink-950 active:opacity-80"
+              >
+                Seed candidate pool
+              </button>
+            ) : (
+              <p className="text-xs text-ink-500 italic">
+                Sign in as an allowed user to seed the pool.
+              </p>
+            )}
+            {error && (
+              <p className="mt-3 text-xs text-crimson-bright">{error}</p>
+            )}
+          </div>
+        )}
 
-        {state.items.length > 0 && (
-          <div className="px-5 pt-5 flex flex-col gap-2">
+        {seeding && (
+          <div className="mx-5 mt-8 p-5 rounded-2xl bg-ink-900 border border-ink-800 text-sm text-ink-300 leading-relaxed">
+            <div className="flex items-center gap-2 mb-2">
+              <Spinner size={12} />
+              <span className="font-semibold text-ink-100">
+                Seeding pool… ({busy.done}/{busy.total})
+              </span>
+            </div>
+            <p className="text-ink-400 text-xs">
+              {busy.added} films added so far. Don't close the tab.
+            </p>
+          </div>
+        )}
+
+        {!poolEmpty && !loading && (
+          <ul>
+            {picks.map((rec, i) => (
+              <RecRow key={rec.title} rec={rec} rank={i + 1} />
+            ))}
+          </ul>
+        )}
+
+        {!poolEmpty && !loading && picks.length === 0 && (
+          <div className="px-6 pt-10 text-center text-ink-400 text-sm">
+            Every candidate in the pool is already on your list. Expand the
+            pool to find new picks.
+          </div>
+        )}
+
+        {!poolEmpty && !loading && canWrite && (
+          <div className="px-5 pt-6 pb-4 flex flex-col gap-2">
             <button
               type="button"
-              onClick={() => void loadBatch()}
-              disabled={addingMore}
-              className={`w-full min-h-[48px] rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-colors ${
-                addingMore
+              disabled={anyBusy}
+              onClick={() => void runExpansion(1)}
+              className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+                anyBusy
                   ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
-                  : 'bg-amber-glow text-ink-950 active:opacity-80'
+                  : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
               }`}
             >
-              {addingMore ? (
+              {expanding ? (
                 <>
-                  <Spinner size={12} />
-                  Finding {RECS_BATCH_SIZE} more…
+                  <Spinner size={10} />
+                  Adding {EXPAND_BATCH} more…
                 </>
               ) : (
-                <>+ Add {RECS_BATCH_SIZE} more</>
+                <>Pool: {pool.candidates.length} · Expand +{EXPAND_BATCH}</>
               )}
             </button>
             {error && (
-              <div className="text-center text-xs text-crimson-bright">
-                {error}
-              </div>
+              <p className="text-center text-xs text-crimson-bright">{error}</p>
             )}
-          </div>
-        )}
-
-        {state.status === 'error' && state.items.length === 0 && (
-          <div className="mx-5 mt-5 p-4 rounded-2xl bg-ink-900 border border-ink-800 text-sm text-ink-300 leading-relaxed">
-            Couldn’t generate picks right now.
-            {error && (
-              <span className="block mt-1 text-xs text-ink-500">{error}</span>
-            )}
-            <button
-              type="button"
-              onClick={() => void loadBatch()}
-              className="mt-3 min-h-[40px] px-4 rounded-full bg-amber-glow text-ink-950 font-bold text-sm active:opacity-80"
-            >
-              Try again
-            </button>
-          </div>
-        )}
-
-        {state.status === 'idle' && movies.length === 0 && (
-          <div className="px-6 pt-10 text-center text-ink-400 text-sm">
-            Add a watched movie first — recommendations are based on your list.
           </div>
         )}
       </div>
@@ -230,22 +201,10 @@ export default function Recommendations({ movies }: Props) {
   );
 }
 
-function RecRow({
-  rec,
-  rank,
-  isNew,
-}: {
-  rec: Recommendation;
-  rank: number;
-  isNew: boolean;
-}) {
+function RecRow({ rec, rank }: { rec: RankedPick; rank: number }) {
   const topRank = rank <= 3;
   return (
-    <li
-      className={`flex gap-3 px-4 py-3.5 border-b border-ink-800/70 transition-colors ${
-        isNew ? 'bg-amber-glow/[0.06]' : ''
-      }`}
-    >
+    <li className="flex gap-3 px-4 py-3.5 border-b border-ink-800/70">
       <div className="w-8 shrink-0 flex flex-col items-center pt-1 gap-0.5">
         <div
           className={`font-display italic leading-none tracking-tight ${
@@ -259,18 +218,12 @@ function RecRow({
         >
           {rank}
         </div>
-        {rec.fitScore != null && (
-          <div className="text-[9px] font-mono text-ink-500 tabular-nums tracking-wider">
-            {rec.fitScore}
-          </div>
-        )}
+        <div className="text-[9px] font-mono text-ink-500 tabular-nums tracking-wider">
+          {rec.fitScore}
+        </div>
       </div>
 
-      <div className="w-[60px] h-[90px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
-        <span className="text-xl font-bold text-ink-600 select-none">
-          {rec.title.charAt(0).toUpperCase()}
-        </span>
-      </div>
+      <CandidatePoster rec={rec} />
 
       <div className="flex-1 min-w-0 flex flex-col gap-1">
         <div className="flex items-baseline justify-between gap-2">
@@ -316,25 +269,41 @@ function RecRow({
           )}
         </div>
 
-        {rec.why && (
-          <div className="font-display italic text-[13px] text-ink-300 leading-snug">
-            “{rec.why}”
-          </div>
-        )}
-
         {(rec.studio || rec.awards) && (
           <div className="flex gap-2 flex-wrap text-[10.5px] text-ink-500 font-medium">
-            {rec.studio && <span>{rec.studio}</span>}
+            {rec.studio && <span className="truncate">{rec.studio}</span>}
             {rec.studio && rec.awards && (
               <span className="opacity-50">·</span>
             )}
             {rec.awards && (
-              <span className="text-amber-glow/85">🏆 {rec.awards}</span>
+              <span className="text-amber-glow/85 truncate">
+                {rec.awards}
+              </span>
             )}
           </div>
         )}
       </div>
     </li>
+  );
+}
+
+function CandidatePoster({ rec }: { rec: Candidate }) {
+  if (rec.poster) {
+    return (
+      <img
+        src={rec.poster}
+        alt=""
+        className="w-[60px] h-[90px] rounded-md object-cover border border-ink-700 shrink-0 bg-ink-800"
+        loading="lazy"
+      />
+    );
+  }
+  return (
+    <div className="w-[60px] h-[90px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
+      <span className="text-xl font-bold text-ink-600 select-none">
+        {rec.title.charAt(0).toUpperCase()}
+      </span>
+    </div>
   );
 }
 
@@ -346,7 +315,6 @@ function RecSkeleton() {
       <div className="flex-1 flex flex-col gap-2 pt-1">
         <div className="w-[70%] h-4 rounded bg-ink-800 shimmer" />
         <div className="w-[45%] h-3 rounded bg-ink-800 shimmer" />
-        <div className="w-[90%] h-3 rounded bg-ink-800 shimmer" />
         <div className="w-[60%] h-3 rounded bg-ink-800 shimmer" />
       </div>
     </div>

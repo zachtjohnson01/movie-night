@@ -137,7 +137,9 @@ export default function App() {
             onAdd={openAdd}
           />
         )}
-        {tab === 'recs' && <Recommendations movies={movies} />}
+        {tab === 'recs' && (
+          <Recommendations movies={movies} canWrite={auth.canWrite} />
+        )}
       </main>
       <TabBar tab={tab} onChange={setTab} />
       {showBulkLink && (

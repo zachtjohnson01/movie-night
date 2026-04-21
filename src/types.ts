@@ -47,4 +47,33 @@ export type Movie = {
   watched: boolean;
   dateWatched: string | null; // ISO YYYY-MM-DD, or null if the date is unknown
   notes: string | null;
+  /**
+   * Awards string from OMDB (e.g. "Won 1 Oscar. 14 wins & 13 nominations.").
+   * Null for manually-entered movies and older rows that predate the field.
+   */
+  awards: string | null;
+  /**
+   * Production company from OMDB. Frequently "N/A" on the free tier, so
+   * expect this to be sparse. Null for manually-entered movies.
+   */
+  production: string | null;
+};
+
+/**
+ * An entry in the deterministic recommendation pool. Not a Movie — these are
+ * films the user hasn't added to their library yet. The pool is persisted as
+ * a JSONB blob in Supabase (row id=2 in `movie_night`) and grown by the
+ * admin-only "Expand pool" action. Ranking is a pure function over this shape.
+ */
+export type Candidate = {
+  title: string;
+  year: number | null;
+  imdbId: string | null;
+  imdb: string | null;
+  rottenTomatoes: string | null;
+  commonSenseAge: string | null;
+  studio: string | null;
+  awards: string | null;
+  poster: string | null;
+  addedAt: string; // ISO timestamp — when this candidate was added to the pool
 };
