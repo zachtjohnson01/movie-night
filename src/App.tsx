@@ -9,8 +9,8 @@ import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import { useMovies } from './useMovies';
 import { useAuth } from './useAuth';
-import { emptyMovie } from './format';
-import type { Movie } from './types';
+import { candidateToTemplate, emptyMovie } from './format';
+import type { Candidate, Movie } from './types';
 
 type Screen =
   | { name: 'list' }
@@ -42,6 +42,11 @@ export default function App() {
     if (!auth.canWrite) return;
     const template = emptyMovie(tab === 'watched');
     setScreen({ name: 'new', template });
+  }
+
+  function openPick(c: Candidate) {
+    if (!auth.canWrite) return;
+    setScreen({ name: 'new', template: candidateToTemplate(c) });
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
@@ -138,7 +143,11 @@ export default function App() {
           />
         )}
         {tab === 'recs' && (
-          <Recommendations movies={movies} canWrite={auth.canWrite} />
+          <Recommendations
+            movies={movies}
+            canWrite={auth.canWrite}
+            onSelectPick={openPick}
+          />
         )}
       </main>
       <TabBar tab={tab} onChange={setTab} />
