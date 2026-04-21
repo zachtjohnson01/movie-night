@@ -82,8 +82,9 @@ export async function expandPool(
   });
 
   if (!resp.ok) {
-    const detail = await resp.json().catch(() => ({ error: resp.statusText }));
-    throw new Error(detail.error || `HTTP ${resp.status}`);
+    const body = await resp.json().catch(() => ({ error: resp.statusText }));
+    const base = body.error || `HTTP ${resp.status}`;
+    throw new Error(body.detail ? `${base} — ${body.detail}` : base);
   }
 
   const data = (await resp.json()) as { items: RawCandidateFromApi[] };
