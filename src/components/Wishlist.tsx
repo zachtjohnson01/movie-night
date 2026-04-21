@@ -3,6 +3,7 @@ import type { Movie } from '../types';
 import { ageBadgeClass, getDisplayTitle, sortWishlist } from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
+import DesignToggle from './modern/DesignToggle';
 
 type Props = {
   movies: Movie[];
@@ -12,6 +13,8 @@ type Props = {
   onAdd: () => void;
   onEnhanceAll: () => void;
   onReorder: (orderedTitles: string[]) => void;
+  design: 'classic' | 'modern';
+  onToggleDesign: () => void;
 };
 
 export default function Wishlist({
@@ -22,6 +25,8 @@ export default function Wishlist({
   onAdd,
   onEnhanceAll,
   onReorder,
+  design,
+  onToggleDesign,
 }: Props) {
   const [query, setQuery] = useState('');
   const [reordering, setReordering] = useState(false);
@@ -161,8 +166,9 @@ export default function Wishlist({
           </div>
         )}
 
-        <div className="mt-2">
+        <div className="mt-2 flex items-center justify-between gap-3">
           <BuildStamp />
+          <DesignToggle design={design} onToggle={onToggleDesign} />
         </div>
       </header>
 

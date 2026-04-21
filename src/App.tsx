@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import WatchedList from './components/WatchedList';
 import Wishlist from './components/Wishlist';
 import Recommendations from './components/Recommendations';
 import Detail from './components/Detail';
 import TabBar, { type Tab } from './components/TabBar';
+import ModernWatchedList from './components/modern/WatchedList';
+import ModernWishlist from './components/modern/Wishlist';
+import ModernRecommendations from './components/modern/Recommendations';
+import ModernDetail from './components/modern/Detail';
+import ModernTabBar from './components/modern/TabBar';
 import SyncBanner from './components/SyncBanner';
 import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
@@ -17,6 +22,21 @@ type Screen =
   | { name: 'list' }
   | { name: 'detail'; title: string }
   | { name: 'new'; template: Movie };
+
+type Design = 'classic' | 'modern';
+
+const DESIGN_STORAGE_KEY = 'mn_design';
+
+function readInitialDesign(): Design {
+  if (typeof window === 'undefined') return 'classic';
+  try {
+    return window.localStorage.getItem(DESIGN_STORAGE_KEY) === 'modern'
+      ? 'modern'
+      : 'classic';
+  } catch {
+    return 'classic';
+  }
+}
 
 export default function App() {
   const {
@@ -35,6 +55,20 @@ export default function App() {
   const [enhanceScope, setEnhanceScope] = useState<
     'watched' | 'wishlist' | null
   >(null);
+  const [design, setDesign] = useState<Design>(readInitialDesign);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(DESIGN_STORAGE_KEY, design);
+    } catch {
+      // localStorage unavailable (private mode, etc.) — preference just
+      // won't persist across reloads. No-op.
+    }
+  }, [design]);
+
+  const toggleDesign = useCallback(() => {
+    setDesign((d) => (d === 'modern' ? 'classic' : 'modern'));
+  }, []);
 
   // If the selected movie disappears (deleted by the other user, or
   // renamed), bail back to the list view.
@@ -100,9 +134,12 @@ export default function App() {
     setScreen({ name: 'list' });
   }
 
+  const isModern = design === 'modern';
+
   if (screen.name === 'new') {
+    const DetailComponent = isModern ? ModernDetail : Detail;
     return (
-      <Detail
+      <DetailComponent
         mode="new"
         movie={screen.template}
         canWrite={auth.canWrite}
@@ -113,8 +150,9 @@ export default function App() {
   }
 
   if (selected) {
+    const DetailComponent = isModern ? ModernDetail : Detail;
     return (
-      <Detail
+      <DetailComponent
         mode="existing"
         movie={selected}
         canWrite={auth.canWrite}
@@ -137,38 +175,82 @@ export default function App() {
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
-        {tab === 'watched' && (
-          <WatchedList
-            movies={movies}
-            canWrite={auth.canWrite}
-            isOwner={auth.isOwner}
-            onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
-            onAdd={openAdd}
-            onBulkLink={() => setShowBulkLink(true)}
-            onEnhanceAll={() => setEnhanceScope('watched')}
-          />
-        )}
-        {tab === 'wishlist' && (
-          <Wishlist
-            movies={movies}
-            canWrite={auth.canWrite}
-            isOwner={auth.isOwner}
-            onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
-            onAdd={openAdd}
-            onEnhanceAll={() => setEnhanceScope('wishlist')}
-            onReorder={reorderWishlist}
-          />
-        )}
-        {tab === 'recs' && (
-          <Recommendations
-            movies={movies}
-            canWrite={auth.canWrite}
-            onSelectPick={openPick}
-            reloadMovies={reloadMovies}
-          />
+        {isModern ? (
+          <>
+            {tab === 'watched' && (
+              <ModernWatchedList
+                movies={movies}
+                canWrite={auth.canWrite}
+                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onAdd={openAdd}
+                design={design}
+                onToggleDesign={toggleDesign}
+              />
+            )}
+            {tab === 'wishlist' && (
+              <ModernWishlist
+                movies={movies}
+                canWrite={auth.canWrite}
+                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onAdd={openAdd}
+                design={design}
+                onToggleDesign={toggleDesign}
+              />
+            )}
+            {tab === 'recs' && (
+              <ModernRecommendations
+                movies={movies}
+                canWrite={auth.canWrite}
+                onSelectPick={openPick}
+                design={design}
+                onToggleDesign={toggleDesign}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            {tab === 'watched' && (
+              <WatchedList
+                movies={movies}
+                canWrite={auth.canWrite}
+                isOwner={auth.isOwner}
+                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onAdd={openAdd}
+                onBulkLink={() => setShowBulkLink(true)}
+                onEnhanceAll={() => setEnhanceScope('watched')}
+                design={design}
+                onToggleDesign={toggleDesign}
+              />
+            )}
+            {tab === 'wishlist' && (
+              <Wishlist
+                movies={movies}
+                canWrite={auth.canWrite}
+                isOwner={auth.isOwner}
+                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onAdd={openAdd}
+                onEnhanceAll={() => setEnhanceScope('wishlist')}
+                onReorder={reorderWishlist}
+                design={design}
+                onToggleDesign={toggleDesign}
+              />
+            )}
+            {tab === 'recs' && (
+              <Recommendations
+                movies={movies}
+                canWrite={auth.canWrite}
+                onSelectPick={openPick}
+                reloadMovies={reloadMovies}
+              />
+            )}
+          </>
         )}
       </main>
-      <TabBar tab={tab} onChange={setTab} />
+      {isModern ? (
+        <ModernTabBar tab={tab} onChange={setTab} />
+      ) : (
+        <TabBar tab={tab} onChange={setTab} />
+      )}
       {showBulkLink && (
         <BulkLinkSheet
           movies={movies}
