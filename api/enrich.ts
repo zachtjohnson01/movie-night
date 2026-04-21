@@ -51,12 +51,15 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
 
 /**
  * Studio + awards backfill endpoint. Asks Claude for the lead production
- * studio and a one-line awards summary for each input title. Used by the
- * "Enhance all" buttons on the Watched and Wishlist tabs to fill in the
- * `production` and `awards` fields for movies that don't have them yet
- * (typically older manual entries or movies linked to OMDB before those
- * fields existed, since OMDB's free tier returns "N/A" for Production
- * far more often than not).
+ * studio and (as a fallback) an awards summary for each input title.
+ *
+ * On the client side, src/enrich.ts pairs this endpoint with OMDB: OMDB is
+ * authoritative for awards (its Awards string comes from IMDb) and runs in
+ * parallel for every movie with an imdbId. Claude is the only source for
+ * studio — OMDB's free tier returns "N/A" for Production on most titles —
+ * and a best-effort fallback for awards when the movie isn't linked or
+ * OMDB had nothing. The prompt is tuned to prefer blank over a guess to
+ * avoid hallucinated awards on recent/obscure films.
  *
  * POST { movies: Array<{ title, year, imdbId }> }
  *   -> { items: Array<{ title, production, awards }> }
@@ -93,14 +96,20 @@ FILMS:
 
 ${list}
 
-Return ONLY a JSON array with one object per film, in the SAME ORDER as the input. Each object shape:
+Return ONLY a JSON array with one object per film, in the SAME ORDER as the input. No prose, no code fences. Each object shape:
 {"title":"","production":"","awards":""}
 
-- "title": echo the input title exactly
-- "production": lead production company (e.g. "Pixar Animation Studios", "Studio Ghibli", "Walt Disney Pictures"). Use "" if genuinely unknown.
-- "awards": one-line summary like "Won 1 Oscar. 14 wins & 13 nominations." or "BAFTA-nominated. 3 wins." Use "" if no notable awards.
+RULES:
 
-Return exactly ${movies.length} items in the array, in input order. No prose, no code fences.`;
+- "title": echo the input title exactly.
+
+- "production": lead production company (e.g. "Pixar Animation Studios", "Studio Ghibli", "Walt Disney Pictures", "Illumination", "DreamWorks Animation"). Use "" if you don't know.
+
+- "awards": ONLY include awards if you are HIGHLY confident the film actually won or was seriously nominated for a major award — Academy Awards (Oscars), BAFTAs, Golden Globes, Cannes, Annies (for animation), or Critics' Choice. DO NOT guess. Most films have no notable awards; blank is the correct answer in that case. If you are unsure, if the film is recent (last 2 years), or if you might be confusing it with a similarly-titled film, return "". A wrong award is much worse than no award. Format when non-empty: "Won 1 Oscar. 14 wins & 13 nominations." or "BAFTA-nominated. 3 wins." Empty string is strongly preferred over any guess.
+
+When an input line includes a bracketed "[tt...]" value, that's the canonical IMDb ID — use it to disambiguate films that share a title.
+
+Return exactly ${movies.length} items in the array, in input order.`;
 }
 
 function parseEnriched(text: string): EnrichedFields[] {
