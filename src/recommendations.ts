@@ -1,6 +1,7 @@
 import type { Candidate, Movie } from './types';
 import { enrichCandidate } from './omdb';
 import { scoreCandidate } from './scoring';
+import { supabase } from './supabase';
 
 /**
  * Deterministic top-picks engine. Consumes the candidate pool (persisted in
@@ -60,9 +61,23 @@ export async function expandPool(
   libraryTitles: string[],
   batchSize: number = 100,
 ): Promise<Candidate[]> {
+  // The endpoint verifies this JWT server-side and rejects anyone not on
+  // the admin allowlist — without a live session we can't even try.
+  if (!supabase) {
+    throw new Error('Auth is not configured — cannot expand pool.');
+  }
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    throw new Error('Sign in required to expand the pool.');
+  }
+
   const resp = await fetch('/api/recommendations', {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ poolTitles, libraryTitles, batchSize }),
   });
 

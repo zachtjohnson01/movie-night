@@ -1,6 +1,61 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+// Supabase env vars are set in Vercel with the VITE_ prefix so the Vite
+// build inlines them for the client. Serverless functions see the same
+// values via process.env regardless of prefix.
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
+
+// Mirrors the client list in src/useAuth.ts. Kept in sync manually — for a
+// 2-user family app the drift risk is negligible. Treat as the single source
+// of truth for *write* access; the client check is UI hygiene, this is the
+// enforcement point for anything that spends money (Anthropic credits).
+const ALLOWED_ADMIN_EMAILS = new Set([
+  'zachtjohnson01@gmail.com',
+  'alexandrabjohnson01@gmail.com',
+]);
+
+type AuthResult =
+  | { ok: true; email: string }
+  | { ok: false; status: number; error: string };
+
+async function authenticate(req: VercelRequest): Promise<AuthResult> {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return {
+      ok: false,
+      status: 503,
+      error:
+        'Auth is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel.',
+    };
+  }
+  const header = req.headers.authorization ?? '';
+  const match = /^Bearer\s+(.+)$/i.exec(header);
+  if (!match) {
+    return {
+      ok: false,
+      status: 401,
+      error: 'Missing Authorization header',
+    };
+  }
+  const token = match[1];
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return { ok: false, status: 401, error: 'Invalid session' };
+  }
+  const email = (data.user.email ?? '').toLowerCase();
+  if (!ALLOWED_ADMIN_EMAILS.has(email)) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'Not authorized to expand the recommendation pool',
+    };
+  }
+  return { ok: true, email };
+}
 
 /**
  * Candidate-pool expansion endpoint. Asks Claude for a batch of family films
@@ -148,6 +203,11 @@ export default async function handler(
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const auth = await authenticate(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ error: auth.error });
   }
 
   if (!ANTHROPIC_API_KEY) {
