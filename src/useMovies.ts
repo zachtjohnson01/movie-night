@@ -19,6 +19,7 @@ export type MoviesApi = {
   addMovie: (movie: Movie) => Promise<void>;
   deleteMovie: (title: string) => Promise<void>;
   reorderWishlist: (orderedTitles: string[]) => Promise<void>;
+  reload: () => void;
 };
 
 /**
@@ -36,6 +37,7 @@ export function useMovies(): MoviesApi {
   const [status, setStatus] = useState<SyncStatus>(
     isSupabaseConfigured ? 'loading' : 'local',
   );
+  const [reloadTick, setReloadTick] = useState(0);
   // We always use the *latest* local state when writing, so we hold it in
   // a ref to avoid stale closures inside async callbacks.
   const latestRef = useRef<Movie[]>(SEED);
@@ -44,6 +46,7 @@ export function useMovies(): MoviesApi {
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
+    setStatus('loading');
 
     async function load() {
       if (!supabase) return;
@@ -107,7 +110,9 @@ export function useMovies(): MoviesApi {
       cancelled = true;
       if (supabase) void supabase.removeChannel(channel);
     };
-  }, []);
+  }, [reloadTick]);
+
+  const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
   const writeRemote = useCallback(async (next: Movie[]) => {
     if (!supabase) return;
@@ -172,5 +177,13 @@ export function useMovies(): MoviesApi {
     [writeRemote],
   );
 
-  return { movies, status, updateMovie, addMovie, deleteMovie, reorderWishlist };
+  return {
+    movies,
+    status,
+    updateMovie,
+    addMovie,
+    deleteMovie,
+    reorderWishlist,
+    reload,
+  };
 }
