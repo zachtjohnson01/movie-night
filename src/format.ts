@@ -1,4 +1,4 @@
-import type { Movie } from './types';
+import type { Candidate, Movie } from './types';
 
 const MONTHS = [
   'Jan',
@@ -148,6 +148,26 @@ export function emptyMovie(watched: boolean): Movie {
     notes: null,
     awards: null,
     production: null,
+  };
+}
+
+export function candidateToTemplate(c: Candidate): Movie {
+  return {
+    title: c.title,
+    displayTitle: null,
+    commonSenseAge: c.commonSenseAge,
+    commonSenseScore: null,
+    rottenTomatoes: c.rottenTomatoes,
+    imdb: c.imdb,
+    imdbId: c.imdbId,
+    year: c.year,
+    poster: c.poster,
+    omdbRefreshedAt: null,
+    watched: false,
+    dateWatched: null,
+    notes: null,
+    awards: c.awards,
+    production: c.studio,
   };
 }
 

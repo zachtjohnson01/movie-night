@@ -7,13 +7,14 @@ import { expandPool, rankTopPicks, type RankedPick } from '../recommendations';
 type Props = {
   movies: Movie[];
   canWrite: boolean;
+  onSelectPick: (c: Candidate) => void;
 };
 
 const TOP_N = 20;
 const EXPAND_BATCH = 100;
 const SEED_BATCHES = 5; // 5 × 100 = 500-film initial pool
 
-export default function Recommendations({ movies, canWrite }: Props) {
+export default function Recommendations({ movies, canWrite, onSelectPick }: Props) {
   const pool = useCandidatePool();
   const [busy, setBusy] = useState<
     | { kind: 'idle' }
@@ -72,6 +73,7 @@ export default function Recommendations({ movies, canWrite }: Props) {
 
   const loading = pool.status === 'loading';
   const poolEmpty = pool.status === 'empty';
+  const poolErrored = pool.status === 'error';
   const seeding = busy.kind === 'seeding';
   const expanding = busy.kind === 'expanding';
   const anyBusy = seeding || expanding;
@@ -110,6 +112,25 @@ export default function Recommendations({ movies, canWrite }: Props) {
             <RecSkeleton />
             <RecSkeleton />
           </>
+        )}
+
+        {poolErrored && (
+          <div className="mx-5 mt-8 p-5 rounded-2xl bg-ink-900 border border-crimson-deep/40 text-sm text-ink-300 leading-relaxed">
+            <p className="font-semibold text-ink-100 mb-2">
+              Couldn't load the candidate pool
+            </p>
+            <p className="text-ink-400 mb-4">
+              Something went wrong reading from Supabase. Check your
+              connection and try again.
+            </p>
+            <button
+              type="button"
+              onClick={pool.reload}
+              className="w-full min-h-[44px] rounded-2xl text-sm font-semibold bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700"
+            >
+              Try again
+            </button>
+          </div>
         )}
 
         {poolEmpty && !loading && !seeding && (
@@ -155,22 +176,27 @@ export default function Recommendations({ movies, canWrite }: Props) {
           </div>
         )}
 
-        {!poolEmpty && !loading && (
+        {!poolEmpty && !loading && !poolErrored && (
           <ul>
             {picks.map((rec, i) => (
-              <RecRow key={rec.title} rec={rec} rank={i + 1} />
+              <RecRow
+                key={rec.title}
+                rec={rec}
+                rank={i + 1}
+                onSelect={() => onSelectPick(rec)}
+              />
             ))}
           </ul>
         )}
 
-        {!poolEmpty && !loading && picks.length === 0 && (
+        {!poolEmpty && !loading && !poolErrored && picks.length === 0 && (
           <div className="px-6 pt-10 text-center text-ink-400 text-sm">
             Every candidate in the pool is already on your list. Expand the
             pool to find new picks.
           </div>
         )}
 
-        {!poolEmpty && !loading && canWrite && (
+        {!poolEmpty && !loading && !poolErrored && canWrite && (
           <div className="px-5 pt-6 pb-4 flex flex-col gap-2">
             <button
               type="button"
@@ -201,11 +227,24 @@ export default function Recommendations({ movies, canWrite }: Props) {
   );
 }
 
-function RecRow({ rec, rank }: { rec: RankedPick; rank: number }) {
+function RecRow({
+  rec,
+  rank,
+  onSelect,
+}: {
+  rec: RankedPick;
+  rank: number;
+  onSelect: () => void;
+}) {
   const topRank = rank <= 3;
   return (
-    <li className="flex gap-3 px-4 py-3.5 border-b border-ink-800/70">
-      <div className="w-8 shrink-0 flex flex-col items-center pt-1 gap-0.5">
+    <li className="border-b border-ink-800/70">
+      <button
+        type="button"
+        onClick={onSelect}
+        className="w-full flex gap-3 px-4 py-3.5 text-left active:bg-ink-900 transition-colors"
+      >
+        <div className="w-8 shrink-0 flex flex-col items-center pt-1 gap-0.5">
         <div
           className={`font-display italic leading-none tracking-tight ${
             topRank ? 'text-amber-glow' : 'text-ink-300'
@@ -282,7 +321,8 @@ function RecRow({ rec, rank }: { rec: RankedPick; rank: number }) {
             )}
           </div>
         )}
-      </div>
+        </div>
+      </button>
     </li>
   );
 }
