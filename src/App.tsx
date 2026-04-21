@@ -193,6 +193,7 @@ export default function App() {
         mode="existing"
         movie={selected}
         canWrite={auth.canWrite}
+        isOwner={auth.isOwner}
         onBack={() => setScreen({ name: 'list' })}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
         onDelete={handleDelete}

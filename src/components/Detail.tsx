@@ -19,11 +19,13 @@ import {
 } from '../omdb';
 import MovieSearchCombobox from './MovieSearchCombobox';
 import MoviePoster from './MoviePoster';
+import { verifyField, type VerifyResult } from '../verify';
 
 type Props =
   | {
       mode: 'existing';
       canWrite: boolean;
+      isOwner?: boolean;
       movie: Movie;
       onBack: () => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
@@ -384,9 +386,11 @@ export default function Detail(props: Props) {
             movie={movie}
             isWatched={isWatched}
             canWrite={props.canWrite}
+            isOwner={props.isOwner ?? false}
             onMarkWatchedTonight={markWatchedTonight}
             onMarkWatchedUndated={markWatchedUndated}
             onSaveNotes={saveNotes}
+            onUpdate={props.onUpdate}
             onDelete={handleDelete}
             onRefresh={handleRefresh}
             showLinkSearch={showLinkSearch}
@@ -420,9 +424,11 @@ type ViewModeProps = {
   | {
       variant: 'existing';
       isWatched: boolean;
+      isOwner: boolean;
       onMarkWatchedTonight: () => void;
       onMarkWatchedUndated: () => void;
       onSaveNotes: (notes: string) => void;
+      onUpdate: (updated: Movie) => void | Promise<void>;
       onDelete: () => void;
       onRefresh: () => void;
       showLinkSearch: boolean;
@@ -504,6 +510,10 @@ function ViewMode(props: ViewModeProps) {
       </div>
 
       <StudioAwardsBlock movie={movie} />
+
+      {variant === 'existing' && props.isOwner && canWrite && movie.imdbId && (
+        <VerifyBlock movie={movie} onUpdate={props.onUpdate} />
+      )}
 
       {variant === 'existing' && isOmdbConfigured && (
         <div className="mt-4 space-y-2">
@@ -973,6 +983,231 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+const VERIFY_FIELD_LABEL: Record<
+  NonNullable<VerifyResult['field']>,
+  string
+> = {
+  production: 'Studio',
+  awards: 'Awards',
+  year: 'Year',
+  commonSenseAge: 'CSM Age',
+};
+
+function VerifyBlock({
+  movie,
+  onUpdate,
+}: {
+  movie: Movie;
+  onUpdate: (updated: Movie) => void | Promise<void>;
+}) {
+  const [question, setQuestion] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<VerifyResult | null>(null);
+
+  async function ask() {
+    const q = question.trim();
+    if (!q || busy) return;
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await verifyField(movie, q);
+      setResult(r);
+    } catch (e) {
+      setError((e as Error).message || 'Failed to ask Claude');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Coerce Claude's string suggestion to the right type for the Movie field.
+  // Year has to be a number; everything else stays a string.
+  function buildUpdate(
+    r: VerifyResult & { field: NonNullable<VerifyResult['field']>; suggestedValue: string },
+  ): Movie | null {
+    if (r.field === 'year') {
+      const n = Number.parseInt(r.suggestedValue, 10);
+      if (!Number.isFinite(n)) return null;
+      return { ...movie, year: n };
+    }
+    return { ...movie, [r.field]: r.suggestedValue };
+  }
+
+  async function applyUpdate() {
+    if (!result || !result.field || !result.suggestedValue) return;
+    const next = buildUpdate(
+      result as VerifyResult & {
+        field: NonNullable<VerifyResult['field']>;
+        suggestedValue: string;
+      },
+    );
+    if (!next) {
+      setError('Claude’s suggested value isn’t usable for that field.');
+      return;
+    }
+    await onUpdate(next);
+    setResult(null);
+    setQuestion('');
+  }
+
+  const canUpdate =
+    !!result &&
+    !!result.field &&
+    !!result.suggestedValue &&
+    !result.matches &&
+    !(result.field === 'year' &&
+      !Number.isFinite(Number.parseInt(result.suggestedValue, 10)));
+
+  return (
+    <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-3">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+        Ask Claude to verify
+      </div>
+      <textarea
+        value={question}
+        onChange={(e) => setQuestion(e.target.value)}
+        rows={2}
+        className={`${inputClass} leading-relaxed`}
+        placeholder='e.g. "What studio made this?" or "Did it win any Oscars?"'
+      />
+      <button
+        type="button"
+        onClick={ask}
+        disabled={!question.trim() || busy}
+        className="w-full min-h-[48px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40 flex items-center justify-center gap-2"
+      >
+        {busy ? (
+          <>
+            <Spinner />
+            <span>Asking…</span>
+          </>
+        ) : (
+          <span>Ask Claude</span>
+        )}
+      </button>
+
+      {error && (
+        <div className="rounded-xl bg-rose-950/40 border border-rose-900/60 px-3 py-2 text-xs text-rose-200">
+          {error}
+        </div>
+      )}
+
+      {result && !error && (
+        <VerifyResultView
+          result={result}
+          canUpdate={canUpdate}
+          onApply={applyUpdate}
+          onDismiss={() => setResult(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function VerifyResultView({
+  result,
+  canUpdate,
+  onApply,
+  onDismiss,
+}: {
+  result: VerifyResult;
+  canUpdate: boolean;
+  onApply: () => void;
+  onDismiss: () => void;
+}) {
+  // Question didn't map to a verifiable field, or Claude wasn't confident
+  // enough to suggest a value. Show the explanation and a dismiss button.
+  if (!result.field || !result.suggestedValue) {
+    return (
+      <div className="rounded-xl bg-ink-800/70 border border-ink-700 p-3 space-y-3">
+        <p className="text-sm text-ink-200 leading-relaxed">
+          {result.explanation || 'No confident answer.'}
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="w-full min-h-[44px] rounded-xl bg-ink-800 border border-ink-700 text-ink-300 font-medium active:bg-ink-700"
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+
+  const label = VERIFY_FIELD_LABEL[result.field];
+
+  if (result.matches) {
+    return (
+      <div className="rounded-xl bg-ink-800/70 border border-ink-700 p-3 space-y-3">
+        <div className="text-xs text-ink-400">
+          Matches what we have for{' '}
+          <span className="text-ink-200 font-semibold">{label}</span>:
+        </div>
+        <div className="text-sm text-ink-100 leading-snug">
+          {result.suggestedValue}
+        </div>
+        {result.explanation && (
+          <p className="text-xs text-ink-400 leading-relaxed">
+            {result.explanation}
+          </p>
+        )}
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="w-full min-h-[44px] rounded-xl bg-ink-800 border border-ink-700 text-ink-300 font-medium active:bg-ink-700"
+        >
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-ink-800/70 border border-ink-700 p-3 space-y-3">
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+          {label}
+        </div>
+        <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+          <span className="text-ink-400">Currently</span>
+          <span className="text-ink-200">
+            {result.currentValue ?? (
+              <span className="italic text-ink-500">blank</span>
+            )}
+          </span>
+          <span className="text-ink-400">Claude says</span>
+          <span className="text-amber-glow font-semibold">
+            {result.suggestedValue}
+          </span>
+        </div>
+      </div>
+      {result.explanation && (
+        <p className="text-xs text-ink-400 leading-relaxed">
+          {result.explanation}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="min-h-[44px] rounded-xl bg-ink-800 border border-ink-700 text-ink-300 font-medium active:bg-ink-700"
+        >
+          No
+        </button>
+        <button
+          type="button"
+          onClick={onApply}
+          disabled={!canUpdate}
+          className="min-h-[44px] rounded-xl bg-amber-glow text-ink-950 font-semibold active:opacity-80 disabled:opacity-40"
+        >
+          Yes, update
+        </button>
+      </div>
     </div>
   );
 }
