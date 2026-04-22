@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
-import { useCandidatePool } from '../useCandidatePool';
+import type { CandidatePoolApi } from '../useCandidatePool';
 import { expandPool, rankTopPicks, type RankedPick } from '../recommendations';
 
 type Props = {
   movies: Movie[];
+  pool: CandidatePoolApi;
   canWrite: boolean;
   onSelectPick: (c: Candidate) => void;
   reloadMovies: () => void;
@@ -22,12 +23,12 @@ const SEED_BATCHES = 5; // 5 × 100 = 500-film initial pool
 
 export default function Recommendations({
   movies,
+  pool,
   canWrite,
   onSelectPick,
   reloadMovies,
   onOpenPool,
 }: Props) {
-  const pool = useCandidatePool();
   const [busy, setBusy] = useState<
     | { kind: 'idle' }
     | { kind: 'seeding'; done: number; total: number; added: number }

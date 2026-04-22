@@ -191,7 +191,9 @@ export default function App() {
   }
 
   if (screen.name === 'pool' && auth.canWrite) {
-    return <PoolAdmin onBack={() => setScreen({ name: 'list' })} />;
+    return (
+      <PoolAdmin pool={pool} onBack={() => setScreen({ name: 'list' })} />
+    );
   }
 
   if (screen.name === 'candidate') {
@@ -283,6 +285,7 @@ export default function App() {
             {tab === 'recs' && (
               <ModernRecommendations
                 movies={movies}
+                pool={pool}
                 canWrite={auth.canWrite}
                 onSelectPick={openPick}
                 design={design}
@@ -321,6 +324,7 @@ export default function App() {
             {tab === 'recs' && (
               <Recommendations
                 movies={movies}
+                pool={pool}
                 canWrite={auth.canWrite}
                 onSelectPick={openPick}
                 reloadMovies={reloadMovies}

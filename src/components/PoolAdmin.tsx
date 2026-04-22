@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
 import type { Candidate } from '../types';
 import { ageBadgeClass } from '../format';
-import { useCandidatePool } from '../useCandidatePool';
+import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
 
 type Props = {
+  pool: CandidatePoolApi;
   onBack: () => void;
 };
 
@@ -17,8 +18,7 @@ type Props = {
  * LLM's CSM/studio/awards hints alone. Count of hidden rows is shown in
  * the footer so the admin knows the true pool size.
  */
-export default function PoolAdmin({ onBack }: Props) {
-  const pool = useCandidatePool();
+export default function PoolAdmin({ pool, onBack }: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Candidate | null>(null);
 
