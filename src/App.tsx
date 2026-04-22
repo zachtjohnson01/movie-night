@@ -64,6 +64,12 @@ export default function App() {
     'watched' | 'wishlist' | null
   >(null);
   const [design, setDesign] = useState<Design>(readInitialDesign);
+  // Preview-only state: lets the owner temporarily hide owner-exclusive
+  // tools (Enhance / Enhance All) to see what the UI looks like for a
+  // non-owner allowlisted user. Not persisted — resets on reload so the
+  // owner can't forget they toggled it and think a feature broke.
+  const [viewAsNonOwner, setViewAsNonOwner] = useState(false);
+  const effectiveIsOwner = auth.isOwner && !viewAsNonOwner;
 
   useEffect(() => {
     try {
@@ -76,6 +82,10 @@ export default function App() {
 
   const toggleDesign = useCallback(() => {
     setDesign((d) => (d === 'modern' ? 'classic' : 'modern'));
+  }, []);
+
+  const toggleViewAsNonOwner = useCallback(() => {
+    setViewAsNonOwner((v) => !v);
   }, []);
 
   // If the selected movie disappears (deleted by the other user, or
@@ -240,7 +250,7 @@ export default function App() {
         mode="existing"
         movie={selected}
         canWrite={auth.canWrite}
-        isOwner={auth.isOwner}
+        isOwner={effectiveIsOwner}
         onBack={() => setScreen({ name: 'list' })}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
         onDelete={handleDelete}
@@ -257,6 +267,11 @@ export default function App() {
         avatarUrl={auth.avatarUrl}
         onSignIn={auth.signIn}
         onSignOut={handleSignOut}
+        isOwner={auth.isOwner}
+        viewAsNonOwner={viewAsNonOwner}
+        onToggleViewAsNonOwner={toggleViewAsNonOwner}
+        design={design}
+        onToggleDesign={toggleDesign}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
@@ -268,8 +283,6 @@ export default function App() {
                 canWrite={auth.canWrite}
                 onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
                 onAdd={openAdd}
-                design={design}
-                onToggleDesign={toggleDesign}
               />
             )}
             {tab === 'wishlist' && (
@@ -278,8 +291,6 @@ export default function App() {
                 canWrite={auth.canWrite}
                 onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
                 onAdd={openAdd}
-                design={design}
-                onToggleDesign={toggleDesign}
               />
             )}
             {tab === 'recs' && (
@@ -288,8 +299,6 @@ export default function App() {
                 pool={pool}
                 canWrite={auth.canWrite}
                 onSelectPick={openPick}
-                design={design}
-                onToggleDesign={toggleDesign}
               />
             )}
           </>
@@ -299,26 +308,22 @@ export default function App() {
               <WatchedList
                 movies={movies}
                 canWrite={auth.canWrite}
-                isOwner={auth.isOwner}
+                isOwner={effectiveIsOwner}
                 onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
                 onAdd={openAdd}
                 onBulkLink={() => setShowBulkLink(true)}
                 onEnhanceAll={() => setEnhanceScope('watched')}
-                design={design}
-                onToggleDesign={toggleDesign}
               />
             )}
             {tab === 'wishlist' && (
               <Wishlist
                 movies={movies}
                 canWrite={auth.canWrite}
-                isOwner={auth.isOwner}
+                isOwner={effectiveIsOwner}
                 onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
                 onAdd={openAdd}
                 onEnhanceAll={() => setEnhanceScope('wishlist')}
                 onReorder={reorderWishlist}
-                design={design}
-                onToggleDesign={toggleDesign}
               />
             )}
             {tab === 'recs' && (
