@@ -108,16 +108,19 @@ export async function searchMovies(query: string): Promise<OmdbSearchResult[]> {
   if (trimmed.length < 3) return [];
 
   // First try the `?s=` broad search (returns up to 10 matches, good
-  // for autocomplete-style lookups).
+  // for autocomplete-style lookups). `type: 'movie'` constrains OMDB
+  // to films, and we re-filter the response as belt-and-suspenders.
   const data = await omdbGet<OmdbSearchResponse>({ s: trimmed, type: 'movie' });
   if (data.Response === 'True') {
-    return data.Search.map((r) => ({
-      imdbId: r.imdbID,
-      title: r.Title,
-      year: r.Year,
-      type: r.Type,
-      poster: r.Poster && r.Poster !== 'N/A' ? r.Poster : null,
-    }));
+    return data.Search
+      .filter((r) => r.Type === 'movie')
+      .map((r) => ({
+        imdbId: r.imdbID,
+        title: r.Title,
+        year: r.Year,
+        type: r.Type,
+        poster: r.Poster && r.Poster !== 'N/A' ? r.Poster : null,
+      }));
   }
 
   // `?s=` returned nothing. Fall back to `?t=` — OMDB's "find this
@@ -127,7 +130,7 @@ export async function searchMovies(query: string): Promise<OmdbSearchResult[]> {
   // movie. Wrap the single result in an array so callers see the
   // same shape regardless of which endpoint found it.
   try {
-    const detail = await omdbGet<OmdbDetailResponse>({ t: trimmed });
+    const detail = await omdbGet<OmdbDetailResponse>({ t: trimmed, type: 'movie' });
     if (detail.Response === 'True') {
       return [
         {
