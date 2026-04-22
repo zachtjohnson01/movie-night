@@ -3,145 +3,127 @@ import type { Candidate } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { dedupKey, getOmdbTypeById, getOmdbTypeByTitle } from '../omdb';
+import { dedupKey } from '../omdb';
 
 type Props = {
   pool: CandidatePoolApi;
   onBack: () => void;
 };
 
-type PurgeState =
-  | { kind: 'idle' }
-  | { kind: 'running'; done: number; total: number }
-  | { kind: 'done'; shows: number; duplicates: number };
+type FilterKey = 'eligible' | 'missingLink' | 'duplicate' | 'tvShow' | 'removed';
+
+const FILTER_ORDER: FilterKey[] = [
+  'eligible',
+  'missingLink',
+  'duplicate',
+  'tvShow',
+  'removed',
+];
+
+const FILTER_LABEL: Record<FilterKey, string> = {
+  eligible: 'Eligible',
+  missingLink: 'Missing link',
+  duplicate: 'Duplicates',
+  tvShow: 'TV show',
+  removed: 'Removed',
+};
 
 /**
- * Admin-only screen: browse, edit, and downvote candidates in the pool.
- * Sits on top of the tab-bar navigation (App.tsx screen stack), reachable
- * from the "Manage pool" button on the For You tab. Filters to candidates
- * with an OMDB link (`imdbId != null`) — the unlinked ones aren't useful
- * to review since RT/IMDb are usually null and scoring collapses to the
- * LLM's CSM/studio/awards hints alone. Count of hidden rows is shown in
- * the footer so the admin knows the true pool size.
+ * Admin-only screen: browse, edit, downvote, and remove candidates in the
+ * pool. Sits on top of the tab-bar navigation (App.tsx screen stack),
+ * reachable from the "Manage pool" button on the For You tab. Shows every
+ * row in the pool by default — including unlinked / removed / low-signal
+ * entries — so the admin can audit what's actually in row id=2. The
+ * filter chip bar lets an admin narrow the view to rows matching any
+ * selected problem (missing OMDB link, duplicate title, confirmed TV
+ * show, already removed) or to the clean "eligible" subset.
  */
 export default function PoolAdmin({ pool, onBack }: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Candidate | null>(null);
-  const [purge, setPurge] = useState<PurgeState>({ kind: 'idle' });
+  const [active, setActive] = useState<Set<FilterKey>>(new Set());
 
-  const handlePurge = useCallback(async () => {
-    const total = pool.candidates.length;
-    if (total === 0) {
-      setPurge({ kind: 'done', shows: 0, duplicates: 0 });
-      return;
+  // Set of dedup keys that appear at least twice — used both for the
+  // "Duplicates" filter chip and for the Eligible complement.
+  const duplicateKeys = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of pool.candidates) {
+      const k = dedupKey(c.title);
+      counts.set(k, (counts.get(k) ?? 0) + 1);
     }
-    setPurge({ kind: 'running', done: 0, total });
-
-    // Classify every candidate. Fast path: candidates whose `type` was
-    // captured at enrichment time (or learned on a previous purge) need
-    // no OMDB call. Slow path: look up missing types via OMDB — by
-    // imdbId when we have one, by title otherwise. Title lookup catches
-    // the LLM hallucinations seeded before the movie-only filter
-    // landed, e.g. "Avatar: The Last Airbender" with imdbId:null.
-    //
-    // Slow-path calls are capped at 6 concurrent. Unbounded Promise.all
-    // over 100+ candidates drops a noticeable fraction on mobile radio /
-    // free-tier OMDB, and dropped lookups return null ("can't confirm")
-    // — which preserves TV shows we meant to remove.
-    let done = 0;
-    const tick = () => {
-      done += 1;
-      setPurge({ kind: 'running', done, total });
-    };
-    const types = new Array<string | null>(pool.candidates.length);
-    pool.candidates.forEach((c, i) => {
-      if (c.type != null) {
-        types[i] = c.type;
-        tick();
-      }
+    const dups = new Set<string>();
+    counts.forEach((n, k) => {
+      if (n >= 2) dups.add(k);
     });
-    const pending = pool.candidates
-      .map((c, i) => ({ c, i }))
-      .filter(({ c }) => c.type == null);
-    await mapWithConcurrency(pending, 6, async ({ c, i }) => {
-      const t = c.imdbId
-        ? await getOmdbTypeById(c.imdbId)
-        : await getOmdbTypeByTitle(c.title);
-      types[i] = t;
-      tick();
-    });
+    return dups;
+  }, [pool.candidates]);
 
-    // Pass 1: drop confirmed non-movies. Null = "can't confirm" → keep,
-    // so a flaky OMDB request can't delete a legitimate movie. Kept
-    // candidates inherit any newly-learned type so the next purge can
-    // use the fast path.
-    const afterShows: Candidate[] = [];
-    let shows = 0;
-    let learned = 0;
-    pool.candidates.forEach((c, i) => {
-      const t = types[i];
-      if (t != null && t !== 'movie') {
-        shows += 1;
-        return;
-      }
-      if (t != null && c.type !== t) {
-        afterShows.push({ ...c, type: t });
-        learned += 1;
-      } else {
-        afterShows.push(c);
-      }
-    });
-
-    // Pass 2: dedup by loose title key (strips leading articles) so
-    // "Lion King" and "The Lion King" collapse into one entry. Prefer
-    // the linked candidate when both exist for the same key — imdbId
-    // means we already have authoritative RT/IMDb data.
-    const byKey = new Map<string, Candidate>();
-    let duplicates = 0;
-    for (const c of afterShows) {
-      const key = dedupKey(c.title);
-      const existing = byKey.get(key);
-      if (!existing) {
-        byKey.set(key, c);
-        continue;
-      }
-      duplicates += 1;
-      if (c.imdbId && !existing.imdbId) byKey.set(key, c);
-    }
-    const cleaned = [...byKey.values()];
-
-    if (shows === 0 && duplicates === 0 && learned === 0) {
-      setPurge({ kind: 'done', shows: 0, duplicates: 0 });
-      return;
-    }
-    await pool.replaceCandidates(cleaned);
-    setPurge({ kind: 'done', shows, duplicates });
-  }, [pool]);
-
-  const allLinked = useMemo(
-    () => pool.candidates.filter((c) => c.imdbId != null),
-    [pool.candidates],
+  const classify = useCallback(
+    (c: Candidate): Record<FilterKey, boolean> => {
+      const missingLink = c.imdbId == null;
+      const duplicate = duplicateKeys.has(dedupKey(c.title));
+      const tvShow = c.type != null && c.type !== 'movie';
+      const removed = c.removedAt != null;
+      const hasSignal = c.rottenTomatoes != null || c.imdb != null;
+      const eligible =
+        !missingLink && !duplicate && !tvShow && !removed && hasSignal;
+      return { eligible, missingLink, duplicate, tvShow, removed };
+    },
+    [duplicateKeys],
   );
-  const hiddenCount = pool.candidates.length - allLinked.length;
 
-  // Score and sort descending. Downvoted candidates naturally sink to the
-  // bottom because scoreCandidate subtracts a 1000-point penalty. Stable
-  // ties preserve pool insertion order for visual consistency.
+  const counts = useMemo(() => {
+    const out: Record<FilterKey, number> = {
+      eligible: 0,
+      missingLink: 0,
+      duplicate: 0,
+      tvShow: 0,
+      removed: 0,
+    };
+    for (const c of pool.candidates) {
+      const cls = classify(c);
+      for (const key of FILTER_ORDER) if (cls[key]) out[key] += 1;
+    }
+    return out;
+  }, [pool.candidates, classify]);
+
+  // Score and sort descending. Downvoted candidates sink via the 1000-point
+  // penalty in scoreCandidate; removed candidates are shown in-place so the
+  // admin sees them in context (sort is not a second removal signal).
   const ranked = useMemo(() => {
-    const scored = allLinked.map((c, i) => ({
+    const scored = pool.candidates.map((c, i) => ({
       c,
       i,
       fit: scoreCandidate(c),
     }));
     scored.sort((a, b) => b.fit - a.fit || a.i - b.i);
     return scored;
-  }, [allLinked]);
+  }, [pool.candidates]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return ranked;
-    return ranked.filter(({ c }) => c.title.toLowerCase().includes(q));
-  }, [ranked, query]);
+    const anyFilter = active.size > 0;
+    return ranked.filter(({ c }) => {
+      if (q && !c.title.toLowerCase().includes(q)) return false;
+      if (!anyFilter) return true;
+      const cls = classify(c);
+      // OR semantics across chips: a row is kept if it matches any
+      // selected filter. Eligible and the problem filters are complementary
+      // sets, so toggling "Eligible + Missing link" gives you the union,
+      // which is what you want when auditing "everything but TV shows".
+      for (const key of active) if (cls[key]) return true;
+      return false;
+    });
+  }, [ranked, query, active, classify]);
+
+  const toggleFilter = useCallback((key: FilterKey) => {
+    setActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="mx-auto max-w-xl pb-8">
@@ -176,10 +158,26 @@ export default function PoolAdmin({ pool, onBack }: Props) {
             </div>
             <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight">
               Candidate pool
-              <span className="ml-2 text-ink-400 font-semibold tabular-nums">
-                {allLinked.length}
-              </span>
             </h1>
+            <div className="mt-1 text-[11px] text-ink-500 tabular-nums">
+              <span className="text-ink-300 font-semibold">
+                {pool.candidates.length}
+              </span>{' '}
+              total ·{' '}
+              <span className="text-ink-300 font-semibold">
+                {counts.eligible}
+              </span>{' '}
+              eligible
+              {counts.removed > 0 && (
+                <>
+                  {' · '}
+                  <span className="text-ink-300 font-semibold">
+                    {counts.removed}
+                  </span>{' '}
+                  removed
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -208,29 +206,36 @@ export default function PoolAdmin({ pool, onBack }: Props) {
             <path d="m21 21-4.3-4.3" />
           </svg>
         </div>
-      </header>
 
-      <div className="px-5 pt-3 pb-1 flex flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => void handlePurge()}
-          disabled={purge.kind === 'running'}
-          className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold transition-colors ${
-            purge.kind === 'running'
-              ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
-              : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
-          }`}
-        >
-          {purge.kind === 'running'
-            ? `Checking OMDB… (${purge.done}/${purge.total})`
-            : 'Clean up pool'}
-        </button>
-        {purge.kind === 'done' && (
-          <p className="text-center text-[11px] text-ink-500 leading-relaxed">
-            {summarizePurge(purge.shows, purge.duplicates)}
-          </p>
-        )}
-      </div>
+        <div className="mt-3 -mx-5 px-5 flex gap-2 overflow-x-auto">
+          {FILTER_ORDER.map((key) => {
+            const isActive = active.has(key);
+            const n = counts[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleFilter(key)}
+                aria-pressed={isActive}
+                className={`shrink-0 h-9 px-3.5 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border transition-colors ${
+                  isActive
+                    ? 'bg-amber-glow text-ink-950 border-amber-glow'
+                    : 'bg-ink-800 border-ink-700 text-ink-300 active:bg-ink-700'
+                }`}
+              >
+                <span>{FILTER_LABEL[key]}</span>
+                <span
+                  className={`text-[10px] font-mono tabular-nums ${
+                    isActive ? 'text-ink-950/70' : 'text-ink-500'
+                  }`}
+                >
+                  {n}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </header>
 
       <ul className="pt-2">
         {visible.map(({ c, fit }, i) => (
@@ -247,25 +252,27 @@ export default function PoolAdmin({ pool, onBack }: Props) {
 
       {visible.length === 0 && (
         <div className="px-6 pt-10 text-center text-ink-400 text-sm">
-          {query
-            ? 'No candidates match that search.'
-            : 'No OMDB-linked candidates in the pool yet.'}
+          {query || active.size > 0
+            ? 'No candidates match the current filters.'
+            : 'Pool is empty.'}
         </div>
-      )}
-
-      {hiddenCount > 0 && (
-        <p className="mt-6 px-6 text-center text-[11px] text-ink-500 leading-relaxed">
-          {hiddenCount} candidate{hiddenCount === 1 ? '' : 's'} hidden — no
-          OMDB link (no RT or IMDb data).
-        </p>
       )}
 
       {editing && (
         <EditSheet
           candidate={editing}
+          reasons={pool.reasons}
           onClose={() => setEditing(null)}
           onSave={async (updated) => {
             await pool.updateCandidate(editing.title, updated);
+            setEditing(null);
+          }}
+          onRemove={async (reason) => {
+            await pool.removeCandidate(editing.title, reason);
+            setEditing(null);
+          }}
+          onRestore={async () => {
+            await pool.restoreCandidate(editing.title);
             setEditing(null);
           }}
         />
@@ -288,11 +295,12 @@ function PoolRow({
   onToggleDownvote: () => void;
 }) {
   const downvoted = !!c.downvoted;
+  const removed = c.removedAt != null;
   return (
     <li className="border-b border-ink-800/70">
       <div
         className={`flex gap-3 px-4 py-3.5 ${
-          downvoted ? 'opacity-60' : ''
+          downvoted || removed ? 'opacity-60' : ''
         }`}
       >
         <button
@@ -333,7 +341,11 @@ function PoolRow({
 
           <div className="flex-1 min-w-0 flex flex-col gap-1">
             <div className="flex items-baseline justify-between gap-2">
-              <div className="text-[15px] font-semibold leading-tight text-ink-100 truncate">
+              <div
+                className={`text-[15px] font-semibold leading-tight truncate ${
+                  removed ? 'text-ink-300 line-through' : 'text-ink-100'
+                }`}
+              >
                 {c.title}
               </div>
               {c.year && (
@@ -373,7 +385,13 @@ function PoolRow({
                   </span>
                 </span>
               )}
-              {downvoted && (
+              {removed && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright uppercase tracking-wider">
+                  Removed
+                  {c.removedReason ? `: ${c.removedReason}` : ''}
+                </span>
+              )}
+              {downvoted && !removed && (
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright uppercase tracking-wider">
                   Downvoted
                 </span>
@@ -408,11 +426,17 @@ function PoolRow({
 
 function EditSheet({
   candidate,
+  reasons,
   onSave,
+  onRemove,
+  onRestore,
   onClose,
 }: {
   candidate: Candidate;
+  reasons: string[];
   onSave: (updated: Candidate) => Promise<void>;
+  onRemove: (reason: string) => Promise<void>;
+  onRestore: () => Promise<void>;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(candidate.title);
@@ -421,7 +445,11 @@ function EditSheet({
   );
   const [age, setAge] = useState(candidate.commonSenseAge ?? '');
   const [studio, setStudio] = useState(candidate.studio ?? '');
+  const [customReason, setCustomReason] = useState('');
   const [saving, setSaving] = useState(false);
+  const [busyReason, setBusyReason] = useState<string | null>(null);
+
+  const isRemoved = candidate.removedAt != null;
 
   const handleSave = async () => {
     if (saving) return;
@@ -436,13 +464,24 @@ function EditSheet({
     });
   };
 
+  const handleRemove = async (reason: string) => {
+    const trimmed = reason.trim();
+    if (!trimmed || busyReason) return;
+    setBusyReason(trimmed);
+    try {
+      await onRemove(trimmed);
+    } finally {
+      setBusyReason(null);
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 z-40 bg-ink-950/80 backdrop-blur-sm flex items-end"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl mx-auto rounded-t-3xl bg-ink-900 border-t border-ink-700 p-5"
+        className="w-full max-w-xl mx-auto rounded-t-3xl bg-ink-900 border-t border-ink-700 p-5 max-h-[90vh] overflow-y-auto"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.25rem)' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -518,6 +557,84 @@ function EditSheet({
           <ReadOnly label="Awards" value={candidate.awards} />
         </div>
 
+        <div className="mt-5 pt-4 border-t border-ink-800">
+          <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink-500 mb-2">
+            Remove from pool
+          </div>
+          {isRemoved ? (
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-crimson-deep/10 border border-crimson-deep/40">
+              <div className="flex-1 text-xs text-ink-300 leading-relaxed">
+                Currently removed
+                {candidate.removedReason ? (
+                  <>
+                    {' '}— reason:{' '}
+                    <span className="text-crimson-bright font-semibold">
+                      {candidate.removedReason}
+                    </span>
+                  </>
+                ) : (
+                  '.'
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => void onRestore()}
+                className="shrink-0 min-h-[40px] px-4 rounded-xl text-xs font-semibold bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700"
+              >
+                Restore
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                {reasons.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    onClick={() => void handleRemove(r)}
+                    disabled={busyReason != null}
+                    className={`min-h-[36px] px-3 rounded-full text-xs font-semibold border transition-colors ${
+                      busyReason === r
+                        ? 'bg-ink-700 border-ink-600 text-ink-400 cursor-default'
+                        : 'bg-ink-800 border-ink-700 text-ink-200 active:bg-ink-700'
+                    }`}
+                  >
+                    {busyReason === r ? 'Removing…' : r}
+                  </button>
+                ))}
+                {reasons.length === 0 && (
+                  <p className="text-[11px] text-ink-500 italic">
+                    No saved reasons yet — type one below.
+                  </p>
+                )}
+              </div>
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  autoCorrect="off"
+                  placeholder="Add new reason…"
+                  className="flex-1 h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = customReason.trim();
+                    if (!r) return;
+                    await handleRemove(r);
+                    setCustomReason('');
+                  }}
+                  disabled={!customReason.trim() || busyReason != null}
+                  className="shrink-0 min-h-[44px] px-4 rounded-xl text-sm font-bold bg-crimson-deep text-ink-100 active:opacity-80 disabled:opacity-40"
+                >
+                  Remove
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+
         <div className="mt-5 flex gap-2">
           <button
             type="button"
@@ -585,40 +702,4 @@ function ReadOnly({ label, value }: { label: string; value: string | null }) {
       <span className="flex-1 text-ink-400 truncate">{value ?? '—'}</span>
     </div>
   );
-}
-
-/**
- * Run `fn` over `items` with at most `limit` in flight at once. Returns
- * after every task settles. Used by the purge flow so we don't fire
- * hundreds of parallel OMDB requests — the free tier + mobile radio
- * drops enough under that load that "null = can't confirm" preserves
- * TV shows we meant to remove.
- */
-async function mapWithConcurrency<T>(
-  items: T[],
-  limit: number,
-  fn: (item: T) => Promise<void>,
-): Promise<void> {
-  if (items.length === 0) return;
-  let cursor = 0;
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    async () => {
-      while (cursor < items.length) {
-        const i = cursor++;
-        await fn(items[i]);
-      }
-    },
-  );
-  await Promise.all(workers);
-}
-
-function summarizePurge(shows: number, duplicates: number): string {
-  if (shows === 0 && duplicates === 0) return 'Pool is clean.';
-  const parts: string[] = [];
-  if (shows > 0) parts.push(`${shows} TV show${shows === 1 ? '' : 's'}`);
-  if (duplicates > 0) {
-    parts.push(`${duplicates} duplicate${duplicates === 1 ? '' : 's'}`);
-  }
-  return `Removed ${parts.join(' and ')}.`;
 }

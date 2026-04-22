@@ -3,6 +3,7 @@ import type { Candidate } from './types';
 import {
   CANDIDATE_POOL_ROW_ID,
   MOVIE_NIGHT_TABLE,
+  REMOVAL_REASONS_ROW_ID,
   isSupabaseConfigured,
   supabase,
 } from './supabase';
@@ -12,10 +13,13 @@ export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';
 export type CandidatePoolApi = {
   candidates: Candidate[];
   status: PoolStatus;
+  reasons: string[];
   appendCandidates: (next: Candidate[]) => Promise<void>;
   updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
   replaceCandidates: (next: Candidate[]) => Promise<void>;
   toggleDownvote: (title: string) => Promise<void>;
+  removeCandidate: (title: string, reason: string) => Promise<void>;
+  restoreCandidate: (title: string) => Promise<void>;
   reload: () => void;
 };
 
@@ -28,12 +32,15 @@ export type CandidatePoolApi = {
  */
 export function useCandidatePool(): CandidatePoolApi {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [reasons, setReasons] = useState<string[]>([]);
   const [status, setStatus] = useState<PoolStatus>(
     isSupabaseConfigured ? 'loading' : 'local',
   );
   const [reloadTick, setReloadTick] = useState(0);
   const latestRef = useRef<Candidate[]>([]);
   latestRef.current = candidates;
+  const reasonsRef = useRef<string[]>([]);
+  reasonsRef.current = reasons;
 
   useEffect(() => {
     if (!supabase) return;
@@ -42,27 +49,48 @@ export function useCandidatePool(): CandidatePoolApi {
 
     async function load() {
       if (!supabase) return;
-      const { data, error } = await supabase
-        .from(MOVIE_NIGHT_TABLE)
-        .select('movies')
-        .eq('id', CANDIDATE_POOL_ROW_ID)
-        .maybeSingle();
+      const [poolRes, reasonsRes] = await Promise.all([
+        supabase
+          .from(MOVIE_NIGHT_TABLE)
+          .select('movies')
+          .eq('id', CANDIDATE_POOL_ROW_ID)
+          .maybeSingle(),
+        supabase
+          .from(MOVIE_NIGHT_TABLE)
+          .select('movies')
+          .eq('id', REMOVAL_REASONS_ROW_ID)
+          .maybeSingle(),
+      ]);
 
       if (cancelled) return;
 
-      if (error) {
-        console.error('[useCandidatePool] load failed', error);
+      if (poolRes.error) {
+        console.error('[useCandidatePool] load failed', poolRes.error);
         setStatus('error');
         return;
       }
 
-      const stored = (data?.movies ?? null) as Candidate[] | null;
+      const stored = (poolRes.data?.movies ?? null) as Candidate[] | null;
       if (!stored || stored.length === 0) {
         setCandidates([]);
         setStatus('empty');
       } else {
         setCandidates(stored);
         setStatus('synced');
+      }
+
+      // Reason vocabulary load — a missing row or read error is non-fatal:
+      // the pool UI still works, there just aren't any suggested checkboxes
+      // until the admin types the first reason.
+      if (reasonsRes.error) {
+        console.error(
+          '[useCandidatePool] reasons load failed',
+          reasonsRes.error,
+        );
+        setReasons([]);
+      } else {
+        const raw = (reasonsRes.data?.movies ?? null) as string[] | null;
+        setReasons(Array.isArray(raw) ? raw : []);
       }
     }
 
@@ -84,6 +112,19 @@ export function useCandidatePool(): CandidatePoolApi {
             setCandidates(next);
             setStatus(next.length === 0 ? 'empty' : 'synced');
           }
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: MOVIE_NIGHT_TABLE,
+          filter: `id=eq.${REMOVAL_REASONS_ROW_ID}`,
+        },
+        (payload) => {
+          const next = (payload.new as { movies?: string[] } | null)?.movies;
+          if (Array.isArray(next)) setReasons(next);
         },
       )
       .subscribe();
@@ -160,13 +201,65 @@ export function useCandidatePool(): CandidatePoolApi {
     [writePool],
   );
 
+  // Appends a reason to the row-3 vocabulary if it isn't already present.
+  // Case-insensitive match so "Duplicate" and "duplicate" don't double up.
+  const ensureReasonStored = useCallback(async (reason: string) => {
+    if (!supabase) return;
+    const trimmed = reason.trim();
+    if (!trimmed) return;
+    const lower = trimmed.toLowerCase();
+    if (reasonsRef.current.some((r) => r.toLowerCase() === lower)) return;
+    const nextReasons = [...reasonsRef.current, trimmed];
+    setReasons(nextReasons);
+    const { error } = await supabase
+      .from(MOVIE_NIGHT_TABLE)
+      .upsert({ id: REMOVAL_REASONS_ROW_ID, movies: nextReasons });
+    if (error) console.error('[useCandidatePool] reason write failed', error);
+  }, []);
+
+  const removeCandidate = useCallback(
+    async (title: string, reason: string) => {
+      const trimmed = reason.trim();
+      if (!trimmed) return;
+      const current = latestRef.current;
+      const idx = current.findIndex((c) => c.title === title);
+      if (idx === -1) return;
+      const next = [...current];
+      next[idx] = {
+        ...next[idx],
+        removedReason: trimmed,
+        removedAt: new Date().toISOString(),
+      };
+      // Persist the reason first so it's available as a checkbox
+      // immediately after the row write lands in realtime.
+      await ensureReasonStored(trimmed);
+      await writePool(next);
+    },
+    [writePool, ensureReasonStored],
+  );
+
+  const restoreCandidate = useCallback(
+    async (title: string) => {
+      const current = latestRef.current;
+      const idx = current.findIndex((c) => c.title === title);
+      if (idx === -1) return;
+      const next = [...current];
+      next[idx] = { ...next[idx], removedReason: null, removedAt: null };
+      await writePool(next);
+    },
+    [writePool],
+  );
+
   return {
     candidates,
     status,
+    reasons,
     appendCandidates,
     updateCandidate,
     replaceCandidates: writePool,
     toggleDownvote,
+    removeCandidate,
+    restoreCandidate,
     reload,
   };
 }

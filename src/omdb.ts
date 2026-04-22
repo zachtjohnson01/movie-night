@@ -166,45 +166,6 @@ export async function getMovieById(imdbId: string): Promise<OmdbMoviePatch> {
 }
 
 /**
- * Look up an IMDb ID and return OMDB's Type classification
- * ("movie" | "series" | "episode"). Returns null on any error or
- * unknown id — callers treat null as "can't confirm, don't destructively
- * act on this entry" so a transient 401/network blip doesn't delete
- * legitimate pool items.
- */
-export async function getOmdbTypeById(imdbId: string): Promise<string | null> {
-  try {
-    const data = await omdbGet<OmdbDetailResponse>({ i: imdbId });
-    if (data.Response === 'False') return null;
-    return data.Type ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Look up OMDB's Type by title (no type constraint, so TV shows come
- * back as `series`). Used by the pool's purge-non-movies action to
- * classify candidates that were never linked to an imdbId — e.g., an
- * LLM-hallucinated "Avatar: The Last Airbender" that entered the pool
- * before the movie-only gate existed. Returns null (= "can't confirm")
- * when OMDB returns nothing, errors out, or the top match isn't close
- * enough to the candidate's title to trust.
- */
-export async function getOmdbTypeByTitle(
-  title: string,
-): Promise<string | null> {
-  try {
-    const data = await omdbGet<OmdbDetailResponse>({ t: title });
-    if (data.Response === 'False') return null;
-    if (!isCloseMatch(title, data.Title)) return null;
-    return data.Type ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Decide whether an OMDB search result's title is "close enough" to
  * what the user typed to be trusted as an auto-match. Used by the
  * bulk-link flow to reject obvious mismatches like "Dog Man" →
