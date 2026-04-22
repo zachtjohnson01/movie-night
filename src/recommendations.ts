@@ -131,6 +131,7 @@ export async function expandPool(
       awards: omdb.awards ?? r.awards,
       poster: omdb.poster ?? null,
       addedAt: now,
+      type: omdb.type,
     }];
   });
 

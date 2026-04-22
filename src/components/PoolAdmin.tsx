@@ -37,33 +37,56 @@ export default function PoolAdmin({ pool, onBack }: Props) {
     }
     setPurge({ kind: 'running', done: 0, total });
 
-    // Classify every candidate via OMDB in parallel: by imdbId when we
-    // have one, by title otherwise. The title path catches the LLM
-    // hallucinations that were seeded before the movie-only filter
-    // landed — e.g. "Avatar: The Last Airbender" with imdbId:null.
+    // Classify every candidate. Fast path: candidates whose `type` was
+    // captured at enrichment time (or learned on a previous purge) need
+    // no OMDB call. Slow path: look up missing types via OMDB — by
+    // imdbId when we have one, by title otherwise. Title lookup catches
+    // the LLM hallucinations seeded before the movie-only filter
+    // landed, e.g. "Avatar: The Last Airbender" with imdbId:null.
+    //
+    // Slow-path calls are capped at 6 concurrent. Unbounded Promise.all
+    // over 100+ candidates drops a noticeable fraction on mobile radio /
+    // free-tier OMDB, and dropped lookups return null ("can't confirm")
+    // — which preserves TV shows we meant to remove.
     let done = 0;
     const tick = () => {
       done += 1;
       setPurge({ kind: 'running', done, total });
     };
-    const types = await Promise.all(
-      pool.candidates.map(async (c) => {
-        const t = c.imdbId
-          ? await getOmdbTypeById(c.imdbId)
-          : await getOmdbTypeByTitle(c.title);
+    const types = new Array<string | null>(pool.candidates.length);
+    pool.candidates.forEach((c, i) => {
+      if (c.type != null) {
+        types[i] = c.type;
         tick();
-        return t;
-      }),
-    );
+      }
+    });
+    const pending = pool.candidates
+      .map((c, i) => ({ c, i }))
+      .filter(({ c }) => c.type == null);
+    await mapWithConcurrency(pending, 6, async ({ c, i }) => {
+      const t = c.imdbId
+        ? await getOmdbTypeById(c.imdbId)
+        : await getOmdbTypeByTitle(c.title);
+      types[i] = t;
+      tick();
+    });
 
     // Pass 1: drop confirmed non-movies. Null = "can't confirm" → keep,
-    // so a flaky OMDB request can't delete a legitimate movie.
+    // so a flaky OMDB request can't delete a legitimate movie. Kept
+    // candidates inherit any newly-learned type so the next purge can
+    // use the fast path.
     const afterShows: Candidate[] = [];
     let shows = 0;
+    let learned = 0;
     pool.candidates.forEach((c, i) => {
       const t = types[i];
       if (t != null && t !== 'movie') {
         shows += 1;
+        return;
+      }
+      if (t != null && c.type !== t) {
+        afterShows.push({ ...c, type: t });
+        learned += 1;
       } else {
         afterShows.push(c);
       }
@@ -87,7 +110,7 @@ export default function PoolAdmin({ pool, onBack }: Props) {
     }
     const cleaned = [...byKey.values()];
 
-    if (shows === 0 && duplicates === 0) {
+    if (shows === 0 && duplicates === 0 && learned === 0) {
       setPurge({ kind: 'done', shows: 0, duplicates: 0 });
       return;
     }
@@ -562,6 +585,32 @@ function ReadOnly({ label, value }: { label: string; value: string | null }) {
       <span className="flex-1 text-ink-400 truncate">{value ?? '—'}</span>
     </div>
   );
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` in flight at once. Returns
+ * after every task settles. Used by the purge flow so we don't fire
+ * hundreds of parallel OMDB requests — the free tier + mobile radio
+ * drops enough under that load that "null = can't confirm" preserves
+ * TV shows we meant to remove.
+ */
+async function mapWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    async () => {
+      while (cursor < items.length) {
+        const i = cursor++;
+        await fn(items[i]);
+      }
+    },
+  );
+  await Promise.all(workers);
 }
 
 function summarizePurge(shows: number, duplicates: number): string {
