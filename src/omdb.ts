@@ -177,6 +177,28 @@ export async function getOmdbTypeById(imdbId: string): Promise<string | null> {
 }
 
 /**
+ * Look up OMDB's Type by title (no type constraint, so TV shows come
+ * back as `series`). Used by the pool's purge-non-movies action to
+ * classify candidates that were never linked to an imdbId — e.g., an
+ * LLM-hallucinated "Avatar: The Last Airbender" that entered the pool
+ * before the movie-only gate existed. Returns null (= "can't confirm")
+ * when OMDB returns nothing, errors out, or the top match isn't close
+ * enough to the candidate's title to trust.
+ */
+export async function getOmdbTypeByTitle(
+  title: string,
+): Promise<string | null> {
+  try {
+    const data = await omdbGet<OmdbDetailResponse>({ t: title });
+    if (data.Response === 'False') return null;
+    if (!isCloseMatch(title, data.Title)) return null;
+    return data.Type ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Decide whether an OMDB search result's title is "close enough" to
  * what the user typed to be trusted as an auto-match. Used by the
  * bulk-link flow to reject obvious mismatches like "Dog Man" →
@@ -347,4 +369,16 @@ export function commonSenseUrl(
   movie: Pick<Movie, 'title' | 'displayTitle'>,
 ): string {
   return `https://www.commonsensemedia.org/search/${titleQuery(searchTitle(movie))}`;
+}
+
+/**
+ * Aggressive normalization key for pool dedup. Beyond `normalizeTitle`'s
+ * case / punctuation flattening, also strips a leading article ("the ",
+ * "a ", "an ") so "Lion King" and "The Lion King" collapse to the same
+ * key. Display titles aren't affected — only used when spotting that two
+ * pool entries are the same film under slightly different LLM-supplied
+ * names.
+ */
+export function dedupKey(title: string): string {
+  return normalizeTitle(title).replace(/^(the|a|an)\s+/, '');
 }

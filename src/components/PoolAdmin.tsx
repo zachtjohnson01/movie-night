@@ -3,7 +3,7 @@ import type { Candidate } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { getOmdbTypeById } from '../omdb';
+import { dedupKey, getOmdbTypeById, getOmdbTypeByTitle } from '../omdb';
 
 type Props = {
   pool: CandidatePoolApi;
@@ -13,7 +13,7 @@ type Props = {
 type PurgeState =
   | { kind: 'idle' }
   | { kind: 'running'; done: number; total: number }
-  | { kind: 'done'; removed: number };
+  | { kind: 'done'; shows: number; duplicates: number };
 
 /**
  * Admin-only screen: browse, edit, and downvote candidates in the pool.
@@ -30,43 +30,69 @@ export default function PoolAdmin({ pool, onBack }: Props) {
   const [purge, setPurge] = useState<PurgeState>({ kind: 'idle' });
 
   const handlePurge = useCallback(async () => {
-    const linked = pool.candidates.filter((c) => c.imdbId);
-    if (linked.length === 0) {
-      setPurge({ kind: 'done', removed: 0 });
+    const total = pool.candidates.length;
+    if (total === 0) {
+      setPurge({ kind: 'done', shows: 0, duplicates: 0 });
       return;
     }
-    setPurge({ kind: 'running', done: 0, total: linked.length });
+    setPurge({ kind: 'running', done: 0, total });
 
-    // Lookups in parallel, but track completion for the progress label.
+    // Classify every candidate via OMDB in parallel: by imdbId when we
+    // have one, by title otherwise. The title path catches the LLM
+    // hallucinations that were seeded before the movie-only filter
+    // landed — e.g. "Avatar: The Last Airbender" with imdbId:null.
     let done = 0;
     const tick = () => {
       done += 1;
-      setPurge({ kind: 'running', done, total: linked.length });
+      setPurge({ kind: 'running', done, total });
     };
     const types = await Promise.all(
-      linked.map(async (c) => {
-        const t = await getOmdbTypeById(c.imdbId!);
+      pool.candidates.map(async (c) => {
+        const t = c.imdbId
+          ? await getOmdbTypeById(c.imdbId)
+          : await getOmdbTypeByTitle(c.title);
         tick();
         return t;
       }),
     );
 
-    // Drop only candidates OMDB confirms are NOT movies. A null result
-    // (transient error / 401 / unknown id) is treated as "keep" so a
-    // flaky network doesn't wipe the pool.
-    const toRemove = new Set<string>();
-    linked.forEach((c, i) => {
+    // Pass 1: drop confirmed non-movies. Null = "can't confirm" → keep,
+    // so a flaky OMDB request can't delete a legitimate movie.
+    const afterShows: Candidate[] = [];
+    let shows = 0;
+    pool.candidates.forEach((c, i) => {
       const t = types[i];
-      if (t != null && t !== 'movie') toRemove.add(c.title);
+      if (t != null && t !== 'movie') {
+        shows += 1;
+      } else {
+        afterShows.push(c);
+      }
     });
 
-    if (toRemove.size === 0) {
-      setPurge({ kind: 'done', removed: 0 });
+    // Pass 2: dedup by loose title key (strips leading articles) so
+    // "Lion King" and "The Lion King" collapse into one entry. Prefer
+    // the linked candidate when both exist for the same key — imdbId
+    // means we already have authoritative RT/IMDb data.
+    const byKey = new Map<string, Candidate>();
+    let duplicates = 0;
+    for (const c of afterShows) {
+      const key = dedupKey(c.title);
+      const existing = byKey.get(key);
+      if (!existing) {
+        byKey.set(key, c);
+        continue;
+      }
+      duplicates += 1;
+      if (c.imdbId && !existing.imdbId) byKey.set(key, c);
+    }
+    const cleaned = [...byKey.values()];
+
+    if (shows === 0 && duplicates === 0) {
+      setPurge({ kind: 'done', shows: 0, duplicates: 0 });
       return;
     }
-    const cleaned = pool.candidates.filter((c) => !toRemove.has(c.title));
     await pool.replaceCandidates(cleaned);
-    setPurge({ kind: 'done', removed: toRemove.size });
+    setPurge({ kind: 'done', shows, duplicates });
   }, [pool]);
 
   const allLinked = useMemo(
@@ -161,6 +187,28 @@ export default function PoolAdmin({ pool, onBack }: Props) {
         </div>
       </header>
 
+      <div className="px-5 pt-3 pb-1 flex flex-col gap-1.5">
+        <button
+          type="button"
+          onClick={() => void handlePurge()}
+          disabled={purge.kind === 'running'}
+          className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold transition-colors ${
+            purge.kind === 'running'
+              ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
+              : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
+          }`}
+        >
+          {purge.kind === 'running'
+            ? `Checking OMDB… (${purge.done}/${purge.total})`
+            : 'Clean up pool'}
+        </button>
+        {purge.kind === 'done' && (
+          <p className="text-center text-[11px] text-ink-500 leading-relaxed">
+            {summarizePurge(purge.shows, purge.duplicates)}
+          </p>
+        )}
+      </div>
+
       <ul className="pt-2">
         {visible.map(({ c, fit }, i) => (
           <PoolRow
@@ -188,32 +236,6 @@ export default function PoolAdmin({ pool, onBack }: Props) {
           OMDB link (no RT or IMDb data).
         </p>
       )}
-
-      <div className="mt-6 px-5 flex flex-col gap-2">
-        <button
-          type="button"
-          onClick={() => void handlePurge()}
-          disabled={purge.kind === 'running'}
-          className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold transition-colors ${
-            purge.kind === 'running'
-              ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
-              : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
-          }`}
-        >
-          {purge.kind === 'running'
-            ? `Checking OMDB… (${purge.done}/${purge.total})`
-            : 'Remove TV shows'}
-        </button>
-        {purge.kind === 'done' && (
-          <p className="text-center text-[11px] text-ink-500 leading-relaxed">
-            {purge.removed === 0
-              ? 'No TV shows found in the pool.'
-              : `Removed ${purge.removed} TV show${
-                  purge.removed === 1 ? '' : 's'
-                }.`}
-          </p>
-        )}
-      </div>
 
       {editing && (
         <EditSheet
@@ -540,4 +562,14 @@ function ReadOnly({ label, value }: { label: string; value: string | null }) {
       <span className="flex-1 text-ink-400 truncate">{value ?? '—'}</span>
     </div>
   );
+}
+
+function summarizePurge(shows: number, duplicates: number): string {
+  if (shows === 0 && duplicates === 0) return 'Pool is clean.';
+  const parts: string[] = [];
+  if (shows > 0) parts.push(`${shows} TV show${shows === 1 ? '' : 's'}`);
+  if (duplicates > 0) {
+    parts.push(`${duplicates} duplicate${duplicates === 1 ? '' : 's'}`);
+  }
+  return `Removed ${parts.join(' and ')}.`;
 }
