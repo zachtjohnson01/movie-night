@@ -15,6 +15,7 @@ import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
 import { useMovies } from './useMovies';
+import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
@@ -23,7 +24,10 @@ type Screen =
   | { name: 'list' }
   | { name: 'detail'; title: string }
   | { name: 'new'; template: Movie }
-  | { name: 'candidate'; template: Movie }
+  // `candidateTitle` keeps us anchored to the pool row so the Detail
+  // downvote toggle writes back to the right entry. The template itself
+  // is a Movie shape for the existing Detail component to consume.
+  | { name: 'candidate'; template: Movie; candidateTitle: string }
   | { name: 'pool' };
 
 type Design = 'classic' | 'modern';
@@ -51,6 +55,7 @@ export default function App() {
     reorderWishlist,
     reload: reloadMovies,
   } = useMovies();
+  const pool = useCandidatePool();
   const auth = useAuth();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
@@ -103,7 +108,11 @@ export default function App() {
 
   function openPick(c: Candidate) {
     if (!auth.canWrite) return;
-    setScreen({ name: 'candidate', template: candidateToTemplate(c) });
+    setScreen({
+      name: 'candidate',
+      template: candidateToTemplate(c),
+      candidateTitle: c.title,
+    });
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
@@ -186,9 +195,25 @@ export default function App() {
   }
 
   if (screen.name === 'candidate') {
-    const DetailComponent = isModern ? ModernDetail : Detail;
+    if (isModern) {
+      return (
+        <ModernDetail
+          mode="candidate"
+          movie={screen.template}
+          canWrite={auth.canWrite}
+          onBack={() => setScreen({ name: 'list' })}
+          onAddToWishlist={handleAddCandidateToWishlist}
+          onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
+          onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
+        />
+      );
+    }
+    // Live state from the pool so the downvote reflects what any user has
+    // done — including the current user in an earlier session.
+    const live = pool.candidates.find((c) => c.title === screen.candidateTitle);
+    const canDownvote = auth.canWrite && pool.status === 'synced' && !!live;
     return (
-      <DetailComponent
+      <Detail
         mode="candidate"
         movie={screen.template}
         canWrite={auth.canWrite}
@@ -196,6 +221,12 @@ export default function App() {
         onAddToWishlist={handleAddCandidateToWishlist}
         onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
         onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
+        downvoted={!!live?.downvoted}
+        onToggleDownvote={
+          canDownvote
+            ? () => void pool.toggleDownvote(screen.candidateTitle)
+            : undefined
+        }
       />
     );
   }

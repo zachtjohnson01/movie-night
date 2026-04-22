@@ -281,20 +281,7 @@ function PoolRow({
               : 'bg-ink-800 border-ink-700 text-ink-400 active:bg-ink-700'
           }`}
         >
-          <svg
-            viewBox="0 0 24 24"
-            width={18}
-            height={18}
-            fill={downvoted ? 'currentColor' : 'none'}
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-          >
-            <path d="M7 10v12" />
-            <path d="M15 5.88 14 12h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 24H4a2 2 0 0 1-2-2V12a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11l3.17-6.34A1.94 1.94 0 0 1 13.45 2 2.55 2.55 0 0 1 16 4.54v0a2.84 2.84 0 0 1-.1.82Z" />
-          </svg>
+          <ThumbsDownIcon filled={downvoted} />
         </button>
       </div>
     </li>
@@ -449,6 +436,25 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function ThumbsDownIcon({ filled }: { filled: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={18}
+      height={18}
+      fill={filled ? 'currentColor' : 'none'}
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M17 14V2" />
+      <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11l-3.17 6.34A1.94 1.94 0 0 1 10.55 22 2.55 2.55 0 0 1 8 19.46a2.84 2.84 0 0 1 .1-.82Z" />
+    </svg>
   );
 }
 
