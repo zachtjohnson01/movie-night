@@ -6,7 +6,9 @@ import { scoreCandidate } from '../scoring';
 import {
   commonSenseUrl,
   dedupKey,
+  getMovieById,
   imdbUrl,
+  isOmdbConfigured,
   rottenTomatoesUrl,
 } from '../omdb';
 import MoviePoster from './MoviePoster';
@@ -452,22 +454,59 @@ function EditSheet({
   );
   const [age, setAge] = useState(candidate.commonSenseAge ?? '');
   const [studio, setStudio] = useState(candidate.studio ?? '');
+  const [imdbIdInput, setImdbIdInput] = useState(candidate.imdbId ?? '');
+  const [poster, setPoster] = useState(candidate.poster);
+  const [imdb, setImdb] = useState(candidate.imdb);
+  const [rottenTomatoes, setRottenTomatoes] = useState(candidate.rottenTomatoes);
+  const [awards, setAwards] = useState(candidate.awards);
+  const [type, setType] = useState<string | null | undefined>(candidate.type);
+  const [fetching, setFetching] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [customReason, setCustomReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [busyReason, setBusyReason] = useState<string | null>(null);
 
   const isRemoved = candidate.removedAt != null;
 
+  const handleFetchFromOmdb = async () => {
+    const id = imdbIdInput.trim();
+    if (!id || fetching) return;
+    setFetching(true);
+    setFetchError(null);
+    try {
+      const patch = await getMovieById(id);
+      if (patch.title) setTitle(patch.title);
+      if (patch.year != null) setYearStr(String(patch.year));
+      setImdb(patch.imdb);
+      setRottenTomatoes(patch.rottenTomatoes);
+      setPoster(patch.poster);
+      setAwards(patch.awards);
+      if (patch.type !== undefined) setType(patch.type);
+      if (patch.imdbId) setImdbIdInput(patch.imdbId);
+    } catch (err) {
+      setFetchError(err instanceof Error ? err.message : 'Fetch failed');
+    } finally {
+      setFetching(false);
+    }
+  };
+
   const handleSave = async () => {
     if (saving) return;
     setSaving(true);
     const parsedYear = yearStr.trim() ? parseInt(yearStr, 10) : NaN;
+    const trimmedId = imdbIdInput.trim();
     await onSave({
       ...candidate,
       title: title.trim() || candidate.title,
       year: Number.isFinite(parsedYear) ? parsedYear : null,
       commonSenseAge: age.trim() || null,
       studio: studio.trim() || null,
+      imdbId: trimmedId ? trimmedId : null,
+      imdb,
+      rottenTomatoes,
+      poster,
+      awards,
+      type,
     });
   };
 
@@ -605,13 +644,40 @@ function EditSheet({
               className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
             />
           </Field>
+          <Field label="IMDb ID">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={imdbIdInput}
+                onChange={(e) => {
+                  setImdbIdInput(e.target.value);
+                  if (fetchError) setFetchError(null);
+                }}
+                autoCorrect="off"
+                autoCapitalize="none"
+                spellCheck={false}
+                placeholder="tt0096283"
+                className="flex-1 min-w-0 h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+              />
+              <button
+                type="button"
+                onClick={() => void handleFetchFromOmdb()}
+                disabled={!imdbIdInput.trim() || fetching || !isOmdbConfigured}
+                className="shrink-0 min-h-[44px] px-4 rounded-xl text-sm font-semibold bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700 disabled:opacity-40"
+              >
+                {fetching ? 'Fetching…' : 'Fetch'}
+              </button>
+            </div>
+            {fetchError && (
+              <div className="mt-1 text-xs text-crimson-bright">{fetchError}</div>
+            )}
+          </Field>
         </div>
 
         <div className="mt-4 pt-4 border-t border-ink-800 text-[11px] text-ink-500 leading-relaxed space-y-0.5">
-          <ReadOnly label="IMDb ID" value={candidate.imdbId} />
-          <ReadOnly label="RT" value={candidate.rottenTomatoes} />
-          <ReadOnly label="IMDb" value={candidate.imdb} />
-          <ReadOnly label="Awards" value={candidate.awards} />
+          <ReadOnly label="RT" value={rottenTomatoes} />
+          <ReadOnly label="IMDb" value={imdb} />
+          <ReadOnly label="Awards" value={awards} />
         </div>
 
         <div className="mt-5 pt-4 border-t border-ink-800">
