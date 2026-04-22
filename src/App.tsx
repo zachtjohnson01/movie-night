@@ -13,6 +13,7 @@ import SyncBanner from './components/SyncBanner';
 import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
+import PoolAdmin from './components/PoolAdmin';
 import { useMovies } from './useMovies';
 import { useAuth } from './useAuth';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
@@ -22,7 +23,8 @@ type Screen =
   | { name: 'list' }
   | { name: 'detail'; title: string }
   | { name: 'new'; template: Movie }
-  | { name: 'candidate'; template: Movie };
+  | { name: 'candidate'; template: Movie }
+  | { name: 'pool' };
 
 type Design = 'classic' | 'modern';
 
@@ -79,6 +81,14 @@ export default function App() {
       setScreen({ name: 'list' });
     }
   }, [movies, screen]);
+
+  // Admin screens require write access. If the user signs out while on
+  // the pool admin screen, bounce them back to the list.
+  useEffect(() => {
+    if (screen.name === 'pool' && !auth.canWrite) {
+      setScreen({ name: 'list' });
+    }
+  }, [screen, auth.canWrite]);
 
   const selected = useMemo(() => {
     if (screen.name !== 'detail') return null;
@@ -169,6 +179,10 @@ export default function App() {
         onCreate={handleCreate}
       />
     );
+  }
+
+  if (screen.name === 'pool' && auth.canWrite) {
+    return <PoolAdmin onBack={() => setScreen({ name: 'list' })} />;
   }
 
   if (screen.name === 'candidate') {
@@ -279,6 +293,7 @@ export default function App() {
                 canWrite={auth.canWrite}
                 onSelectPick={openPick}
                 reloadMovies={reloadMovies}
+                onOpenPool={() => setScreen({ name: 'pool' })}
               />
             )}
           </>

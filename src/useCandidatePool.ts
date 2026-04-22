@@ -13,6 +13,8 @@ export type CandidatePoolApi = {
   candidates: Candidate[];
   status: PoolStatus;
   appendCandidates: (next: Candidate[]) => Promise<void>;
+  updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
+  toggleDownvote: (title: string) => Promise<void>;
   reload: () => void;
 };
 
@@ -120,5 +122,49 @@ export function useCandidatePool(): CandidatePoolApi {
     }
   }, []);
 
-  return { candidates, status, appendCandidates, reload };
+  const writePool = useCallback(async (next: Candidate[]) => {
+    if (!supabase) return;
+    setCandidates(next);
+    setStatus(next.length === 0 ? 'empty' : 'synced');
+    const { error } = await supabase
+      .from(MOVIE_NIGHT_TABLE)
+      .upsert({ id: CANDIDATE_POOL_ROW_ID, movies: next });
+    if (error) {
+      console.error('[useCandidatePool] write failed', error);
+      setStatus('error');
+    }
+  }, []);
+
+  const updateCandidate = useCallback(
+    async (originalTitle: string, updated: Candidate) => {
+      const current = latestRef.current;
+      const idx = current.findIndex((c) => c.title === originalTitle);
+      if (idx === -1) return;
+      const next = [...current];
+      next[idx] = updated;
+      await writePool(next);
+    },
+    [writePool],
+  );
+
+  const toggleDownvote = useCallback(
+    async (title: string) => {
+      const current = latestRef.current;
+      const idx = current.findIndex((c) => c.title === title);
+      if (idx === -1) return;
+      const next = [...current];
+      next[idx] = { ...next[idx], downvoted: !next[idx].downvoted };
+      await writePool(next);
+    },
+    [writePool],
+  );
+
+  return {
+    candidates,
+    status,
+    appendCandidates,
+    updateCandidate,
+    toggleDownvote,
+    reload,
+  };
 }

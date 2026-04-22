@@ -85,4 +85,11 @@ export type Candidate = {
   awards: string | null;
   poster: string | null;
   addedAt: string; // ISO timestamp — when this candidate was added to the pool
+  /**
+   * Admin-set soft veto. When true, `scoreCandidate` applies a large
+   * penalty so this candidate ranks below every non-downvoted one in the
+   * user-facing top-20. Optional/nullable so older pool rows parse as
+   * "not downvoted" without a migration.
+   */
+  downvoted?: boolean | null;
 };
