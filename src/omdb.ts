@@ -60,6 +60,7 @@ export type OmdbMoviePatch = {
   poster: string | null;
   awards: string | null;
   production: string | null;
+  type: string | null;
 };
 
 export class OmdbError extends Error {
@@ -130,15 +131,20 @@ export async function searchMovies(query: string): Promise<OmdbSearchResult[]> {
   // via `?s=`, but `?t=A Bugs Life` does usually return the right
   // movie. Wrap the single result in an array so callers see the
   // same shape regardless of which endpoint found it.
+  //
+  // OMDB honors `type=movie` on `?s=` but returns series matches from
+  // `?t=` anyway (e.g. "Arcane: League of Legends" → tt11126994). Verify
+  // the reported Type before trusting the match, otherwise series slip
+  // past linkByTitle and enrichCandidate lands them in the pool.
   try {
     const detail = await omdbGet<OmdbDetailResponse>({ t: trimmed, type: 'movie' });
-    if (detail.Response === 'True') {
+    if (detail.Response === 'True' && detail.Type === 'movie') {
       return [
         {
           imdbId: detail.imdbID,
           title: detail.Title,
           year: detail.Year,
-          type: 'movie',
+          type: detail.Type,
           poster:
             detail.Poster && detail.Poster !== 'N/A' ? detail.Poster : null,
         },
@@ -270,6 +276,7 @@ export type CandidateOmdbPatch = {
   poster: string | null;
   awards: string | null;
   production: string | null;
+  type: string | null;
 };
 
 export async function enrichCandidate(
@@ -287,6 +294,7 @@ export async function enrichCandidate(
       poster: patch.poster,
       awards: patch.awards,
       production: patch.production,
+      type: patch.type,
     };
   } catch {
     return null;
@@ -302,6 +310,7 @@ function extractPatch(data: {
   Poster: string;
   Awards?: string;
   Production?: string;
+  Type?: string;
 }): OmdbMoviePatch {
   const rt = data.Ratings.find((r) => r.Source === 'Rotten Tomatoes');
   const year = parseInt(data.Year, 10);
@@ -314,6 +323,7 @@ function extractPatch(data: {
     poster: data.Poster && data.Poster !== 'N/A' ? data.Poster : null,
     awards: data.Awards && data.Awards !== 'N/A' ? data.Awards : null,
     production: data.Production && data.Production !== 'N/A' ? data.Production : null,
+    type: data.Type ?? null,
   };
 }
 

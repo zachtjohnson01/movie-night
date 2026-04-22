@@ -92,4 +92,13 @@ export type Candidate = {
    * "not downvoted" without a migration.
    */
   downvoted?: boolean | null;
+  /**
+   * OMDB Type classification ("movie" | "series" | "episode") when we've
+   * been able to resolve it. Populated at enrichment time and backfilled
+   * by the admin "Clean up pool" action when it calls OMDB. Optional so
+   * older rows parse as "unknown" without a migration; cleanup treats a
+   * missing type as a trigger to look it up, and a confirmed non-"movie"
+   * type as grounds to drop the candidate.
+   */
+  type?: string | null;
 };
