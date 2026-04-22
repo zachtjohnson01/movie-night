@@ -26,3 +26,6 @@ lerna-debug.log*
 
 # vite-plugin-pwa generated service worker artifacts
 dev-dist
+
+# Claude Code — user-specific overrides (MCP approvals, local prefs)
+.claude/settings.local.json
