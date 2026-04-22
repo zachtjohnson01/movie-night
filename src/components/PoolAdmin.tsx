@@ -455,6 +455,7 @@ function EditSheet({
   const [age, setAge] = useState(candidate.commonSenseAge ?? '');
   const [studio, setStudio] = useState(candidate.studio ?? '');
   const [imdbIdInput, setImdbIdInput] = useState(candidate.imdbId ?? '');
+  const [rtIdInput, setRtIdInput] = useState(candidate.rottenTomatoesId ?? '');
   const [poster, setPoster] = useState(candidate.poster);
   const [imdb, setImdb] = useState(candidate.imdb);
   const [rottenTomatoes, setRottenTomatoes] = useState(candidate.rottenTomatoes);
@@ -495,6 +496,7 @@ function EditSheet({
     setSaving(true);
     const parsedYear = yearStr.trim() ? parseInt(yearStr, 10) : NaN;
     const trimmedId = imdbIdInput.trim();
+    const trimmedRtId = rtIdInput.trim();
     await onSave({
       ...candidate,
       title: title.trim() || candidate.title,
@@ -502,6 +504,7 @@ function EditSheet({
       commonSenseAge: age.trim() || null,
       studio: studio.trim() || null,
       imdbId: trimmedId ? trimmedId : null,
+      rottenTomatoesId: trimmedRtId ? trimmedRtId : null,
       imdb,
       rottenTomatoes,
       poster,
@@ -592,6 +595,7 @@ function EditSheet({
             href={rottenTomatoesUrl({
               title: candidate.title,
               displayTitle: null,
+              rottenTomatoesId: candidate.rottenTomatoesId ?? null,
             })}
           />
           <StatLink
@@ -671,6 +675,18 @@ function EditSheet({
             {fetchError && (
               <div className="mt-1 text-xs text-crimson-bright">{fetchError}</div>
             )}
+          </Field>
+          <Field label="Rotten Tomatoes ID">
+            <input
+              type="text"
+              value={rtIdInput}
+              onChange={(e) => setRtIdInput(e.target.value)}
+              autoCorrect="off"
+              autoCapitalize="none"
+              spellCheck={false}
+              placeholder="e.g. toy_story_1995"
+              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+            />
           </Field>
         </div>
 

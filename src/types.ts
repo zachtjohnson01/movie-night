@@ -80,6 +80,14 @@ export type Candidate = {
   imdbId: string | null;
   imdb: string | null;
   rottenTomatoes: string | null;
+  /**
+   * Rotten Tomatoes URL slug like "toy_story_1995" (the `/m/<slug>` portion
+   * of the RT page). Manually populated in the Manage pool edit sheet —
+   * OMDB doesn't expose it. Optional so older pool rows parse as "not set"
+   * without a migration. When present, `rottenTomatoesUrl()` deep-links to
+   * the RT page instead of falling back to a title search.
+   */
+  rottenTomatoesId?: string | null;
   commonSenseAge: string | null;
   studio: string | null;
   awards: string | null;
