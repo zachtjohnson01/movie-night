@@ -320,15 +320,22 @@ export function imdbUrl(
 }
 
 /**
- * Rotten Tomatoes URL — always a search URL. OMDB doesn't expose the RT
- * title page URL directly (the `tomatoURL` field was removed years ago),
- * and RT's slug format is inconsistent enough that guessing it is worse
- * than just searching. Uses `displayTitle` when set so the search lands
- * on the regional release page instead of the original-language title.
+ * Rotten Tomatoes URL. Deep-links to `/m/<slug>` when a Rotten Tomatoes ID
+ * is provided (manually entered in the Manage pool edit sheet), otherwise
+ * falls back to a title search. OMDB doesn't expose the slug (the
+ * `tomatoURL` field was removed years ago) and guessing it is unreliable,
+ * so searching is the best automatic option. Uses `displayTitle` when set
+ * so the search lands on the regional release page instead of the
+ * original-language title.
  */
 export function rottenTomatoesUrl(
-  movie: Pick<Movie, 'title' | 'displayTitle'>,
+  movie: Pick<Movie, 'title' | 'displayTitle'> & {
+    rottenTomatoesId?: string | null;
+  },
 ): string {
+  if (movie.rottenTomatoesId) {
+    return `https://www.rottentomatoes.com/m/${encodeURIComponent(movie.rottenTomatoesId)}`;
+  }
   return `https://www.rottentomatoes.com/search?search=${titleQuery(searchTitle(movie))}`;
 }
 
