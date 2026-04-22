@@ -34,7 +34,11 @@ export function rankTopPicks(
   const scored: RankedPick[] = candidates
     .filter(
       (c) =>
-        !(c.imdbId && libraryImdbIds.has(c.imdbId)) &&
+        // Drop candidates that never got OMDB-enriched — without an imdbId
+        // they have no authoritative RT/IMDb signal and typically surface
+        // as low-quality LLM hallucinations ("… Shorts", "… Bluray").
+        c.imdbId != null &&
+        !libraryImdbIds.has(c.imdbId) &&
         !libraryTitles.has(normalizeTitle(c.title)),
     )
     .map((c) => ({ ...c, fitScore: scoreCandidate(c) }));

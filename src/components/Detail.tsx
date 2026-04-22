@@ -42,10 +42,13 @@ type Props =
       mode: 'candidate';
       canWrite: boolean;
       movie: Movie; // template from candidateToTemplate
+      /** Live downvote state from the candidate pool, null if not in the pool. */
+      downvoted?: boolean;
       onBack: () => void;
       onAddToWishlist: (movie: Movie) => void | Promise<void>;
       onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
       onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
+      onToggleDownvote?: () => void | Promise<void>;
     };
 
 /** Overwrite fields with fresh OMDB data. Used by refresh. */
@@ -410,6 +413,8 @@ export default function Detail(props: Props) {
             onAddToWishlist={() => props.onAddToWishlist(props.movie)}
             onMarkWatchedTonight={() => props.onMarkWatchedTonight(props.movie)}
             onMarkWatchedUndated={() => props.onMarkWatchedUndated(props.movie)}
+            downvoted={!!props.downvoted}
+            onToggleDownvote={props.onToggleDownvote ?? null}
           />
         ) : null}
       </main>
@@ -442,6 +447,8 @@ type ViewModeProps = {
       onAddToWishlist: () => void;
       onMarkWatchedTonight: () => void;
       onMarkWatchedUndated: () => void;
+      downvoted: boolean;
+      onToggleDownvote: (() => void) | null;
     }
 );
 
@@ -677,6 +684,36 @@ function ViewMode(props: ViewModeProps) {
           >
             Mark watched · date unknown
           </button>
+          {props.onToggleDownvote && (
+            <button
+              type="button"
+              onClick={props.onToggleDownvote}
+              aria-pressed={props.downvoted}
+              className={`mt-2 w-full min-h-[48px] rounded-2xl font-semibold flex items-center justify-center gap-2 transition-colors ${
+                props.downvoted
+                  ? 'bg-crimson-deep/20 border border-crimson-deep text-crimson-bright active:bg-crimson-deep/30'
+                  : 'bg-ink-900 border border-ink-800 text-ink-400 active:bg-ink-800'
+              }`}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                width={18}
+                height={18}
+                fill={props.downvoted ? 'currentColor' : 'none'}
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M17 14V2" />
+                <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11l-3.17 6.34A1.94 1.94 0 0 1 10.55 22 2.55 2.55 0 0 1 8 19.46a2.84 2.84 0 0 1 .1-.82Z" />
+              </svg>
+              {props.downvoted
+                ? 'Downvoted — tap to undo'
+                : 'Downvote this pick'}
+            </button>
+          )}
         </section>
       )}
 
