@@ -82,7 +82,7 @@ export default function ModernWatchedList({
               fontWeight: 600,
             }}
           >
-            Friday Movie Night
+            Family Movie Night
           </div>
           <DesignToggle design={design} onToggle={onToggleDesign} />
         </div>

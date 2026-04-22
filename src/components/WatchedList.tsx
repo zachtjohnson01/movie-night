@@ -84,7 +84,7 @@ export default function WatchedList({
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-[10px] uppercase tracking-[0.22em] text-crimson-bright font-semibold">
-              Friday Movie Night
+              Family Movie Night
             </div>
             <h1 className="mt-1 text-[32px] font-bold leading-none tracking-tight">
               {watched.length}{' '}
