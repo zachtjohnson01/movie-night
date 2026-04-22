@@ -110,24 +110,28 @@ export async function expandPool(
   );
 
   const now = new Date().toISOString();
-  const out: Candidate[] = raw.map((r, i) => {
+  // OMDB gates the pool: searchMovies is type-filtered to films, so a null
+  // enrichment means OMDB couldn't confirm this title as a movie. Drop it
+  // rather than let an LLM-hallucinated TV show slip in unlinked.
+  const out: Candidate[] = raw.flatMap((r, i) => {
     const omdb =
       enriched[i].status === 'fulfilled' ? enriched[i].value : null;
+    if (!omdb) return [];
     // Merge rules: OMDB wins for RT / IMDb / awards / year / poster / imdbId.
     // LLM wins for CSM age (OMDB has none) and studio (OMDB's Production
     // is usually "N/A" on the free tier).
-    return {
+    return [{
       title: r.title,
-      year: omdb?.year ?? r.year,
-      imdbId: omdb?.imdbId ?? null,
-      imdb: omdb?.imdb ?? r.imdb,
-      rottenTomatoes: omdb?.rottenTomatoes ?? r.rottenTomatoes,
+      year: omdb.year ?? r.year,
+      imdbId: omdb.imdbId,
+      imdb: omdb.imdb ?? r.imdb,
+      rottenTomatoes: omdb.rottenTomatoes ?? r.rottenTomatoes,
       commonSenseAge: r.commonSenseAge,
-      studio: r.studio ?? omdb?.production ?? null,
-      awards: omdb?.awards ?? r.awards,
-      poster: omdb?.poster ?? null,
+      studio: r.studio ?? omdb.production ?? null,
+      awards: omdb.awards ?? r.awards,
+      poster: omdb.poster ?? null,
       addedAt: now,
-    };
+    }];
   });
 
   // Final client-side dedupe against pool + library.
