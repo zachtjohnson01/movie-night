@@ -6,10 +6,14 @@ import { scoreCandidate } from '../scoring';
 import {
   commonSenseUrl,
   dedupKey,
+  getMovieById,
   imdbUrl,
+  OmdbError,
   rottenTomatoesUrl,
+  type OmdbSearchResult,
 } from '../omdb';
 import MoviePoster from './MoviePoster';
+import MovieSearchCombobox from './MovieSearchCombobox';
 import StatLink from './StatLink';
 
 type Props = {
@@ -454,11 +458,56 @@ function EditSheet({
   const [studio, setStudio] = useState(candidate.studio ?? '');
   const [imdbIdInput, setImdbIdInput] = useState(candidate.imdbId ?? '');
   const [rtIdInput, setRtIdInput] = useState(candidate.rottenTomatoesId ?? '');
+  // Mirror OMDB-derived read-only fields locally so a search-result pick
+  // can update them in-place before save (header poster, RT/IMDb stat
+  // chips, awards readout). On save we persist them back into the
+  // candidate; without this state the only way to refresh them was the
+  // bulk re-enrichment path.
+  const [rt, setRt] = useState<string | null>(candidate.rottenTomatoes ?? null);
+  const [imdb, setImdb] = useState<string | null>(candidate.imdb ?? null);
+  const [awards, setAwards] = useState<string | null>(candidate.awards ?? null);
+  const [poster, setPoster] = useState<string | null>(candidate.poster ?? null);
+  const [type, setType] = useState<string | null>(candidate.type ?? null);
+  const [pickBusy, setPickBusy] = useState(false);
+  const [pickError, setPickError] = useState<string | null>(null);
   const [customReason, setCustomReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [busyReason, setBusyReason] = useState<string | null>(null);
 
   const isRemoved = candidate.removedAt != null;
+
+  // Picking an OMDB search result re-links the whole candidate: title,
+  // imdbId, year, studio, plus the read-only metric fields all overwrite
+  // to the picked movie's values. The Rotten Tomatoes URL slug
+  // (rottenTomatoesId) is cleared because OMDB doesn't expose it and
+  // keeping the previous slug would silently deep-link to the wrong
+  // film. Mirrors handlePickSearchResult in Detail.tsx for the Movie
+  // flow.
+  async function handlePick(result: OmdbSearchResult) {
+    setPickBusy(true);
+    setPickError(null);
+    try {
+      const patch = await getMovieById(result.imdbId);
+      setTitle(patch.title);
+      setYearStr(patch.year != null ? String(patch.year) : '');
+      setImdbIdInput(patch.imdbId);
+      setRtIdInput('');
+      setStudio(patch.production ?? '');
+      setRt(patch.rottenTomatoes);
+      setImdb(patch.imdb);
+      setAwards(patch.awards);
+      setPoster(patch.poster);
+      setType(patch.type);
+    } catch (e) {
+      setPickError(
+        e instanceof OmdbError
+          ? e.message
+          : (e as Error).message || 'Failed to load from OMDB',
+      );
+    } finally {
+      setPickBusy(false);
+    }
+  }
 
   const handleSave = async () => {
     if (saving) return;
@@ -474,6 +523,11 @@ function EditSheet({
       studio: studio.trim() || null,
       imdbId: trimmedId ? trimmedId : null,
       rottenTomatoesId: trimmedRtId ? trimmedRtId : null,
+      rottenTomatoes: rt,
+      imdb,
+      awards,
+      poster,
+      type,
     });
   };
 
@@ -525,19 +579,19 @@ function EditSheet({
         <div className="flex items-start gap-4 mb-4">
           <MoviePoster
             movie={{
-              title: candidate.title,
+              title,
               displayTitle: null,
-              poster: candidate.poster,
+              poster,
             }}
             size="detail"
           />
           <div className="flex-1 min-w-0 pt-1">
             <h3 className="text-xl font-bold leading-tight tracking-tight text-ink-100">
-              {candidate.title}
+              {title}
             </h3>
-            {candidate.year && (
+            {yearStr && (
               <div className="mt-1 text-sm font-semibold text-ink-400 tabular-nums">
-                {candidate.year}
+                {yearStr}
               </div>
             )}
           </div>
@@ -546,42 +600,46 @@ function EditSheet({
         <div className="mb-4 grid grid-cols-3 gap-2">
           <StatLink
             label="CSM Age"
-            value={candidate.commonSenseAge}
+            value={age || null}
             href={commonSenseUrl({
-              title: candidate.title,
+              title,
               displayTitle: null,
             })}
             accent="age"
           />
           <StatLink
             label="RT"
-            value={candidate.rottenTomatoes}
+            value={rt}
             href={rottenTomatoesUrl({
-              title: candidate.title,
+              title,
               displayTitle: null,
-              rottenTomatoesId: candidate.rottenTomatoesId ?? null,
+              rottenTomatoesId: rtIdInput.trim() || null,
             })}
           />
           <StatLink
             label="IMDb"
-            value={candidate.imdb}
+            value={imdb}
             href={imdbUrl({
-              title: candidate.title,
+              title,
               displayTitle: null,
-              imdbId: candidate.imdbId,
+              imdbId: imdbIdInput.trim() || null,
             })}
           />
         </div>
 
         <div className="flex flex-col gap-3">
           <Field label="Title">
-            <input
-              type="text"
+            <MovieSearchCombobox
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              autoCorrect="off"
-              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
+              onChange={setTitle}
+              onPick={handlePick}
             />
+            {pickBusy && (
+              <p className="text-[11px] text-ink-500">Loading from OMDB…</p>
+            )}
+            {pickError && (
+              <p className="text-[11px] text-crimson-bright">{pickError}</p>
+            )}
           </Field>
           <Field label="Year">
             <input
@@ -639,9 +697,9 @@ function EditSheet({
         </div>
 
         <div className="mt-4 pt-4 border-t border-ink-800 text-[11px] text-ink-500 leading-relaxed space-y-0.5">
-          <ReadOnly label="RT" value={candidate.rottenTomatoes} />
-          <ReadOnly label="IMDb" value={candidate.imdb} />
-          <ReadOnly label="Awards" value={candidate.awards} />
+          <ReadOnly label="RT" value={rt} />
+          <ReadOnly label="IMDb" value={imdb} />
+          <ReadOnly label="Awards" value={awards} />
         </div>
 
         <div className="mt-5 pt-4 border-t border-ink-800">
