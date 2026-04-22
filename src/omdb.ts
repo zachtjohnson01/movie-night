@@ -107,7 +107,7 @@ async function omdbGet<T>(params: Record<string, string>): Promise<T> {
 /** Search OMDB for movies matching `query`. Returns up to 10 results. */
 export async function searchMovies(query: string): Promise<OmdbSearchResult[]> {
   const trimmed = query.trim();
-  if (trimmed.length < 3) return [];
+  if (trimmed.length < 2) return [];
 
   // First try the `?s=` broad search (returns up to 10 matches, good
   // for autocomplete-style lookups). `type: 'movie'` constrains OMDB
