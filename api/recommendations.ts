@@ -92,7 +92,7 @@ function buildPrompt(
     skipBlocks.push(`Already in the recommendation pool:\n${poolTitles.join(', ')}`);
   const banList = skipBlocks.join('\n\n') || '(none)';
 
-  return `Building a deterministic recommendation pool of family films for Friday Movie Night (parent + young child, target CSM age 5–8).
+  return `Building a deterministic recommendation pool of family films for Family Movie Night (parent + young child, target CSM age 5–8).
 
 BAN LIST — if ANY title in your output appears here the response is INVALID:
 

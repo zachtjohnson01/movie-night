@@ -4,7 +4,7 @@ Context for Claude Code sessions on this repo. Future sessions should read this 
 
 ## What this is
 
-Mobile-first PWA Zach uses on his iPhone to track the Friday movie nights he watches with his daughter and wife. Real users: him + his wife. Data: ~40 movies, growing slowly. Dark mode only. Designed for one-handed use in dim light on an iPhone (Friday night couch use case).
+Mobile-first PWA Zach uses on his iPhone to track the family movie nights he watches with his daughter and wife. Real users: him + his wife. Data: ~40 movies, growing slowly. Dark mode only. Designed for one-handed use in dim light on an iPhone (Friday night couch use case).
 
 ## Stack
 
@@ -100,7 +100,7 @@ The user manages env vars via the Vercel web dashboard, not via CLI. Don't sugge
 - **Backgrounds**: `ink-950` (page), `ink-900` (cards), `ink-800` (input fields), `ink-700` (borders)
 - **Text**: `ink-100` (primary), `ink-300` (secondary), `ink-500` (labels), `ink-600` (disabled)
 - **Primary accent**: `amber-glow` (bright warm yellow — used for primary actions, linked badges, "+" button)
-- **Crimson accents**: `crimson-deep` / `crimson-bright` (mark-as-watched button, "FRIDAY MOVIE NIGHT" label)
+- **Crimson accents**: `crimson-deep` / `crimson-bright` (mark-as-watched button, "FAMILY MOVIE NIGHT" label)
 - **CSM age pills** (via `ageBadgeClass` in `format.ts`): emerald ≤4+, amber ≤6+, orange ≤8+, rose 9+
 
 ## Known quirks and gotchas

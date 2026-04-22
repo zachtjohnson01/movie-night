@@ -38,10 +38,10 @@ export default defineConfig({
         'icons/icon-512.png',
       ],
       manifest: {
-        name: 'Friday Movie Night',
+        name: 'Family Movie Night',
         short_name: 'Movie Night',
         description:
-          'Track the Friday movie nights I watch with my daughter.',
+          'Track the family movie nights I watch with my daughter.',
         theme_color: '#0b0b0f',
         background_color: '#0b0b0f',
         display: 'standalone',

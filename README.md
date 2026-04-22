@@ -1,6 +1,6 @@
-# Friday Movie Night
+# Family Movie Night
 
-A tiny, mobile-first PWA that tracks the Friday movie nights I watch with my
+A tiny, mobile-first PWA that tracks the family movie nights I watch with my
 daughter. No backend, no accounts, no poster scraping — just a single
 `movies.json` file committed to this repo and a dark-themed interface I can
 use one-handed from my iPhone.
