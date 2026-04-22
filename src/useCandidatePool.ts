@@ -14,6 +14,7 @@ export type CandidatePoolApi = {
   status: PoolStatus;
   appendCandidates: (next: Candidate[]) => Promise<void>;
   updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
+  replaceCandidates: (next: Candidate[]) => Promise<void>;
   toggleDownvote: (title: string) => Promise<void>;
   reload: () => void;
 };
@@ -164,6 +165,7 @@ export function useCandidatePool(): CandidatePoolApi {
     status,
     appendCandidates,
     updateCandidate,
+    replaceCandidates: writePool,
     toggleDownvote,
     reload,
   };

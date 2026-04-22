@@ -42,6 +42,7 @@ type OmdbDetailResponse =
       Poster: string;
       Awards: string; // "Won 1 Oscar. Another 14 wins & 13 nominations." or "N/A"
       Production: string; // often "N/A" on the free tier
+      Type: string; // "movie", "series", "episode"
     }
   | { Response: 'False'; Error: string };
 
@@ -156,6 +157,23 @@ export async function getMovieById(imdbId: string): Promise<OmdbMoviePatch> {
     throw new OmdbError(data.Error || 'Movie not found', 'not-found');
   }
   return extractPatch(data);
+}
+
+/**
+ * Look up an IMDb ID and return OMDB's Type classification
+ * ("movie" | "series" | "episode"). Returns null on any error or
+ * unknown id — callers treat null as "can't confirm, don't destructively
+ * act on this entry" so a transient 401/network blip doesn't delete
+ * legitimate pool items.
+ */
+export async function getOmdbTypeById(imdbId: string): Promise<string | null> {
+  try {
+    const data = await omdbGet<OmdbDetailResponse>({ i: imdbId });
+    if (data.Response === 'False') return null;
+    return data.Type ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -1,13 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Candidate } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
+import { getOmdbTypeById } from '../omdb';
 
 type Props = {
   pool: CandidatePoolApi;
   onBack: () => void;
 };
+
+type PurgeState =
+  | { kind: 'idle' }
+  | { kind: 'running'; done: number; total: number }
+  | { kind: 'done'; removed: number };
 
 /**
  * Admin-only screen: browse, edit, and downvote candidates in the pool.
@@ -21,6 +27,47 @@ type Props = {
 export default function PoolAdmin({ pool, onBack }: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Candidate | null>(null);
+  const [purge, setPurge] = useState<PurgeState>({ kind: 'idle' });
+
+  const handlePurge = useCallback(async () => {
+    const linked = pool.candidates.filter((c) => c.imdbId);
+    if (linked.length === 0) {
+      setPurge({ kind: 'done', removed: 0 });
+      return;
+    }
+    setPurge({ kind: 'running', done: 0, total: linked.length });
+
+    // Lookups in parallel, but track completion for the progress label.
+    let done = 0;
+    const tick = () => {
+      done += 1;
+      setPurge({ kind: 'running', done, total: linked.length });
+    };
+    const types = await Promise.all(
+      linked.map(async (c) => {
+        const t = await getOmdbTypeById(c.imdbId!);
+        tick();
+        return t;
+      }),
+    );
+
+    // Drop only candidates OMDB confirms are NOT movies. A null result
+    // (transient error / 401 / unknown id) is treated as "keep" so a
+    // flaky network doesn't wipe the pool.
+    const toRemove = new Set<string>();
+    linked.forEach((c, i) => {
+      const t = types[i];
+      if (t != null && t !== 'movie') toRemove.add(c.title);
+    });
+
+    if (toRemove.size === 0) {
+      setPurge({ kind: 'done', removed: 0 });
+      return;
+    }
+    const cleaned = pool.candidates.filter((c) => !toRemove.has(c.title));
+    await pool.replaceCandidates(cleaned);
+    setPurge({ kind: 'done', removed: toRemove.size });
+  }, [pool]);
 
   const allLinked = useMemo(
     () => pool.candidates.filter((c) => c.imdbId != null),
@@ -141,6 +188,32 @@ export default function PoolAdmin({ pool, onBack }: Props) {
           OMDB link (no RT or IMDb data).
         </p>
       )}
+
+      <div className="mt-6 px-5 flex flex-col gap-2">
+        <button
+          type="button"
+          onClick={() => void handlePurge()}
+          disabled={purge.kind === 'running'}
+          className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold transition-colors ${
+            purge.kind === 'running'
+              ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
+              : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
+          }`}
+        >
+          {purge.kind === 'running'
+            ? `Checking OMDB… (${purge.done}/${purge.total})`
+            : 'Remove TV shows'}
+        </button>
+        {purge.kind === 'done' && (
+          <p className="text-center text-[11px] text-ink-500 leading-relaxed">
+            {purge.removed === 0
+              ? 'No TV shows found in the pool.'
+              : `Removed ${purge.removed} TV show${
+                  purge.removed === 1 ? '' : 's'
+                }.`}
+          </p>
+        )}
+      </div>
 
       {editing && (
         <EditSheet
