@@ -3,7 +3,14 @@ import type { Candidate } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { dedupKey } from '../omdb';
+import {
+  commonSenseUrl,
+  dedupKey,
+  imdbUrl,
+  rottenTomatoesUrl,
+} from '../omdb';
+import MoviePoster from './MoviePoster';
+import StatLink from './StatLink';
 
 type Props = {
   pool: CandidatePoolApi;
@@ -486,7 +493,7 @@ function EditSheet({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-bold text-ink-100">Edit candidate</h2>
+          <h2 className="text-lg font-bold text-ink-100">Candidate</h2>
           <button
             type="button"
             onClick={onClose}
@@ -507,6 +514,56 @@ function EditSheet({
               <path d="M6 6l12 12M18 6l-12 12" />
             </svg>
           </button>
+        </div>
+
+        <div className="flex items-start gap-4 mb-4">
+          <MoviePoster
+            movie={{
+              title: candidate.title,
+              displayTitle: null,
+              poster: candidate.poster,
+            }}
+            size="detail"
+          />
+          <div className="flex-1 min-w-0 pt-1">
+            <h3 className="text-xl font-bold leading-tight tracking-tight text-ink-100">
+              {candidate.title}
+            </h3>
+            {candidate.year && (
+              <div className="mt-1 text-sm font-semibold text-ink-400 tabular-nums">
+                {candidate.year}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-4 grid grid-cols-3 gap-2">
+          <StatLink
+            label="CSM Age"
+            value={candidate.commonSenseAge}
+            href={commonSenseUrl({
+              title: candidate.title,
+              displayTitle: null,
+            })}
+            accent="age"
+          />
+          <StatLink
+            label="RT"
+            value={candidate.rottenTomatoes}
+            href={rottenTomatoesUrl({
+              title: candidate.title,
+              displayTitle: null,
+            })}
+          />
+          <StatLink
+            label="IMDb"
+            value={candidate.imdb}
+            href={imdbUrl({
+              title: candidate.title,
+              displayTitle: null,
+              imdbId: candidate.imdbId,
+            })}
+          />
         </div>
 
         <div className="flex flex-col gap-3">
