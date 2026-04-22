@@ -10,7 +10,6 @@ import {
 } from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
-import DesignToggle from './modern/DesignToggle';
 
 type Props = {
   movies: Movie[];
@@ -20,8 +19,6 @@ type Props = {
   onAdd: () => void;
   onBulkLink: () => void;
   onEnhanceAll: () => void;
-  design: 'classic' | 'modern';
-  onToggleDesign: () => void;
 };
 
 export default function WatchedList({
@@ -32,8 +29,6 @@ export default function WatchedList({
   onAdd,
   onBulkLink,
   onEnhanceAll,
-  design,
-  onToggleDesign,
 }: Props) {
   const [query, setQuery] = useState('');
 
@@ -148,9 +143,8 @@ export default function WatchedList({
           </svg>
         </div>
 
-        <div className="mt-2 flex items-center justify-between gap-3">
+        <div className="mt-2">
           <BuildStamp />
-          <DesignToggle design={design} onToggle={onToggleDesign} />
         </div>
       </header>
 

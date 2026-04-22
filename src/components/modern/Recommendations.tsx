@@ -22,15 +22,12 @@ import {
   ageTone,
 } from './palette';
 import ModernPoster from './ModernPoster';
-import DesignToggle from './DesignToggle';
 
 type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
   canWrite: boolean;
   onSelectPick: (c: Candidate) => void;
-  design: 'classic' | 'modern';
-  onToggleDesign: () => void;
 };
 
 const TOP_N = 20;
@@ -42,8 +39,6 @@ export default function ModernRecommendations({
   pool,
   canWrite,
   onSelectPick,
-  design,
-  onToggleDesign,
 }: Props) {
   const [busy, setBusy] = useState<
     | { kind: 'idle' }
@@ -125,25 +120,15 @@ export default function ModernRecommendations({
       >
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
+            fontFamily: SANS,
+            fontSize: 11,
+            color: INK_3,
+            letterSpacing: 2,
+            textTransform: 'uppercase',
+            fontWeight: 600,
           }}
         >
-          <div
-            style={{
-              fontFamily: SANS,
-              fontSize: 11,
-              color: INK_3,
-              letterSpacing: 2,
-              textTransform: 'uppercase',
-              fontWeight: 600,
-            }}
-          >
-            For you
-          </div>
-          <DesignToggle design={design} onToggle={onToggleDesign} />
+          For you
         </div>
         <div
           style={{

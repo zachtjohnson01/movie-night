@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type { AuthStatus } from '../useAuth';
 
 type Props = {
@@ -7,13 +8,18 @@ type Props = {
   avatarUrl: string | null;
   onSignIn: () => void;
   onSignOut: () => void;
+  isOwner: boolean;
+  viewAsNonOwner: boolean;
+  onToggleViewAsNonOwner: () => void;
+  design: 'classic' | 'modern';
+  onToggleDesign: () => void;
 };
 
 /**
  * Banner / user strip at the top of the app.
  * - signed-in (allowlisted): compact user card with avatar, name, email,
- *   and a Sign out button. Always visible on list views so the sign-out
- *   affordance isn't hidden.
+ *   and a hamburger menu (Sign out, View as non-owner for the owner,
+ *   Switch classic/modern).
  * - signed-out: amber strip prompting Google sign-in.
  * - unauthorized: amber strip with email + Sign out.
  * - loading: null (brief).
@@ -25,6 +31,11 @@ export default function AuthBanner({
   avatarUrl,
   onSignIn,
   onSignOut,
+  isOwner,
+  viewAsNonOwner,
+  onToggleViewAsNonOwner,
+  design,
+  onToggleDesign,
 }: Props) {
   if (status === 'loading') return null;
 
@@ -67,10 +78,72 @@ export default function AuthBanner({
   }
 
   // signed-in (allowlisted)
+  return (
+    <SignedInBanner
+      email={email}
+      name={name}
+      avatarUrl={avatarUrl}
+      onSignOut={onSignOut}
+      isOwner={isOwner}
+      viewAsNonOwner={viewAsNonOwner}
+      onToggleViewAsNonOwner={onToggleViewAsNonOwner}
+      design={design}
+      onToggleDesign={onToggleDesign}
+    />
+  );
+}
+
+type SignedInProps = Omit<Props, 'status' | 'onSignIn'>;
+
+function SignedInBanner({
+  email,
+  name,
+  avatarUrl,
+  onSignOut,
+  isOwner,
+  viewAsNonOwner,
+  onToggleViewAsNonOwner,
+  design,
+  onToggleDesign,
+}: SignedInProps) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function handlePointer(e: MouseEvent | TouchEvent) {
+      const target = e.target as Node | null;
+      if (!target) return;
+      if (menuRef.current?.contains(target)) return;
+      if (buttonRef.current?.contains(target)) return;
+      setMenuOpen(false);
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setMenuOpen(false);
+    }
+    document.addEventListener('mousedown', handlePointer);
+    document.addEventListener('touchstart', handlePointer);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handlePointer);
+      document.removeEventListener('touchstart', handlePointer);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [menuOpen]);
+
   const initial = (name ?? email ?? '?').slice(0, 1).toUpperCase();
+  const isModern = design === 'modern';
+
+  function runAndClose(fn: () => void) {
+    fn();
+    setMenuOpen(false);
+  }
+
   return (
     <div
-      className="safe-top px-4 pt-2 pb-2 flex items-center gap-3 bg-ink-900 border-b border-ink-800/60"
+      className="safe-top px-4 pt-2 pb-2 flex items-center gap-3 bg-ink-900 border-b border-ink-800/60 relative"
       role="banner"
     >
       {avatarUrl ? (
@@ -97,12 +170,98 @@ export default function AuthBanner({
         )}
       </div>
       <button
+        ref={buttonRef}
         type="button"
-        onClick={onSignOut}
-        className="shrink-0 min-h-[36px] px-3 rounded-lg bg-ink-800 border border-ink-700 text-ink-200 text-xs font-semibold active:bg-ink-700"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-label="Menu"
+        aria-haspopup="menu"
+        aria-expanded={menuOpen}
+        className="shrink-0 min-h-[44px] min-w-[44px] rounded-lg bg-ink-800 border border-ink-700 text-ink-200 flex items-center justify-center active:bg-ink-700"
       >
-        Sign out
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          className="w-5 h-5"
+          aria-hidden
+        >
+          <path d="M3 6h18M3 12h18M3 18h18" />
+        </svg>
       </button>
+
+      {menuOpen && (
+        <div
+          ref={menuRef}
+          role="menu"
+          className="absolute right-3 top-full mt-1 z-50 w-60 rounded-xl bg-ink-900 border border-ink-700 shadow-xl shadow-black/40 p-1"
+        >
+          {isOwner && (
+            <MenuItem
+              onClick={() => runAndClose(onToggleViewAsNonOwner)}
+              trailing={
+                viewAsNonOwner ? (
+                  <CheckIcon />
+                ) : (
+                  <span className="text-[11px] text-ink-500">off</span>
+                )
+              }
+            >
+              <div>View as non-owner</div>
+              <div className="text-[11px] text-ink-500 font-normal">
+                Hide owner-only tools
+              </div>
+            </MenuItem>
+          )}
+          <MenuItem onClick={() => runAndClose(onToggleDesign)}>
+            {isModern ? 'Switch to classic UI' : 'Switch to modern UI'}
+          </MenuItem>
+          <div className="my-1 h-px bg-ink-800" />
+          <MenuItem onClick={() => runAndClose(onSignOut)}>
+            Sign out
+          </MenuItem>
+        </div>
+      )}
     </div>
+  );
+}
+
+function MenuItem({
+  onClick,
+  children,
+  trailing,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  trailing?: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="w-full min-h-[44px] px-3 rounded-lg text-left text-sm font-semibold text-ink-100 flex items-center justify-between gap-3 active:bg-ink-800"
+    >
+      <span className="flex-1 min-w-0">{children}</span>
+      {trailing && <span className="shrink-0">{trailing}</span>}
+    </button>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-4 h-4 text-amber-glow"
+      aria-hidden
+    >
+      <path d="M5 13l4 4L19 7" />
+    </svg>
   );
 }

@@ -19,7 +19,6 @@ import {
   SANS,
 } from './palette';
 import ModernPoster from './ModernPoster';
-import DesignToggle from './DesignToggle';
 import Fab from './Fab';
 
 type Props = {
@@ -27,8 +26,6 @@ type Props = {
   canWrite: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
-  design: 'classic' | 'modern';
-  onToggleDesign: () => void;
 };
 
 export default function ModernWatchedList({
@@ -36,8 +33,6 @@ export default function ModernWatchedList({
   canWrite,
   onSelect,
   onAdd,
-  design,
-  onToggleDesign,
 }: Props) {
   const watched = useMemo(
     () => sortWatched(movies.filter((m) => m.watched)),
@@ -66,25 +61,15 @@ export default function ModernWatchedList({
       >
         <div
           style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 8,
+            fontFamily: SANS,
+            fontSize: 11,
+            color: INK_3,
+            letterSpacing: 2,
+            textTransform: 'uppercase',
+            fontWeight: 600,
           }}
         >
-          <div
-            style={{
-              fontFamily: SANS,
-              fontSize: 11,
-              color: INK_3,
-              letterSpacing: 2,
-              textTransform: 'uppercase',
-              fontWeight: 600,
-            }}
-          >
-            Family Movie Night
-          </div>
-          <DesignToggle design={design} onToggle={onToggleDesign} />
+          Family Movie Night
         </div>
         <div
           style={{
