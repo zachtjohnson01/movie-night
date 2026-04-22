@@ -116,6 +116,11 @@ export default function PoolAdmin({ pool, onBack }: Props) {
     setPurge({ kind: 'done', shows, duplicates });
   }, [pool]);
 
+  const unlinkedCount = useMemo(
+    () => pool.candidates.filter((c) => c.imdbId == null).length,
+    [pool.candidates],
+  );
+
   // Score and sort descending. Downvoted candidates naturally sink to the
   // bottom because scoreCandidate subtracts a 1000-point penalty. Stable
   // ties preserve pool insertion order for visual consistency.
@@ -168,10 +173,22 @@ export default function PoolAdmin({ pool, onBack }: Props) {
             </div>
             <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight">
               Candidate pool
-              <span className="ml-2 text-ink-400 font-semibold tabular-nums">
-                {pool.candidates.length}
-              </span>
             </h1>
+            <div className="mt-1 text-[11px] text-ink-500 tabular-nums">
+              <span className="text-ink-300 font-semibold">
+                {pool.candidates.length}
+              </span>{' '}
+              total
+              {unlinkedCount > 0 && (
+                <>
+                  {' · '}
+                  <span className="text-ink-300 font-semibold">
+                    {unlinkedCount}
+                  </span>{' '}
+                  unlinked
+                </>
+              )}
+            </div>
           </div>
         </div>
 
