@@ -40,6 +40,11 @@ export function rankTopPicks(
         // films almost always have at least one signal even when OMDB
         // can't find a match, so this only sweeps out junk.
         (c.rottenTomatoes != null || c.imdb != null) &&
+        // Soft-removed rows stay in the pool blob so expandPool's ban
+        // list catches them (the LLM won't re-surface a title we've
+        // marked as a TV show / duplicate), but they must not appear
+        // in user-facing picks.
+        c.removedReason == null &&
         !(c.imdbId && libraryImdbIds.has(c.imdbId)) &&
         !libraryTitles.has(normalizeTitle(c.title)),
     )

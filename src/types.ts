@@ -94,11 +94,18 @@ export type Candidate = {
   downvoted?: boolean | null;
   /**
    * OMDB Type classification ("movie" | "series" | "episode") when we've
-   * been able to resolve it. Populated at enrichment time and backfilled
-   * by the admin "Clean up pool" action when it calls OMDB. Optional so
-   * older rows parse as "unknown" without a migration; cleanup treats a
-   * missing type as a trigger to look it up, and a confirmed non-"movie"
-   * type as grounds to drop the candidate.
+   * been able to resolve it. Populated at enrichment time. Optional so
+   * older rows parse as "unknown" without a migration; the TV-show filter
+   * in PoolAdmin treats any non-"movie" value as a flag.
    */
   type?: string | null;
+  /**
+   * Admin-set soft delete. When set, the candidate is still in the pool
+   * blob (so `expandPool` keeps it on the ban list and won't re-seed the
+   * same title) but `rankTopPicks` filters it out of For You. The reason
+   * string is free text, pulled from a vocabulary persisted in row id=3
+   * so typed reasons become reusable checkboxes on the next candidate.
+   */
+  removedReason?: string | null;
+  removedAt?: string | null;
 };

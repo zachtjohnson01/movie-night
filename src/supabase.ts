@@ -32,3 +32,10 @@ export const MOVIE_NIGHT_ROW_ID = 1;
  * table keeps the no-schema-migrations property intact.
  */
 export const CANDIDATE_POOL_ROW_ID = 2;
+/**
+ * Row id=3 stores the removal-reason vocabulary as a `string[]` inside
+ * the same `movies` JSONB column. Typing a new reason on a candidate's
+ * Remove-from-pool section appends to this list so it becomes a reusable
+ * checkbox the next time an admin removes a candidate.
+ */
+export const REMOVAL_REASONS_ROW_ID = 3;
