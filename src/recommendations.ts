@@ -34,11 +34,13 @@ export function rankTopPicks(
   const scored: RankedPick[] = candidates
     .filter(
       (c) =>
-        // Drop candidates that never got OMDB-enriched — without an imdbId
-        // they have no authoritative RT/IMDb signal and typically surface
-        // as low-quality LLM hallucinations ("… Shorts", "… Bluray").
-        c.imdbId != null &&
-        !libraryImdbIds.has(c.imdbId) &&
+        // Drop candidates with no rating signal at all — those are LLM
+        // stubs ("… Shorts", "… Bluray") that slip through when OMDB
+        // enrichment fails AND the LLM didn't supply RT/IMDb hints. Real
+        // films almost always have at least one signal even when OMDB
+        // can't find a match, so this only sweeps out junk.
+        (c.rottenTomatoes != null || c.imdb != null) &&
+        !(c.imdbId && libraryImdbIds.has(c.imdbId)) &&
         !libraryTitles.has(normalizeTitle(c.title)),
     )
     .map((c) => ({ ...c, fitScore: scoreCandidate(c) }));
