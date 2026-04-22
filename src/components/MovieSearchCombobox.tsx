@@ -67,7 +67,7 @@ export default function MovieSearchCombobox({
       return;
     }
     const trimmed = value.trim();
-    if (trimmed.length < 3) {
+    if (trimmed.length < 2) {
       setResults([]);
       setError(null);
       setHasSearched(false);
@@ -114,7 +114,7 @@ export default function MovieSearchCombobox({
   const showDropdown =
     isOmdbConfigured &&
     open &&
-    value.trim().length >= 3 &&
+    value.trim().length >= 2 &&
     (loading || error || results.length > 0 || hasSearched);
 
   return (
