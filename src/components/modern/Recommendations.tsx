@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../../types';
-import { useCandidatePool } from '../../useCandidatePool';
+import type { CandidatePoolApi } from '../../useCandidatePool';
 import {
   expandPool,
   rankTopPicks,
@@ -26,6 +26,7 @@ import DesignToggle from './DesignToggle';
 
 type Props = {
   movies: Movie[];
+  pool: CandidatePoolApi;
   canWrite: boolean;
   onSelectPick: (c: Candidate) => void;
   design: 'classic' | 'modern';
@@ -38,12 +39,12 @@ const SEED_BATCHES = 5;
 
 export default function ModernRecommendations({
   movies,
+  pool,
   canWrite,
   onSelectPick,
   design,
   onToggleDesign,
 }: Props) {
-  const pool = useCandidatePool();
   const [busy, setBusy] = useState<
     | { kind: 'idle' }
     | { kind: 'seeding'; done: number; total: number; added: number }
