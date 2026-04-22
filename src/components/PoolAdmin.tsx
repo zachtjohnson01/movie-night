@@ -18,11 +18,9 @@ type PurgeState =
 /**
  * Admin-only screen: browse, edit, and downvote candidates in the pool.
  * Sits on top of the tab-bar navigation (App.tsx screen stack), reachable
- * from the "Manage pool" button on the For You tab. Filters to candidates
- * with an OMDB link (`imdbId != null`) — the unlinked ones aren't useful
- * to review since RT/IMDb are usually null and scoring collapses to the
- * LLM's CSM/studio/awards hints alone. Count of hidden rows is shown in
- * the footer so the admin knows the true pool size.
+ * from the "Manage pool" button on the For You tab. Shows every row in
+ * the pool — including unlinked / low-signal entries — so the admin can
+ * audit what's actually in row id=2 and spot data quality issues.
  */
 export default function PoolAdmin({ pool, onBack }: Props) {
   const [query, setQuery] = useState('');
@@ -118,24 +116,18 @@ export default function PoolAdmin({ pool, onBack }: Props) {
     setPurge({ kind: 'done', shows, duplicates });
   }, [pool]);
 
-  const allLinked = useMemo(
-    () => pool.candidates.filter((c) => c.imdbId != null),
-    [pool.candidates],
-  );
-  const hiddenCount = pool.candidates.length - allLinked.length;
-
   // Score and sort descending. Downvoted candidates naturally sink to the
   // bottom because scoreCandidate subtracts a 1000-point penalty. Stable
   // ties preserve pool insertion order for visual consistency.
   const ranked = useMemo(() => {
-    const scored = allLinked.map((c, i) => ({
+    const scored = pool.candidates.map((c, i) => ({
       c,
       i,
       fit: scoreCandidate(c),
     }));
     scored.sort((a, b) => b.fit - a.fit || a.i - b.i);
     return scored;
-  }, [allLinked]);
+  }, [pool.candidates]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -177,7 +169,7 @@ export default function PoolAdmin({ pool, onBack }: Props) {
             <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight">
               Candidate pool
               <span className="ml-2 text-ink-400 font-semibold tabular-nums">
-                {allLinked.length}
+                {pool.candidates.length}
               </span>
             </h1>
           </div>
@@ -249,15 +241,8 @@ export default function PoolAdmin({ pool, onBack }: Props) {
         <div className="px-6 pt-10 text-center text-ink-400 text-sm">
           {query
             ? 'No candidates match that search.'
-            : 'No OMDB-linked candidates in the pool yet.'}
+            : 'Pool is empty.'}
         </div>
-      )}
-
-      {hiddenCount > 0 && (
-        <p className="mt-6 px-6 text-center text-[11px] text-ink-500 leading-relaxed">
-          {hiddenCount} candidate{hiddenCount === 1 ? '' : 's'} hidden — no
-          OMDB link (no RT or IMDb data).
-        </p>
       )}
 
       {editing && (
