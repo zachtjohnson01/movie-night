@@ -60,7 +60,14 @@ export default function EnhanceAllSheet({
     [],
   );
   const missingTargets = useMemo(
-    () => allTargets.filter((m) => m.production == null || m.awards == null || m.director == null || m.writer == null),
+    () =>
+      allTargets.filter(
+        (m) =>
+          m.production == null ||
+          m.awards == null ||
+          m.directors == null ||
+          m.writers == null,
+      ),
     [allTargets],
   );
 
@@ -134,18 +141,20 @@ export default function EnhanceAllSheet({
           nextMode === 'refresh'
             ? (item.awards ?? m.awards)
             : (m.awards ?? item.awards);
-        const nextDirector =
+        const nextDirectors =
           nextMode === 'refresh'
-            ? (item.director ?? m.director)
-            : (m.director ?? item.director);
-        const nextWriter =
+            ? (item.directors ?? m.directors)
+            : (m.directors ?? item.directors);
+        const nextWriters =
           nextMode === 'refresh'
-            ? (item.writer ?? m.writer)
-            : (m.writer ?? item.writer);
+            ? (item.writers ?? m.writers)
+            : (m.writers ?? item.writers);
 
         const changed =
-          nextProduction !== m.production || nextAwards !== m.awards ||
-          nextDirector !== m.director || nextWriter !== m.writer;
+          nextProduction !== m.production ||
+          nextAwards !== m.awards ||
+          !sameNameList(nextDirectors, m.directors) ||
+          !sameNameList(nextWriters, m.writers);
         if (!changed) {
           acc.skipped.push(getDisplayTitle(m));
           setProgress(start + i + 1);
@@ -156,8 +165,8 @@ export default function EnhanceAllSheet({
             ...m,
             production: nextProduction,
             awards: nextAwards,
-            director: nextDirector,
-            writer: nextWriter,
+            directors: nextDirectors,
+            writers: nextWriters,
           });
           acc.enriched.push(getDisplayTitle(m));
         } catch (e) {
@@ -448,4 +457,17 @@ function SummaryView({
       </button>
     </>
   );
+}
+
+function sameNameList(
+  a: string[] | null | undefined,
+  b: string[] | null | undefined,
+): boolean {
+  const la = a ?? [];
+  const lb = b ?? [];
+  if (la.length !== lb.length) return false;
+  for (let i = 0; i < la.length; i++) {
+    if (la[i] !== lb[i]) return false;
+  }
+  return true;
 }

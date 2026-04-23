@@ -65,8 +65,8 @@ export default function Recommendations({
     [movies],
   );
 
-  const libraryDirectors = useMemo(() => extractUnique(movies.map((m) => m.director)), [movies]);
-  const libraryWriters = useMemo(() => extractUnique(movies.map((m) => m.writer)), [movies]);
+  const libraryDirectors = useMemo(() => extractUnique(movies.flatMap((m) => m.directors ?? [])), [movies]);
+  const libraryWriters = useMemo(() => extractUnique(movies.flatMap((m) => m.writers ?? [])), [movies]);
   const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
 
   const runExpansion = useCallback(

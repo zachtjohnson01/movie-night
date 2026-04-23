@@ -43,7 +43,7 @@ export const DEFAULT_WEIGHTS: ScoringWeights = {
 
 export type ScoreInput = Pick<
   Candidate,
-  'rottenTomatoes' | 'imdb' | 'commonSenseAge' | 'studio' | 'awards' | 'director' | 'writer'
+  'rottenTomatoes' | 'imdb' | 'commonSenseAge' | 'studio' | 'awards' | 'directors' | 'writers'
 > & { downvoted?: boolean | null };
 
 export type ScoreContext = {
@@ -178,17 +178,15 @@ function awardsStrength(raw: string | null): number | null {
 // are treated neutrally, not negatively.
 
 function directorAffinity(c: ScoreInput, context?: ScoreContext): number | null {
-  if (!context?.knownDirectors.length || !c.director) return null;
+  if (!context?.knownDirectors.length || !c.directors?.length) return null;
   const known = new Set(context.knownDirectors.map((d) => d.toLowerCase()));
-  const dirs = c.director.split(',').map((d) => d.trim().toLowerCase());
-  return dirs.some((d) => known.has(d)) ? 100 : null;
+  return c.directors.some((d) => known.has(d.toLowerCase())) ? 100 : null;
 }
 
 function writerAffinity(c: ScoreInput, context?: ScoreContext): number | null {
-  if (!context?.knownWriters.length || !c.writer) return null;
+  if (!context?.knownWriters.length || !c.writers?.length) return null;
   const known = new Set(context.knownWriters.map((w) => w.toLowerCase()));
-  const wrs = c.writer.split(',').map((w) => w.trim().toLowerCase());
-  return wrs.some((w) => known.has(w)) ? 100 : null;
+  return c.writers.some((w) => known.has(w.toLowerCase())) ? 100 : null;
 }
 
 function clamp(n: number, lo: number, hi: number): number {

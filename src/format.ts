@@ -187,8 +187,8 @@ export function emptyMovie(watched: boolean): Movie {
     notes: null,
     awards: null,
     production: null,
-    director: null,
-    writer: null,
+    directors: null,
+    writers: null,
     wishlistOrder: null,
   };
 }
@@ -210,10 +210,55 @@ export function candidateToTemplate(c: Candidate): Movie {
     notes: null,
     awards: c.awards,
     production: c.studio,
-    director: c.director ?? null,
-    writer: c.writer ?? null,
+    directors: c.directors ?? null,
+    writers: c.writers ?? null,
     wishlistOrder: null,
   };
+}
+
+/**
+ * One-way coerce for the director/writer rename. Reads either the new
+ * array fields (`directors`, `writers`) or the legacy string fields
+ * (`director`, `writer`) off a raw Candidate/Movie-shaped JSON value
+ * and returns the same value with normalized `directors`/`writers`
+ * fields. Drop-target for every Supabase/JSON read boundary so the rest
+ * of the app only sees the array shape.
+ */
+export function coerceCreatorLists<T>(raw: T): T {
+  if (raw == null || typeof raw !== 'object') return raw;
+  const source = raw as Record<string, unknown>;
+  const directors = parseNameList(source.directors ?? source.director);
+  const writers = parseNameList(source.writers ?? source.writer);
+  const copy: Record<string, unknown> = { ...source, directors, writers };
+  delete copy.director;
+  delete copy.writer;
+  return copy as T;
+}
+
+/**
+ * Coerce a raw value (comma-separated string, array, or nullish) into
+ * a normalized string[] of creator names.
+ *
+ * - Drops empty entries and "N/A" (OMDB's placeholder).
+ * - Returns null when nothing valid remains, matching the "unknown" semantics
+ *   used everywhere else in the app. Empty array is not a valid stored value.
+ *
+ * Used for OMDB response parsing, manual-input parsing on edit forms, and
+ * the one-way migration of legacy string rows read from Supabase.
+ */
+export function parseNameList(raw: unknown): string[] | null {
+  let parts: string[] = [];
+  if (Array.isArray(raw)) {
+    parts = raw.filter((v): v is string => typeof v === 'string');
+  } else if (typeof raw === 'string') {
+    parts = raw.split(',');
+  } else {
+    return null;
+  }
+  const names = parts
+    .map((n) => n.trim())
+    .filter((n) => n && n !== 'N/A');
+  return names.length > 0 ? names : null;
 }
 
 /**

@@ -57,10 +57,16 @@ export type Movie = {
    * expect this to be sparse. Null for manually-entered movies.
    */
   production: string | null;
-  /** Director(s) from OMDB, e.g. "Hayao Miyazaki". Null until OMDB-linked or manually entered. */
-  director: string | null;
-  /** Writer(s) from OMDB, e.g. "Hayao Miyazaki, Isao Takahata". Null until OMDB-linked or manually entered. */
-  writer: string | null;
+  /**
+   * Individual director names, stored as a list so they can be rendered
+   * as separate pills. Null until OMDB-linked or manually entered. Empty
+   * array is not a valid state — collapse to null when no names remain.
+   * Legacy rows in the JSONB blob may still have a `director: string` field;
+   * readers coerce it via `parseNameList` in `src/format.ts`.
+   */
+  directors: string[] | null;
+  /** Individual writer names. See `directors` for semantics. */
+  writers: string[] | null;
   /**
    * User-assigned sort position on the Wishlist tab. Lower values come
    * first. Null means "no explicit order" — those rows fall to the bottom
@@ -138,10 +144,14 @@ export type Candidate = {
    */
   removedReason?: string | null;
   removedAt?: string | null;
-  /** Director(s) from OMDB, e.g. "Hayao Miyazaki". Optional so older rows parse without migration. */
-  director?: string | null;
-  /** Writer(s) from OMDB, e.g. "Hayao Miyazaki, Isao Takahata". Optional so older rows parse without migration. */
-  writer?: string | null;
+  /**
+   * Individual director names. Optional so older rows parse without migration.
+   * Legacy rows may have a `director: string` field instead; coerce via
+   * `parseNameList` in `src/format.ts` at the read boundary.
+   */
+  directors?: string[] | null;
+  /** Individual writer names. See `directors` for semantics. */
+  writers?: string[] | null;
   /** ISO timestamp of the last successful OMDB fetch for this candidate. Optional for backward compat. */
   omdbRefreshedAt?: string | null;
 };

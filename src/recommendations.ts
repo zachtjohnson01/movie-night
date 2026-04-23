@@ -2,6 +2,7 @@ import type { Candidate, Movie } from './types';
 import { dedupKey, enrichCandidate, normalizeTitle } from './omdb';
 import { DEFAULT_WEIGHTS, scoreCandidate, type ScoreContext, type ScoringWeights } from './scoring';
 import { supabase } from './supabase';
+import { parseNameList } from './format';
 
 /**
  * Deterministic top-picks engine. Consumes the candidate pool (persisted in
@@ -70,8 +71,8 @@ export function rankTopPicks(
   weights: ScoringWeights = DEFAULT_WEIGHTS,
 ): RankedPick[] {
   const { imdbIds, titles } = buildLibrarySets(library);
-  const knownDirectors = extractUnique(library.map((m) => m.director));
-  const knownWriters = extractUnique(library.map((m) => m.writer));
+  const knownDirectors = extractUnique(library.flatMap((m) => m.directors ?? []));
+  const knownWriters = extractUnique(library.flatMap((m) => m.writers ?? []));
   const ctx: ScoreContext = { knownDirectors, knownWriters };
   const scored: RankedPick[] = candidates
     .filter((c) => isEffective(c, imdbIds, titles))
@@ -91,24 +92,24 @@ type RawCandidateFromApi = {
   commonSenseAge: string | null;
   studio: string | null;
   awards: string | null;
-  director: string | null;
-  writer: string | null;
+  director?: string | null;
+  writer?: string | null;
+  directors?: string[] | null;
+  writers?: string[] | null;
   rottenTomatoes: string | null;
   imdb: string | null;
 };
 
 /**
- * Split comma-separated strings, trim, deduplicate, and drop blanks / "N/A".
+ * Deduplicate + sort a flat list of creator names. Drops blanks / "N/A".
  * Used to build director/writer/studio lists from library movies.
  */
 export function extractUnique(raw: (string | null | undefined)[]): string[] {
   const seen = new Set<string>();
-  for (const v of raw) {
-    if (!v) continue;
-    for (const part of v.split(',')) {
-      const s = part.trim();
-      if (s && s !== 'N/A') seen.add(s);
-    }
+  for (const s of raw) {
+    if (!s) continue;
+    const trimmed = s.trim();
+    if (trimmed && trimmed !== 'N/A') seen.add(trimmed);
   }
   return [...seen].sort();
 }
@@ -187,8 +188,12 @@ export async function expandPool(
       commonSenseAge: r.commonSenseAge,
       studio: r.studio ?? omdb.production ?? null,
       awards: omdb.awards ?? r.awards,
-      director: omdb.director ?? r.director ?? null,
-      writer: omdb.writer ?? r.writer ?? null,
+      directors:
+        omdb.directors ??
+        parseNameList(r.directors ?? r.director),
+      writers:
+        omdb.writers ??
+        parseNameList(r.writers ?? r.writer),
       poster: omdb.poster ?? null,
       addedAt: now,
       type: omdb.type,
