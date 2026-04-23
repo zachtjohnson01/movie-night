@@ -6,11 +6,13 @@ import type { Candidate } from './types';
  * same inputs always produce the same score.
  *
  * Signals (each normalized to 0–100):
- *   RT %               0.30
- *   IMDb rating × 10   0.30
- *   CSM age fit        0.20   (target band 5–8, per Friday-movie-night use case)
- *   Studio pedigree    0.10
- *   Awards             0.10
+ *   RT %               weights.rt
+ *   IMDb rating × 10   weights.imdb
+ *   CSM age fit        weights.csm    (target band 5–8)
+ *   Studio pedigree    weights.studio
+ *   Awards             weights.awards
+ *   Director affinity  weights.director  (100 if director is in library, else skipped)
+ *   Writer affinity    weights.writer    (100 if writer is in library, else skipped)
  *
  * Missing fields are *skipped*, not penalized. The final score renormalizes
  * against the weights of signals that were actually present. This is fair
@@ -19,25 +21,40 @@ import type { Candidate } from './types';
  * signal averaged alone, given the explicit tier caps).
  */
 
+export type ScoringWeights = {
+  rt: number;
+  imdb: number;
+  csm: number;
+  studio: number;
+  awards: number;
+  director: number;
+  writer: number;
+};
+
+export const DEFAULT_WEIGHTS: ScoringWeights = {
+  rt: 0.30,
+  imdb: 0.30,
+  csm: 0.20,
+  studio: 0.10,
+  awards: 0.10,
+  director: 0.10,
+  writer: 0.05,
+};
+
 export type ScoreInput = Pick<
   Candidate,
-  'rottenTomatoes' | 'imdb' | 'commonSenseAge' | 'studio' | 'awards'
+  'rottenTomatoes' | 'imdb' | 'commonSenseAge' | 'studio' | 'awards' | 'director' | 'writer'
 > & { downvoted?: boolean | null };
+
+export type ScoreContext = {
+  knownDirectors: string[];
+  knownWriters: string[];
+};
 
 // Admin downvote penalty. Large enough that any downvoted candidate ranks
 // below every non-downvoted one regardless of signals — satisfies the "push
 // to the bottom of the list" contract without introducing a tuning knob.
 const DOWNVOTE_PENALTY = 1000;
-
-type SignalKey = 'rt' | 'imdb' | 'csm' | 'studio' | 'awards';
-
-const WEIGHTS: Record<SignalKey, number> = {
-  rt: 0.3,
-  imdb: 0.3,
-  csm: 0.2,
-  studio: 0.1,
-  awards: 0.1,
-};
 
 // Studio pedigree tiers. Lowercase substring match against the studio string
 // so "Walt Disney Animation Studios" matches "disney" and "Aardman Animations"
@@ -68,23 +85,33 @@ const STUDIO_TIERS: Array<{ score: number; keywords: string[] }> = [
   },
 ];
 
-export function scoreCandidate(c: ScoreInput): number {
+export function scoreCandidate(
+  c: ScoreInput,
+  context?: ScoreContext,
+  weights: ScoringWeights = DEFAULT_WEIGHTS,
+): number {
   const parts: Array<{ weight: number; value: number }> = [];
 
   const rt = parseRt(c.rottenTomatoes);
-  if (rt != null) parts.push({ weight: WEIGHTS.rt, value: rt });
+  if (rt != null) parts.push({ weight: weights.rt, value: rt });
 
   const imdb = parseImdb(c.imdb);
-  if (imdb != null) parts.push({ weight: WEIGHTS.imdb, value: imdb });
+  if (imdb != null) parts.push({ weight: weights.imdb, value: imdb });
 
   const csm = csmFit(c.commonSenseAge);
-  if (csm != null) parts.push({ weight: WEIGHTS.csm, value: csm });
+  if (csm != null) parts.push({ weight: weights.csm, value: csm });
 
   const studio = studioPedigree(c.studio);
-  if (studio != null) parts.push({ weight: WEIGHTS.studio, value: studio });
+  if (studio != null) parts.push({ weight: weights.studio, value: studio });
 
   const awards = awardsStrength(c.awards);
-  if (awards != null) parts.push({ weight: WEIGHTS.awards, value: awards });
+  if (awards != null) parts.push({ weight: weights.awards, value: awards });
+
+  const dir = directorAffinity(c, context);
+  if (dir != null) parts.push({ weight: weights.director, value: dir });
+
+  const wri = writerAffinity(c, context);
+  if (wri != null) parts.push({ weight: weights.writer, value: wri });
 
   const base =
     parts.length === 0
@@ -144,6 +171,24 @@ function awardsStrength(raw: string | null): number | null {
   if (/\bwon\b/.test(s)) return 75;
   if (/nominat/.test(s)) return 50;
   return null;
+}
+
+// Pure bonus signals: return 100 on a library match, null otherwise.
+// Null means the signal is skipped (not penalized) — unknown creators
+// are treated neutrally, not negatively.
+
+function directorAffinity(c: ScoreInput, context?: ScoreContext): number | null {
+  if (!context?.knownDirectors.length || !c.director) return null;
+  const known = new Set(context.knownDirectors.map((d) => d.toLowerCase()));
+  const dirs = c.director.split(',').map((d) => d.trim().toLowerCase());
+  return dirs.some((d) => known.has(d)) ? 100 : null;
+}
+
+function writerAffinity(c: ScoreInput, context?: ScoreContext): number | null {
+  if (!context?.knownWriters.length || !c.writer) return null;
+  const known = new Set(context.knownWriters.map((w) => w.toLowerCase()));
+  const wrs = c.writer.split(',').map((w) => w.trim().toLowerCase());
+  return wrs.some((w) => known.has(w)) ? 100 : null;
 }
 
 function clamp(n: number, lo: number, hi: number): number {

@@ -1,6 +1,6 @@
 import type { Candidate, Movie } from './types';
 import { dedupKey, enrichCandidate, normalizeTitle } from './omdb';
-import { scoreCandidate } from './scoring';
+import { DEFAULT_WEIGHTS, scoreCandidate, type ScoreContext, type ScoringWeights } from './scoring';
 import { supabase } from './supabase';
 
 /**
@@ -67,11 +67,15 @@ export function rankTopPicks(
   candidates: Candidate[],
   library: Movie[],
   limit: number = DEFAULT_LIMIT,
+  weights: ScoringWeights = DEFAULT_WEIGHTS,
 ): RankedPick[] {
   const { imdbIds, titles } = buildLibrarySets(library);
+  const knownDirectors = extractUnique(library.map((m) => m.director));
+  const knownWriters = extractUnique(library.map((m) => m.writer));
+  const ctx: ScoreContext = { knownDirectors, knownWriters };
   const scored: RankedPick[] = candidates
     .filter((c) => isEffective(c, imdbIds, titles))
-    .map((c) => ({ ...c, fitScore: scoreCandidate(c) }));
+    .map((c) => ({ ...c, fitScore: scoreCandidate(c, ctx, weights) }));
 
   // Sort descending by score, stable on ties (preserve pool insertion order).
   return scored
@@ -87,6 +91,8 @@ type RawCandidateFromApi = {
   commonSenseAge: string | null;
   studio: string | null;
   awards: string | null;
+  director: string | null;
+  writer: string | null;
   rottenTomatoes: string | null;
   imdb: string | null;
 };
@@ -181,6 +187,8 @@ export async function expandPool(
       commonSenseAge: r.commonSenseAge,
       studio: r.studio ?? omdb.production ?? null,
       awards: omdb.awards ?? r.awards,
+      director: omdb.director ?? r.director ?? null,
+      writer: omdb.writer ?? r.writer ?? null,
       poster: omdb.poster ?? null,
       addedAt: now,
       type: omdb.type,

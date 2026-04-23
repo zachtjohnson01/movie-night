@@ -4,9 +4,11 @@ import {
   CANDIDATE_POOL_ROW_ID,
   MOVIE_NIGHT_TABLE,
   REMOVAL_REASONS_ROW_ID,
+  SCORING_WEIGHTS_ROW_ID,
   isSupabaseConfigured,
   supabase,
 } from './supabase';
+import { DEFAULT_WEIGHTS, type ScoringWeights } from './scoring';
 import { getMovieById } from './omdb';
 
 export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';
@@ -15,6 +17,7 @@ export type CandidatePoolApi = {
   candidates: Candidate[];
   status: PoolStatus;
   reasons: string[];
+  weights: ScoringWeights;
   appendCandidates: (next: Candidate[]) => Promise<void>;
   updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
   replaceCandidates: (next: Candidate[]) => Promise<void>;
@@ -38,6 +41,7 @@ export type CandidatePoolApi = {
 export function useCandidatePool(): CandidatePoolApi {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [reasons, setReasons] = useState<string[]>([]);
+  const [weights, setWeights] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
   const [status, setStatus] = useState<PoolStatus>(
     isSupabaseConfigured ? 'loading' : 'local',
   );
@@ -54,7 +58,7 @@ export function useCandidatePool(): CandidatePoolApi {
 
     async function load() {
       if (!supabase) return;
-      const [poolRes, reasonsRes] = await Promise.all([
+      const [poolRes, reasonsRes, weightsRes] = await Promise.all([
         supabase
           .from(MOVIE_NIGHT_TABLE)
           .select('movies')
@@ -64,6 +68,11 @@ export function useCandidatePool(): CandidatePoolApi {
           .from(MOVIE_NIGHT_TABLE)
           .select('movies')
           .eq('id', REMOVAL_REASONS_ROW_ID)
+          .maybeSingle(),
+        supabase
+          .from(MOVIE_NIGHT_TABLE)
+          .select('movies')
+          .eq('id', SCORING_WEIGHTS_ROW_ID)
           .maybeSingle(),
       ]);
 
@@ -96,6 +105,14 @@ export function useCandidatePool(): CandidatePoolApi {
       } else {
         const raw = (reasonsRes.data?.movies ?? null) as string[] | null;
         setReasons(Array.isArray(raw) ? raw : []);
+      }
+
+      // Scoring weights — non-fatal; falls back to DEFAULT_WEIGHTS.
+      if (!weightsRes.error && weightsRes.data?.movies) {
+        const raw = weightsRes.data.movies as Partial<ScoringWeights>;
+        if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+          setWeights({ ...DEFAULT_WEIGHTS, ...raw });
+        }
       }
     }
 
@@ -314,6 +331,7 @@ export function useCandidatePool(): CandidatePoolApi {
     candidates,
     status,
     reasons,
+    weights,
     appendCandidates,
     updateCandidate,
     replaceCandidates: writePool,
