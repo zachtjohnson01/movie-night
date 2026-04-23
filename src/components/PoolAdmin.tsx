@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
@@ -247,6 +247,8 @@ export default function PoolAdmin({ pool, onBack }: Props) {
           })}
         </div>
       </header>
+
+      <BulkOmdbSection pool={pool} />
 
       <ul className="pt-2">
         {visible.map(({ c, fit }, i) => (
@@ -869,6 +871,135 @@ function ReadOnly({ label, value }: { label: string; value: string | null }) {
         {label}
       </span>
       <span className="flex-1 text-ink-400 truncate">{value ?? '—'}</span>
+    </div>
+  );
+}
+
+type BulkOmdbPhase = 'idle' | 'confirm' | 'running' | 'done' | 'cancelled';
+
+function BulkOmdbSection({ pool }: { pool: CandidatePoolApi }) {
+  const [phase, setPhase] = useState<BulkOmdbPhase>('idle');
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [result, setResult] = useState<{
+    updated: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
+  const cancelRef = useRef({ cancelled: false });
+
+  const linkedCount = pool.candidates.filter((c) => c.imdbId != null).length;
+
+  async function run() {
+    cancelRef.current = { cancelled: false };
+    setPhase('running');
+    setProgress({ done: 0, total: linkedCount });
+    const r = await pool.bulkRefreshOmdb(
+      (done, total) => setProgress({ done, total }),
+      cancelRef.current,
+    );
+    setResult(r);
+    setPhase(cancelRef.current.cancelled ? 'cancelled' : 'done');
+  }
+
+  if (phase === 'idle') {
+    if (linkedCount === 0) return null;
+    return (
+      <div className="px-4 pt-4 pb-2">
+        <button
+          type="button"
+          onClick={() => setPhase('confirm')}
+          className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
+        >
+          Refresh OMDB metadata
+          <span className="ml-1.5 text-ink-500 font-normal">
+            ({linkedCount} linked)
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === 'confirm') {
+    return (
+      <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
+        <h3 className="text-base font-bold text-ink-100">Bulk refresh OMDB</h3>
+        <p className="mt-1 text-sm text-ink-400 leading-relaxed">
+          Re-fetches director, writer, ratings, poster, and awards from OMDB for
+          all {linkedCount} linked candidates. Updates propagate to watched and
+          wishlist movies automatically.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setPhase('idle')}
+            className="min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void run()}
+            className="min-h-[44px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80"
+          >
+            Refresh {linkedCount}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'running') {
+    const pct =
+      progress.total === 0 ? 0 : (progress.done / progress.total) * 100;
+    return (
+      <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
+        <h3 className="text-base font-bold text-ink-100">
+          Refreshing OMDB…
+        </h3>
+        <div className="mt-2 text-sm text-ink-300">
+          <span className="font-semibold tabular-nums">{progress.done}</span>
+          {' '}of{' '}
+          <span className="tabular-nums">{progress.total}</span>
+        </div>
+        <div className="mt-3 h-2 rounded-full bg-ink-800 overflow-hidden">
+          <div
+            className="h-full bg-amber-glow transition-[width] duration-150"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            cancelRef.current.cancelled = true;
+          }}
+          className="mt-4 w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
+      <h3 className="text-base font-bold text-ink-100">
+        {phase === 'cancelled' ? 'Cancelled' : 'Done'}
+      </h3>
+      {result && (
+        <p className="mt-1 text-sm text-ink-400 leading-relaxed">
+          <span className="text-ink-200 font-semibold">{result.updated}</span>{' '}
+          updated ·{' '}
+          <span className="text-ink-300">{result.skipped}</span> skipped ·{' '}
+          <span className="text-ink-300">{result.failed}</span> failed
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => setPhase('idle')}
+        className="mt-4 w-full min-h-[44px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80"
+      >
+        Done
+      </button>
     </div>
   );
 }

@@ -46,6 +46,7 @@ function readInitialDesign(): Design {
 }
 
 export default function App() {
+  const pool = useCandidatePool();
   const {
     movies,
     status,
@@ -54,8 +55,11 @@ export default function App() {
     deleteMovie,
     reorderWishlist,
     reload: reloadMovies,
-  } = useMovies();
-  const pool = useCandidatePool();
+  } = useMovies({
+    candidates: pool.candidates,
+    onUpdateCandidate: pool.updateCandidate,
+    onAppendCandidates: pool.appendCandidates,
+  });
   const auth = useAuth();
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });

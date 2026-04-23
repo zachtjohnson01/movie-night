@@ -7,6 +7,7 @@ import {
   isSupabaseConfigured,
   supabase,
 } from './supabase';
+import { getMovieById } from './omdb';
 
 export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';
 
@@ -21,6 +22,10 @@ export type CandidatePoolApi = {
   removeCandidate: (title: string, reason: string) => Promise<void>;
   restoreCandidate: (title: string) => Promise<void>;
   reload: () => void;
+  bulkRefreshOmdb: (
+    onProgress: (done: number, total: number) => void,
+    cancelSignal?: { cancelled: boolean },
+  ) => Promise<{ updated: number; skipped: number; failed: number }>;
 };
 
 /**
@@ -250,6 +255,61 @@ export function useCandidatePool(): CandidatePoolApi {
     [writePool],
   );
 
+  const bulkRefreshOmdb = useCallback(
+    async (
+      onProgress: (done: number, total: number) => void,
+      cancelSignal?: { cancelled: boolean },
+    ): Promise<{ updated: number; skipped: number; failed: number }> => {
+      const linked = latestRef.current.filter((c) => c.imdbId != null);
+      const total = linked.length;
+      let updated = 0, skipped = 0, failed = 0;
+      const next = [...latestRef.current];
+
+      for (let i = 0; i < linked.length; i++) {
+        if (cancelSignal?.cancelled) {
+          onProgress(i, total);
+          await writePool(next);
+          return { updated, skipped, failed };
+        }
+        onProgress(i, total);
+        const c = linked[i];
+        try {
+          const patch = await getMovieById(c.imdbId!);
+          const idx = next.findIndex((x) => x.title === c.title);
+          if (idx === -1) { skipped++; continue; }
+          const prev = next[idx];
+          const merged: Candidate = {
+            ...prev,
+            imdb: patch.imdb ?? prev.imdb,
+            rottenTomatoes: patch.rottenTomatoes ?? prev.rottenTomatoes,
+            poster: patch.poster ?? prev.poster,
+            awards: patch.awards ?? prev.awards,
+            studio: patch.production ?? prev.studio,
+            director: patch.director ?? prev.director,
+            writer: patch.writer ?? prev.writer,
+            year: patch.year ?? prev.year,
+            type: patch.type ?? prev.type,
+            omdbRefreshedAt: new Date().toISOString(),
+          };
+          const changed =
+            merged.director !== prev.director ||
+            merged.writer !== prev.writer ||
+            merged.imdb !== prev.imdb ||
+            merged.rottenTomatoes !== prev.rottenTomatoes ||
+            merged.poster !== prev.poster;
+          next[idx] = merged;
+          if (changed) updated++; else skipped++;
+        } catch { failed++; }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      onProgress(total, total);
+      await writePool(next);
+      return { updated, skipped, failed };
+    },
+    [writePool],
+  );
+
   return {
     candidates,
     status,
@@ -261,5 +321,6 @@ export function useCandidatePool(): CandidatePoolApi {
     removeCandidate,
     restoreCandidate,
     reload,
+    bulkRefreshOmdb,
   };
 }
