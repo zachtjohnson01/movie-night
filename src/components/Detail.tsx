@@ -650,11 +650,8 @@ function ViewMode(props: ViewModeProps) {
                 onClick={props.onMarkWatchedTonight}
                 className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
               >
-                Mark as watched tonight
+                Mark as watched tonight ({formatDate(todayIso())})
               </button>
-              <p className="text-center text-xs text-ink-500">
-                Sets the date to today ({formatDate(todayIso())}).
-              </p>
               <button
                 type="button"
                 onClick={props.onMarkWatchedUndated}
@@ -680,11 +677,8 @@ function ViewMode(props: ViewModeProps) {
             onClick={props.onMarkWatchedTonight}
             className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
           >
-            Mark watched tonight
+            Mark watched tonight ({formatDate(todayIso())})
           </button>
-          <p className="text-center text-xs text-ink-500">
-            Sets the date to today ({formatDate(todayIso())}).
-          </p>
           <button
             type="button"
             onClick={props.onMarkWatchedUndated}
