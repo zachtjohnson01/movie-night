@@ -73,10 +73,28 @@ export type Movie = {
 };
 
 /**
- * An entry in the deterministic recommendation pool. Not a Movie — these are
- * films the user hasn't added to their library yet. The pool is persisted as
- * a JSONB blob in Supabase (row id=2 in `movie_night`) and grown by the
- * admin-only "Expand pool" action. Ranking is a pure function over this shape.
+ * Thin overlay stored in row id=1. Contains only user-specific data.
+ * OMDB metadata lives on Candidate (row id=2) and is merged at render time.
+ * The rendered Movie type is produced by mergeEntry(LibraryEntry, Candidate).
+ */
+export type LibraryEntry = {
+  title: string;          // primary join key → Candidate.title
+  imdbId: string | null;  // secondary join key (preferred when set)
+  displayTitle: string | null;
+  commonSenseAge: string | null;
+  commonSenseScore: string | null;
+  watched: boolean;
+  dateWatched: string | null;
+  notes: string | null;
+  wishlistOrder: number | null;
+};
+
+/**
+ * An entry in the deterministic recommendation pool. After the schema split,
+ * this also serves as the canonical metadata record for library movies — the
+ * pool holds ALL movies (library + pure recommendation candidates). Ranking
+ * filters out library movies by title/imdbId match. Persisted as a JSONB blob
+ * in Supabase (row id=2 in `movie_night`).
  */
 export type Candidate = {
   title: string;
@@ -124,4 +142,6 @@ export type Candidate = {
   director?: string | null;
   /** Writer(s) from OMDB, e.g. "Hayao Miyazaki, Isao Takahata". Optional so older rows parse without migration. */
   writer?: string | null;
+  /** ISO timestamp of the last successful OMDB fetch for this candidate. Optional for backward compat. */
+  omdbRefreshedAt?: string | null;
 };

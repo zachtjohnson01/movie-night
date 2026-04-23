@@ -182,14 +182,14 @@ export function candidateToTemplate(c: Candidate): Movie {
     imdbId: c.imdbId,
     year: c.year,
     poster: c.poster,
-    omdbRefreshedAt: null,
+    omdbRefreshedAt: c.omdbRefreshedAt ?? null,
     watched: false,
     dateWatched: null,
     notes: null,
     awards: c.awards,
     production: c.studio,
-    director: null,
-    writer: null,
+    director: c.director ?? null,
+    writer: c.writer ?? null,
     wishlistOrder: null,
   };
 }
