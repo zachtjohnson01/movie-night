@@ -3,6 +3,7 @@ import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { countEffectiveCandidates, expandPool, extractUnique, rankTopPicks, type RankedPick } from '../recommendations';
+import { type ScoringWeights } from '../scoring';
 
 type Props = {
   movies: Movie[];
@@ -50,8 +51,8 @@ export default function Recommendations({
   const [refreshing, setRefreshing] = useState(false);
 
   const picks = useMemo(
-    () => rankTopPicks(pool.candidates, movies, TOP_N),
-    [pool.candidates, movies],
+    () => rankTopPicks(pool.candidates, movies, TOP_N, pool.weights),
+    [pool.candidates, movies, pool.weights],
   );
 
   const effectiveCount = useMemo(
@@ -142,7 +143,7 @@ export default function Recommendations({
               </span>
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">
-              from {effectiveCount} candidates · RT 30%, IMDb 30%, CSM age 20%, studio 10%, awards 10%
+              from {effectiveCount} candidates · {describeWeights(pool.weights)}
             </p>
           </div>
           <button
@@ -294,6 +295,21 @@ export default function Recommendations({
       </div>
     </div>
   );
+}
+
+function describeWeights(w: ScoringWeights): string {
+  const LABELS: Array<[keyof ScoringWeights, string]> = [
+    ['rt', 'RT'],
+    ['imdb', 'IMDb'],
+    ['csm', 'CSM age'],
+    ['studio', 'studio'],
+    ['awards', 'awards'],
+    ['director', 'director'],
+    ['writer', 'writer'],
+  ];
+  return LABELS.filter(([k]) => w[k] > 0)
+    .map(([k, label]) => `${label} ${Math.round(w[k] * 100)}%`)
+    .join(', ');
 }
 
 function RecRow({

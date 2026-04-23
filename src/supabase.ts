@@ -39,3 +39,9 @@ export const CANDIDATE_POOL_ROW_ID = 2;
  * checkbox the next time an admin removes a candidate.
  */
 export const REMOVAL_REASONS_ROW_ID = 3;
+/**
+ * Row id=4 stores the scoring weights as a `ScoringWeights` JSON object.
+ * Persisting them here lets the For You display and the ranking model stay
+ * in sync automatically — changing a weight in the DB propagates to both.
+ */
+export const SCORING_WEIGHTS_ROW_ID = 4;
