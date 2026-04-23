@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
-import { expandPool, rankTopPicks, type RankedPick } from '../recommendations';
+import { countEffectiveCandidates, expandPool, rankTopPicks, type RankedPick } from '../recommendations';
 
 type Props = {
   movies: Movie[];
@@ -39,6 +39,11 @@ export default function Recommendations({
 
   const picks = useMemo(
     () => rankTopPicks(pool.candidates, movies, TOP_N),
+    [pool.candidates, movies],
+  );
+
+  const effectiveCount = useMemo(
+    () => countEffectiveCandidates(pool.candidates, movies),
     [pool.candidates, movies],
   );
 
@@ -117,7 +122,7 @@ export default function Recommendations({
               <span className="text-ink-300 font-normal">picks from</span>
               <br />
               <span className="text-ink-300 font-light italic">
-                {pool.candidates.length} candidates.
+                {effectiveCount} candidates.
               </span>
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">

@@ -19,6 +19,31 @@ export type RankedPick = Candidate & { fitScore: number };
 
 const DEFAULT_LIMIT = 20;
 
+function buildLibrarySets(library: Movie[]) {
+  return {
+    imdbIds: new Set(library.map((m) => m.imdbId).filter((id): id is string => !!id)),
+    titles: new Set(library.map((m) => normalizeTitle(m.title))),
+  };
+}
+
+// Drop candidates with no rating signal — LLM stubs that slip through when
+// OMDB enrichment fails. Also drop soft-removed rows (kept in the pool blob
+// for the ban list) and titles already in the user's library.
+function isEffective(c: Candidate, imdbIds: Set<string>, titles: Set<string>): boolean {
+  return (
+    (c.rottenTomatoes != null || c.imdb != null) &&
+    c.removedReason == null &&
+    !(c.imdbId && imdbIds.has(c.imdbId)) &&
+    !titles.has(normalizeTitle(c.title))
+  );
+}
+
+/** Count candidates that would actively compete for top picks (pre-slice). */
+export function countEffectiveCandidates(candidates: Candidate[], library: Movie[]): number {
+  const { imdbIds, titles } = buildLibrarySets(library);
+  return candidates.filter((c) => isEffective(c, imdbIds, titles)).length;
+}
+
 /**
  * Rank the candidate pool against the user's library. Pure function.
  */
@@ -27,27 +52,9 @@ export function rankTopPicks(
   library: Movie[],
   limit: number = DEFAULT_LIMIT,
 ): RankedPick[] {
-  const libraryImdbIds = new Set(
-    library.map((m) => m.imdbId).filter((id): id is string => !!id),
-  );
-  const libraryTitles = new Set(library.map((m) => normalizeTitle(m.title)));
+  const { imdbIds, titles } = buildLibrarySets(library);
   const scored: RankedPick[] = candidates
-    .filter(
-      (c) =>
-        // Drop candidates with no rating signal at all — those are LLM
-        // stubs ("… Shorts", "… Bluray") that slip through when OMDB
-        // enrichment fails AND the LLM didn't supply RT/IMDb hints. Real
-        // films almost always have at least one signal even when OMDB
-        // can't find a match, so this only sweeps out junk.
-        (c.rottenTomatoes != null || c.imdb != null) &&
-        // Soft-removed rows stay in the pool blob so expandPool's ban
-        // list catches them (the LLM won't re-surface a title we've
-        // marked as a TV show / duplicate), but they must not appear
-        // in user-facing picks.
-        c.removedReason == null &&
-        !(c.imdbId && libraryImdbIds.has(c.imdbId)) &&
-        !libraryTitles.has(normalizeTitle(c.title)),
-    )
+    .filter((c) => isEffective(c, imdbIds, titles))
     .map((c) => ({ ...c, fitScore: scoreCandidate(c) }));
 
   // Sort descending by score, stable on ties (preserve pool insertion order).
