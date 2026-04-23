@@ -8,6 +8,7 @@ import {
   rankTopPicks,
   type RankedPick,
 } from '../../recommendations';
+import { DEFAULT_WEIGHTS, type ScoringWeights } from '../../scoring';
 import {
   AMBER,
   BG,
@@ -62,8 +63,8 @@ export default function ModernRecommendations({
   const [error, setError] = useState<string | null>(null);
 
   const picks = useMemo(
-    () => rankTopPicks(pool.candidates, movies, TOP_N),
-    [pool.candidates, movies],
+    () => rankTopPicks(pool.candidates, movies, TOP_N, pool.weights),
+    [pool.candidates, movies, pool.weights],
   );
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
   const libraryDirectors = useMemo(() => extractUnique(movies.map((m) => m.director)), [movies]);
@@ -188,7 +189,7 @@ export default function ModernRecommendations({
             </span>
           ) : (
             <span>
-              from {effectiveCount} candidates · RT 30%, IMDb 30%, CSM age 20%, studio 10%, awards 10%
+              from {effectiveCount} candidates · {describeWeights(pool.weights ?? DEFAULT_WEIGHTS)}
             </span>
           )}
         </div>
@@ -654,6 +655,19 @@ function RecSkeleton() {
       </div>
     </div>
   );
+}
+
+function describeWeights(w: ScoringWeights): string {
+  const LABELS: Array<[keyof ScoringWeights, string]> = [
+    ['rt', 'RT'], ['imdb', 'IMDb'], ['csm', 'CSM age'],
+    ['studio', 'studio'], ['awards', 'awards'],
+    ['director', 'director'], ['writer', 'writer'],
+  ];
+  const active = LABELS.filter(([k]) => w[k] > 0);
+  const total = active.reduce((s, [k]) => s + w[k], 0);
+  return active
+    .map(([k, label]) => `${label} ${Math.round((w[k] / total) * 100)}%`)
+    .join(', ');
 }
 
 function Spinner({

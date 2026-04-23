@@ -280,6 +280,17 @@ export async function enrichCandidate(
   }
 }
 
+/**
+ * Split a comma-separated OMDB creator string (Director / Writer) into
+ * individual trimmed names, drop "N/A" entries, and rejoin with ", ".
+ * Returns null if no valid names remain. Works for single names too.
+ */
+function normalizeCreatorList(raw: string | null | undefined): string | null {
+  if (!raw || raw === 'N/A') return null;
+  const names = raw.split(',').map((n) => n.trim()).filter((n) => n && n !== 'N/A');
+  return names.length > 0 ? names.join(', ') : null;
+}
+
 function extractPatch(data: {
   Title: string;
   Year: string;
@@ -304,8 +315,8 @@ function extractPatch(data: {
     poster: data.Poster && data.Poster !== 'N/A' ? data.Poster : null,
     awards: data.Awards && data.Awards !== 'N/A' ? data.Awards : null,
     production: data.Production && data.Production !== 'N/A' ? data.Production : null,
-    director: data.Director && data.Director !== 'N/A' ? data.Director : null,
-    writer: data.Writer && data.Writer !== 'N/A' ? data.Writer : null,
+    director: normalizeCreatorList(data.Director),
+    writer: normalizeCreatorList(data.Writer),
     type: data.Type ?? null,
   };
 }

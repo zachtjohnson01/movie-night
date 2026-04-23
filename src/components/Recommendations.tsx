@@ -307,8 +307,10 @@ function describeWeights(w: ScoringWeights): string {
     ['director', 'director'],
     ['writer', 'writer'],
   ];
-  return LABELS.filter(([k]) => w[k] > 0)
-    .map(([k, label]) => `${label} ${Math.round(w[k] * 100)}%`)
+  const active = LABELS.filter(([k]) => w[k] > 0);
+  const total = active.reduce((s, [k]) => s + w[k], 0);
+  return active
+    .map(([k, label]) => `${label} ${Math.round((w[k] / total) * 100)}%`)
     .join(', ');
 }
 
