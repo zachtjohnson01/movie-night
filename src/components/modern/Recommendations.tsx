@@ -3,6 +3,7 @@ import type { Candidate, Movie } from '../../types';
 import type { CandidatePoolApi } from '../../useCandidatePool';
 import {
   expandPool,
+  extractUnique,
   rankTopPicks,
   type RankedPick,
 } from '../../recommendations';
@@ -52,6 +53,9 @@ export default function ModernRecommendations({
     [pool.candidates, movies],
   );
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
+  const libraryDirectors = useMemo(() => extractUnique(movies.map((m) => m.director)), [movies]);
+  const libraryWriters = useMemo(() => extractUnique(movies.map((m) => m.writer)), [movies]);
+  const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
   const watchedCount = useMemo(
     () => movies.filter((m) => m.watched).length,
     [movies],
@@ -73,6 +77,7 @@ export default function ModernRecommendations({
             [...currentPoolTitles()],
             libraryTitles,
             EXPAND_BATCH,
+            { directors: libraryDirectors, writers: libraryWriters, studios: libraryStudios },
           );
           if (fresh.length === 0) break;
           await pool.appendCandidates(fresh);
@@ -85,7 +90,7 @@ export default function ModernRecommendations({
       }
       setBusy({ kind: 'idle' });
     },
-    [libraryTitles, pool],
+    [libraryTitles, libraryDirectors, libraryWriters, libraryStudios, pool],
   );
 
   const loading = pool.status === 'loading';

@@ -63,7 +63,8 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
  * (the LLM is the only source for CSM age; OMDB is authoritative for RT,
  * IMDb, and Awards but runs client-side after this endpoint returns).
  *
- * POST { poolTitles: string[], libraryTitles: string[], batchSize: number }
+ * POST { poolTitles: string[], libraryTitles: string[], batchSize: number,
+ *         directors?: string[], writers?: string[], studios?: string[] }
  * -> { items: RawCandidate[], rawCount: number }
  */
 
@@ -85,6 +86,9 @@ function buildPrompt(
   poolTitles: string[],
   libraryTitles: string[],
   batchSize: number,
+  directors: string[] = [],
+  writers: string[] = [],
+  studios: string[] = [],
 ): string {
   const overRequest = Math.ceil(batchSize * 1.25);
   const skipBlocks: string[] = [];
@@ -94,9 +98,22 @@ function buildPrompt(
     skipBlocks.push(`Already in the recommendation pool:\n${poolTitles.join(', ')}`);
   const banList = skipBlocks.join('\n\n') || '(none)';
 
+  const tasteLines: string[] = [];
+  if (directors.length) tasteLines.push(`Directors: ${directors.join(', ')}`);
+  if (writers.length) tasteLines.push(`Writers: ${writers.join(', ')}`);
+  if (studios.length) tasteLines.push(`Studios / production companies: ${studios.join(', ')}`);
+  const tasteSection = tasteLines.length
+    ? `FAMILY TASTE PROFILE — directors, writers, and studios from films they've already watched or wishlisted:
+${tasteLines.join('\n')}
+
+Prioritize discovering more films from these directors, writers, and studios that the family hasn't seen yet. Diversity across decades and styles is still valued — use this as a positive signal, not a hard constraint.
+
+`
+    : '';
+
   return `Building a deterministic recommendation pool of family films for Family Movie Night (parent + young child, target CSM age 5–8).
 
-BAN LIST — if ANY title in your output appears here the response is INVALID:
+${tasteSection}BAN LIST — if ANY title in your output appears here the response is INVALID:
 
 ${banList}
 
@@ -277,20 +294,19 @@ export default async function handler(
   }
 
   const body = req.body || {};
-  const poolTitles: string[] = Array.isArray(body.poolTitles)
-    ? body.poolTitles.filter((t: unknown): t is string => typeof t === 'string')
-    : [];
-  const libraryTitles: string[] = Array.isArray(body.libraryTitles)
-    ? body.libraryTitles.filter(
-        (t: unknown): t is string => typeof t === 'string',
-      )
-    : [];
+  const filterStrings = (v: unknown) =>
+    Array.isArray(v) ? v.filter((t: unknown): t is string => typeof t === 'string') : [];
+  const poolTitles: string[] = filterStrings(body.poolTitles);
+  const libraryTitles: string[] = filterStrings(body.libraryTitles);
+  const directors: string[] = filterStrings(body.directors);
+  const writers: string[] = filterStrings(body.writers);
+  const studios: string[] = filterStrings(body.studios);
   const batchSize: number =
     typeof body.batchSize === 'number' && body.batchSize > 0
       ? Math.min(body.batchSize, 100)
       : 100;
 
-  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize);
+  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios);
 
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
