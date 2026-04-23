@@ -67,8 +67,8 @@ export default function ModernRecommendations({
     [pool.candidates, movies, pool.weights],
   );
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
-  const libraryDirectors = useMemo(() => extractUnique(movies.map((m) => m.director)), [movies]);
-  const libraryWriters = useMemo(() => extractUnique(movies.map((m) => m.writer)), [movies]);
+  const libraryDirectors = useMemo(() => extractUnique(movies.flatMap((m) => m.directors ?? [])), [movies]);
+  const libraryWriters = useMemo(() => extractUnique(movies.flatMap((m) => m.writers ?? [])), [movies]);
   const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
   const effectiveCount = useMemo(
     () => countEffectiveCandidates(pool.candidates),

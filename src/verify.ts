@@ -44,8 +44,11 @@ export async function verifyField(
         production: movie.production,
         awards: movie.awards,
         commonSenseAge: movie.commonSenseAge,
-        director: movie.director,
-        writer: movie.writer,
+        // The /api/verify Claude prompt consumes these as single strings;
+        // join the array back with commas on the way out so the server
+        // contract stays stable.
+        director: movie.directors ? movie.directors.join(', ') : null,
+        writer: movie.writers ? movie.writers.join(', ') : null,
       },
       question,
     }),

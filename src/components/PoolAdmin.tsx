@@ -15,6 +15,7 @@ import {
 import MoviePoster from './MoviePoster';
 import MovieSearchCombobox from './MovieSearchCombobox';
 import StatLink from './StatLink';
+import CreatorPills from './CreatorPills';
 
 type Props = {
   pool: CandidatePoolApi;
@@ -470,8 +471,12 @@ function EditSheet({
   const [awards, setAwards] = useState<string | null>(candidate.awards ?? null);
   const [poster, setPoster] = useState<string | null>(candidate.poster ?? null);
   const [type, setType] = useState<string | null>(candidate.type ?? null);
-  const [director, setDirector] = useState(candidate.director ?? '');
-  const [writer, setWriter] = useState(candidate.writer ?? '');
+  const [directors, setDirectors] = useState<string[] | null>(
+    candidate.directors ?? null,
+  );
+  const [writers, setWriters] = useState<string[] | null>(
+    candidate.writers ?? null,
+  );
   const [pickBusy, setPickBusy] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [customReason, setCustomReason] = useState('');
@@ -502,8 +507,8 @@ function EditSheet({
       setAwards(patch.awards);
       setPoster(patch.poster);
       setType(patch.type);
-      setDirector(patch.director ?? '');
-      setWriter(patch.writer ?? '');
+      setDirectors(patch.directors);
+      setWriters(patch.writers);
     } catch (e) {
       setPickError(
         e instanceof OmdbError
@@ -534,8 +539,8 @@ function EditSheet({
       awards,
       poster,
       type,
-      director: director.trim() || null,
-      writer: writer.trim() || null,
+      directors: directors && directors.length > 0 ? directors : null,
+      writers: writers && writers.length > 0 ? writers : null,
     });
   };
 
@@ -678,22 +683,18 @@ function EditSheet({
               className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
             />
           </Field>
-          <Field label="Director">
-            <input
-              type="text"
-              value={director}
-              onChange={(e) => setDirector(e.target.value)}
-              autoCorrect="off"
-              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
+          <Field label="Directors">
+            <CreatorPills
+              names={directors}
+              onChange={setDirectors}
+              placeholder="Add director (comma-separates multiple)"
             />
           </Field>
-          <Field label="Writer">
-            <input
-              type="text"
-              value={writer}
-              onChange={(e) => setWriter(e.target.value)}
-              autoCorrect="off"
-              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
+          <Field label="Writers">
+            <CreatorPills
+              names={writers}
+              onChange={setWriters}
+              placeholder="Add writer (comma-separates multiple)"
             />
           </Field>
           <Field label="IMDb ID">

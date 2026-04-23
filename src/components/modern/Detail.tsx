@@ -380,6 +380,37 @@ function ModernView({
         </div>
       )}
 
+      {/* Directors / Writers */}
+      {((movie.directors && movie.directors.length > 0) ||
+        (movie.writers && movie.writers.length > 0)) && (
+        <div style={{ padding: '18px 20px 0' }}>
+          <div
+            style={{
+              background: BG_3,
+              border: `1px solid ${BORDER}`,
+              borderRadius: 14,
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }}
+          >
+            {movie.directors && movie.directors.length > 0 && (
+              <ModernPillRow
+                label={movie.directors.length > 1 ? 'Directors' : 'Director'}
+                names={movie.directors}
+              />
+            )}
+            {movie.writers && movie.writers.length > 0 && (
+              <ModernPillRow
+                label={movie.writers.length > 1 ? 'Writers' : 'Writer'}
+                names={movie.writers}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Notes */}
       {movie.watched && (movie.notes || canWrite) && (
         <div style={{ padding: '22px 20px 0' }}>
@@ -533,6 +564,59 @@ function ModernView({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ModernPillRow({
+  label,
+  names,
+}: {
+  label: string;
+  names: string[];
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontFamily: SANS,
+          fontSize: 10,
+          color: INK_3,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          fontWeight: 600,
+        }}
+      >
+        {label}
+      </div>
+      <div
+        style={{
+          marginTop: 6,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 6,
+        }}
+      >
+        {names.map((n) => (
+          <span
+            key={n}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              padding: '4px 10px',
+              borderRadius: 999,
+              background: BG,
+              border: `1px solid ${BORDER}`,
+              fontFamily: SANS,
+              fontSize: 12,
+              fontWeight: 600,
+              color: INK_2,
+            }}
+          >
+            {n}
+          </span>
+        ))}
+      </div>
     </div>
   );
 }

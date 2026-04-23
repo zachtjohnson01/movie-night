@@ -10,6 +10,7 @@ import {
 } from './supabase';
 import { DEFAULT_WEIGHTS, type ScoringWeights } from './scoring';
 import { getMovieById } from './omdb';
+import { coerceCreatorLists } from './format';
 
 export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';
 
@@ -84,11 +85,17 @@ export function useCandidatePool(): CandidatePoolApi {
         return;
       }
 
-      const stored = (poolRes.data?.movies ?? null) as Candidate[] | null;
-      if (!stored || stored.length === 0) {
+      const storedRaw = (poolRes.data?.movies ?? null) as unknown[] | null;
+      if (!storedRaw || storedRaw.length === 0) {
         setCandidates([]);
         setStatus('empty');
       } else {
+        // Coerce legacy `director`/`writer` string fields into the new
+        // `directors`/`writers` arrays on the way in, so the rest of the
+        // app only deals with the array shape.
+        const stored = storedRaw.map(
+          (c) => coerceCreatorLists(c as object) as Candidate,
+        );
         setCandidates(stored);
         setStatus('synced');
       }
@@ -129,10 +136,13 @@ export function useCandidatePool(): CandidatePoolApi {
           filter: `id=eq.${CANDIDATE_POOL_ROW_ID}`,
         },
         (payload) => {
-          const next = (payload.new as { movies?: Candidate[] } | null)?.movies;
+          const next = (payload.new as { movies?: unknown[] } | null)?.movies;
           if (Array.isArray(next)) {
-            setCandidates(next);
-            setStatus(next.length === 0 ? 'empty' : 'synced');
+            const coerced = next.map(
+              (c) => coerceCreatorLists(c as object) as Candidate,
+            );
+            setCandidates(coerced);
+            setStatus(coerced.length === 0 ? 'empty' : 'synced');
           }
         },
       )
@@ -302,15 +312,15 @@ export function useCandidatePool(): CandidatePoolApi {
             poster: patch.poster ?? prev.poster,
             awards: patch.awards ?? prev.awards,
             studio: patch.production ?? prev.studio,
-            director: patch.director ?? prev.director,
-            writer: patch.writer ?? prev.writer,
+            directors: patch.directors ?? prev.directors,
+            writers: patch.writers ?? prev.writers,
             year: patch.year ?? prev.year,
             type: patch.type ?? prev.type,
             omdbRefreshedAt: new Date().toISOString(),
           };
           const changed =
-            merged.director !== prev.director ||
-            merged.writer !== prev.writer ||
+            !sameNameList(merged.directors, prev.directors) ||
+            !sameNameList(merged.writers, prev.writers) ||
             merged.imdb !== prev.imdb ||
             merged.rottenTomatoes !== prev.rottenTomatoes ||
             merged.poster !== prev.poster;
@@ -341,4 +351,17 @@ export function useCandidatePool(): CandidatePoolApi {
     reload,
     bulkRefreshOmdb,
   };
+}
+
+function sameNameList(
+  a: string[] | null | undefined,
+  b: string[] | null | undefined,
+): boolean {
+  const la = a ?? [];
+  const lb = b ?? [];
+  if (la.length !== lb.length) return false;
+  for (let i = 0; i < la.length; i++) {
+    if (la[i] !== lb[i]) return false;
+  }
+  return true;
 }

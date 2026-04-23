@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import seed from '../movies.json';
+import { coerceCreatorLists } from './format';
 import type { Candidate, LibraryEntry, Movie } from './types';
 import {
   isSupabaseConfigured,
@@ -8,7 +9,7 @@ import {
   MOVIE_NIGHT_ROW_ID,
 } from './supabase';
 
-const SEED: Movie[] = seed as Movie[];
+const SEED: Movie[] = (seed as unknown[]).map(coerceCreatorLists) as Movie[];
 
 export type SyncStatus = 'local' | 'loading' | 'synced' | 'error';
 
@@ -71,8 +72,8 @@ function buildNewCandidates(
         awards: m.awards ?? null,
         poster: m.poster ?? null,
         addedAt: now,
-        director: m.director ?? null,
-        writer: m.writer ?? null,
+        directors: m.directors ?? null,
+        writers: m.writers ?? null,
         omdbRefreshedAt: m.omdbRefreshedAt ?? null,
       }),
     );
@@ -116,8 +117,8 @@ function mergeEntry(
     rottenTomatoes: candidate?.rottenTomatoes ?? null,
     awards: candidate?.awards ?? null,
     production: candidate?.studio ?? null,
-    director: candidate?.director ?? null,
-    writer: candidate?.writer ?? null,
+    directors: candidate?.directors ?? null,
+    writers: candidate?.writers ?? null,
   };
 }
 
@@ -149,8 +150,8 @@ function toCandidate(m: Movie, existing: Candidate): Candidate {
     rottenTomatoes: m.rottenTomatoes,
     awards: m.awards,
     studio: m.production,
-    director: m.director,
-    writer: m.writer,
+    directors: m.directors,
+    writers: m.writers,
   };
 }
 
@@ -232,7 +233,9 @@ export function useMovies({
 
       if (isOldMovieFormat(stored)) {
         // Migration: split flat Movie[] into LibraryEntry[] + new Candidates.
-        const old = stored as Movie[];
+        // Coerce legacy director/writer strings into arrays as we go so the
+        // pool rows written below already use the new shape.
+        const old = (stored as unknown[]).map(coerceCreatorLists) as Movie[];
         const newEntries = migrateToEntries(old);
         const newCandidates = buildNewCandidates(
           old,
@@ -362,8 +365,8 @@ export function useMovies({
             awards: movie.awards,
             poster: movie.poster,
             addedAt: new Date().toISOString(),
-            director: movie.director,
-            writer: movie.writer,
+            directors: movie.directors,
+            writers: movie.writers,
             omdbRefreshedAt: movie.omdbRefreshedAt,
           },
         ]);

@@ -4,6 +4,7 @@ import {
   formatDate,
   formatRelativeTime,
   getDisplayTitle,
+  parseNameList,
   todayIso,
 } from '../format';
 import {
@@ -19,6 +20,7 @@ import {
 import MovieSearchCombobox from './MovieSearchCombobox';
 import MoviePoster from './MoviePoster';
 import StatLink from './StatLink';
+import CreatorPills from './CreatorPills';
 import { verifyField, type VerifyResult } from '../verify';
 
 type Props =
@@ -63,8 +65,8 @@ function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
     poster: patch.poster ?? movie.poster,
     awards: patch.awards ?? movie.awards,
     production: patch.production ?? movie.production,
-    director: patch.director ?? movie.director,
-    writer: patch.writer ?? movie.writer,
+    directors: patch.directors ?? movie.directors,
+    writers: patch.writers ?? movie.writers,
     omdbRefreshedAt: new Date().toISOString(),
   };
 }
@@ -96,8 +98,8 @@ function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
     poster: movie.poster ?? patch.poster,
     awards: movie.awards ?? patch.awards,
     production: movie.production ?? patch.production,
-    director: movie.director ?? patch.director,
-    writer: movie.writer ?? patch.writer,
+    directors: movie.directors ?? patch.directors,
+    writers: movie.writers ?? patch.writers,
     omdbRefreshedAt: new Date().toISOString(),
   };
 }
@@ -840,8 +842,8 @@ function EditForm({
                   year: null,
                   poster: null,
                   omdbRefreshedAt: null,
-                  director: null,
-                  writer: null,
+                  directors: null,
+                  writers: null,
                 });
               }}
               className="text-xs text-ink-400 underline-offset-2 hover:underline active:text-ink-200"
@@ -894,25 +896,19 @@ function EditForm({
         />
       </Field>
 
-      <Field label="Director">
-        <input
-          type="text"
-          value={draft.director ?? ''}
-          onChange={(e) => updateStr('director', e.target.value)}
-          className={inputClass}
-          placeholder="e.g. Hayao Miyazaki"
-          autoCorrect="off"
+      <Field label="Directors">
+        <CreatorPills
+          names={draft.directors}
+          onChange={(next) => update('directors', next)}
+          placeholder="e.g. Hayao Miyazaki (comma-separates multiple)"
         />
       </Field>
 
-      <Field label="Writer">
-        <input
-          type="text"
-          value={draft.writer ?? ''}
-          onChange={(e) => updateStr('writer', e.target.value)}
-          className={inputClass}
-          placeholder="e.g. Hayao Miyazaki"
-          autoCorrect="off"
+      <Field label="Writers">
+        <CreatorPills
+          names={draft.writers}
+          onChange={(next) => update('writers', next)}
+          placeholder="e.g. Hayao Miyazaki (comma-separates multiple)"
         />
       </Field>
 
@@ -985,22 +981,18 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
     <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-3">
       <div>
         <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
-          Director
+          {movie.directors && movie.directors.length > 1 ? 'Directors' : 'Director'}
         </div>
-        <div className="mt-1 text-sm leading-snug">
-          {movie.director
-            ? <span className="text-ink-200">{movie.director}</span>
-            : <span className="text-ink-600 italic">—</span>}
+        <div className="mt-1 leading-snug">
+          <CreatorPills readOnly names={movie.directors} />
         </div>
       </div>
       <div>
         <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
-          Writer
+          {movie.writers && movie.writers.length > 1 ? 'Writers' : 'Writer'}
         </div>
-        <div className="mt-1 text-sm leading-snug">
-          {movie.writer
-            ? <span className="text-ink-200">{movie.writer}</span>
-            : <span className="text-ink-600 italic">—</span>}
+        <div className="mt-1 leading-snug">
+          <CreatorPills readOnly names={movie.writers} />
         </div>
       </div>
       {movie.production && (
@@ -1068,7 +1060,8 @@ function VerifyBlock({
   }
 
   // Coerce Claude's string suggestion to the right type for the Movie field.
-  // Year has to be a number; everything else stays a string.
+  // Year has to be a number; director/writer map to the new array fields
+  // after splitting commas; everything else stays a string.
   function buildUpdate(
     r: VerifyResult & { field: NonNullable<VerifyResult['field']>; suggestedValue: string },
   ): Movie | null {
@@ -1076,6 +1069,12 @@ function VerifyBlock({
       const n = Number.parseInt(r.suggestedValue, 10);
       if (!Number.isFinite(n)) return null;
       return { ...movie, year: n };
+    }
+    if (r.field === 'director') {
+      return { ...movie, directors: parseNameList(r.suggestedValue) };
+    }
+    if (r.field === 'writer') {
+      return { ...movie, writers: parseNameList(r.suggestedValue) };
     }
     return { ...movie, [r.field]: r.suggestedValue };
   }

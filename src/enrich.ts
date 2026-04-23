@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { getMovieById, OmdbError } from './omdb';
+import { parseNameList } from './format';
 
 /**
  * Two-stage enrichment for studio + awards:
@@ -29,8 +30,8 @@ export type EnrichedFields = {
   title: string;
   production: string | null;
   awards: string | null;
-  director: string | null;
-  writer: string | null;
+  directors: string[] | null;
+  writers: string[] | null;
 };
 
 export async function enrichMovies(
@@ -57,19 +58,27 @@ export async function enrichMovies(
   return movies.map((m, i) => ({
     title: m.title,
     production: claudeResults[i]?.production ?? null,
-    // OMDB is authoritative for awards, director, writer when linked.
+    // OMDB is authoritative for awards, directors, writers when linked.
     awards: omdbFields[i]?.awards ?? claudeResults[i]?.awards ?? null,
-    director: omdbFields[i]?.director ?? claudeResults[i]?.director ?? null,
-    writer: omdbFields[i]?.writer ?? claudeResults[i]?.writer ?? null,
+    directors: omdbFields[i]?.directors ?? claudeResults[i]?.directors ?? null,
+    writers: omdbFields[i]?.writers ?? claudeResults[i]?.writers ?? null,
   }));
 }
 
-type OmdbFields = { awards: string | null; director: string | null; writer: string | null };
+type OmdbFields = {
+  awards: string | null;
+  directors: string[] | null;
+  writers: string[] | null;
+};
 
 async function fetchOmdbFields(imdbId: string): Promise<OmdbFields | null> {
   try {
     const patch = await getMovieById(imdbId);
-    return { awards: patch.awards, director: patch.director, writer: patch.writer };
+    return {
+      awards: patch.awards,
+      directors: patch.directors,
+      writers: patch.writers,
+    };
   } catch (e) {
     // not-configured → no OMDB key in this env, fall through to Claude.
     // not-found / network → swallow, let Claude try.
@@ -77,6 +86,20 @@ async function fetchOmdbFields(imdbId: string): Promise<OmdbFields | null> {
     return null;
   }
 }
+
+// The `/api/enrich` endpoint still returns `director`/`writer` as comma-
+// separated strings (server-side Claude prompt shape). We parse them into
+// the new `directors`/`writers` array shape on the way in so the rest of
+// the app only deals with arrays.
+type ClaudeEnrichedRaw = {
+  title: string;
+  production: string | null;
+  awards: string | null;
+  director?: string | null;
+  writer?: string | null;
+  directors?: string[] | null;
+  writers?: string[] | null;
+};
 
 async function callClaude(movies: EnrichInput[]): Promise<EnrichedFields[]> {
   if (!supabase) {
@@ -103,6 +126,13 @@ async function callClaude(movies: EnrichInput[]): Promise<EnrichedFields[]> {
     throw new Error(body.detail ? `${base} — ${body.detail}` : base);
   }
 
-  const data = (await resp.json()) as { items: EnrichedFields[] };
-  return Array.isArray(data.items) ? data.items : [];
+  const data = (await resp.json()) as { items: ClaudeEnrichedRaw[] };
+  if (!Array.isArray(data.items)) return [];
+  return data.items.map((item) => ({
+    title: item.title,
+    production: item.production ?? null,
+    awards: item.awards ?? null,
+    directors: parseNameList(item.directors ?? item.director),
+    writers: parseNameList(item.writers ?? item.writer),
+  }));
 }
