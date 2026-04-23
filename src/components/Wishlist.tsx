@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import type { Movie } from '../types';
 import { ageBadgeClass, getDisplayTitle, sortWishlist } from '../format';
 import BuildStamp from './BuildStamp';
@@ -23,6 +23,18 @@ export default function Wishlist({
   onEnhanceAll,
   onReorder,
 }: Props) {
+  useLayoutEffect(() => {
+    const toTop = () => {
+      window.scrollTo(0, 0);
+      if (document.scrollingElement) {
+        document.scrollingElement.scrollTop = 0;
+      }
+    };
+    toTop();
+    const rafId = requestAnimationFrame(toTop);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   const [query, setQuery] = useState('');
   const [reordering, setReordering] = useState(false);
 

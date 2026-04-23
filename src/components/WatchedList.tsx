@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import type { Movie } from '../types';
 import {
   ageBadgeClass,
@@ -30,6 +30,18 @@ export default function WatchedList({
   onBulkLink,
   onEnhanceAll,
 }: Props) {
+  useLayoutEffect(() => {
+    const toTop = () => {
+      window.scrollTo(0, 0);
+      if (document.scrollingElement) {
+        document.scrollingElement.scrollTop = 0;
+      }
+    };
+    toTop();
+    const rafId = requestAnimationFrame(toTop);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   const [query, setQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [sortOpen, setSortOpen] = useState(false);

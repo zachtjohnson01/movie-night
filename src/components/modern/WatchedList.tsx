@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useLayoutEffect, useMemo } from 'react';
 import type { Movie } from '../../types';
 import {
   ageBadgeClass,
@@ -34,6 +34,18 @@ export default function ModernWatchedList({
   onSelect,
   onAdd,
 }: Props) {
+  useLayoutEffect(() => {
+    const toTop = () => {
+      window.scrollTo(0, 0);
+      if (document.scrollingElement) {
+        document.scrollingElement.scrollTop = 0;
+      }
+    };
+    toTop();
+    const rafId = requestAnimationFrame(toTop);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   const watched = useMemo(
     () => sortWatched(movies.filter((m) => m.watched)),
     [movies],
