@@ -120,4 +120,8 @@ export type Candidate = {
    */
   removedReason?: string | null;
   removedAt?: string | null;
+  /** Director(s) from OMDB, e.g. "Hayao Miyazaki". Optional so older rows parse without migration. */
+  director?: string | null;
+  /** Writer(s) from OMDB, e.g. "Hayao Miyazaki, Isao Takahata". Optional so older rows parse without migration. */
+  writer?: string | null;
 };
