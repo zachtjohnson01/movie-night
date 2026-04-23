@@ -2,6 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../../types';
 import type { CandidatePoolApi } from '../../useCandidatePool';
 import {
+  countEffectiveCandidates,
   expandPool,
   extractUnique,
   rankTopPicks,
@@ -68,9 +69,9 @@ export default function ModernRecommendations({
   const libraryDirectors = useMemo(() => extractUnique(movies.map((m) => m.director)), [movies]);
   const libraryWriters = useMemo(() => extractUnique(movies.map((m) => m.writer)), [movies]);
   const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
-  const watchedCount = useMemo(
-    () => movies.filter((m) => m.watched).length,
-    [movies],
+  const effectiveCount = useMemo(
+    () => countEffectiveCandidates(pool.candidates),
+    [pool.candidates],
   );
 
   const runExpansion = useCallback(
@@ -158,7 +159,7 @@ export default function ModernRecommendations({
             lineHeight: 1,
           }}
         >
-          <span style={{ fontStyle: 'italic' }}>Ranked</span> for
+          <span style={{ fontStyle: 'italic' }}>Top {picks.length}</span>
           <br />
           <span
             style={{
@@ -167,7 +168,7 @@ export default function ModernRecommendations({
               fontWeight: 300,
             }}
           >
-            your {watchedCount} nights.
+            for what's next.
           </span>
         </div>
         <div
@@ -187,8 +188,7 @@ export default function ModernRecommendations({
             </span>
           ) : (
             <span>
-              {picks.length} {picks.length === 1 ? 'pick' : 'picks'}, best
-              first · ranked by RT+IMDb, then CSM age, studio, awards
+              from {effectiveCount} candidates · RT 30%, IMDb 30%, CSM age 20%, studio 10%, awards 10%
             </span>
           )}
         </div>

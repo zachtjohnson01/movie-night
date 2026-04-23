@@ -135,15 +135,14 @@ export default function Recommendations({
               For you
             </div>
             <h1 className="mt-1 font-display text-[32px] font-medium leading-[0.95] tracking-tight">
-              <span className="italic">Top {TOP_N}</span>{' '}
-              <span className="text-ink-300 font-normal">picks from</span>
+              <span className="italic">Top {picks.length}</span>
               <br />
               <span className="text-ink-300 font-light italic">
-                {effectiveCount} candidates.
+                for what's next.
               </span>
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">
-              Ranked by RT, IMDb, CSM age, studio, awards.
+              from {effectiveCount} candidates · RT 30%, IMDb 30%, CSM age 20%, studio 10%, awards 10%
             </p>
           </div>
           <button
