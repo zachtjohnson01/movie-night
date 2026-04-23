@@ -131,15 +131,32 @@ export function sortWishlist(movies: Movie[]): Movie[] {
 }
 
 /**
- * Sort watched movies: known dates first, then undated movies alphabetically
- * at the bottom. Direction controls dated order: 'desc' = newest first
- * (default), 'asc' = oldest first.
+ * Sort watched movies. `field` controls which date is ranked:
+ *   'dateWatched' — the night we watched it (default)
+ *   'year'        — the movie's release year
+ * In both cases, movies missing the chosen date/year fall to the bottom
+ * (sorted alphabetically among themselves). `direction` controls order:
+ * 'desc' = newest first, 'asc' = oldest first.
  */
 export function sortWatched(
   movies: Movie[],
   direction: 'desc' | 'asc' = 'desc',
+  field: 'dateWatched' | 'year' = 'dateWatched',
 ): Movie[] {
   return [...movies].sort((a, b) => {
+    if (field === 'year') {
+      const ay = a.year;
+      const by = b.year;
+      if (ay != null && by != null) {
+        const cmp = ay < by ? -1 : ay > by ? 1 : 0;
+        return direction === 'desc' ? -cmp : cmp;
+      }
+      if (ay != null) return -1;
+      if (by != null) return 1;
+      return getDisplayTitle(a).localeCompare(getDisplayTitle(b), undefined, {
+        sensitivity: 'base',
+      });
+    }
     if (a.dateWatched && b.dateWatched) {
       const cmp = a.dateWatched < b.dateWatched ? -1 : 1;
       return direction === 'desc' ? -cmp : cmp;

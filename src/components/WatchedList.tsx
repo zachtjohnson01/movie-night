@@ -43,16 +43,24 @@ export default function WatchedList({
   }, []);
 
   const [query, setQuery] = useState('');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [sortKey, setSortKey] = useState<'watched-desc' | 'watched-asc' | 'year-desc' | 'year-asc'>('watched-desc');
   const [sortOpen, setSortOpen] = useState(false);
+
+  const SORT_OPTIONS = [
+    { key: 'watched-desc' as const, label: 'Watched: newest first' },
+    { key: 'watched-asc'  as const, label: 'Watched: oldest first' },
+    { key: 'year-desc'    as const, label: 'Released: newest first' },
+    { key: 'year-asc'     as const, label: 'Released: oldest first' },
+  ];
 
   const watchedAll = useMemo(
     () =>
       sortWatched(
         movies.filter((m) => m.watched),
-        sortOrder === 'newest' ? 'desc' : 'asc',
+        sortKey.endsWith('-desc') ? 'desc' : 'asc',
+        sortKey.startsWith('year') ? 'year' : 'dateWatched',
       ),
-    [movies, sortOrder],
+    [movies, sortKey],
   );
 
   const unlinkedCount = useMemo(
@@ -178,13 +186,13 @@ export default function WatchedList({
                 className="w-3.5 h-3.5 shrink-0"
                 aria-hidden
               >
-                {sortOrder === 'newest' ? (
+                {sortKey.endsWith('-desc') ? (
                   <path d="M12 5v14M5 12l7 7 7-7" />
                 ) : (
                   <path d="M12 19V5M5 12l7-7 7 7" />
                 )}
               </svg>
-              <span>{sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}</span>
+              <span>{SORT_OPTIONS.find((o) => o.key === sortKey)?.label}</span>
               <svg
                 viewBox="0 0 24 24"
                 fill="none"
@@ -204,14 +212,14 @@ export default function WatchedList({
                   className="fixed inset-0 z-20"
                   onClick={() => setSortOpen(false)}
                 />
-                <div className="absolute top-full left-0 mt-1.5 z-30 bg-ink-900 border border-ink-700 rounded-2xl shadow-2xl overflow-hidden min-w-[160px]">
-                  {(['newest', 'oldest'] as const).map((opt) => (
+                <div className="absolute top-full left-0 mt-1.5 z-30 bg-ink-900 border border-ink-700 rounded-2xl shadow-2xl overflow-hidden min-w-[200px]">
+                  {SORT_OPTIONS.map((opt) => (
                     <button
-                      key={opt}
+                      key={opt.key}
                       type="button"
-                      onClick={() => { setSortOrder(opt); setSortOpen(false); }}
+                      onClick={() => { setSortKey(opt.key); setSortOpen(false); }}
                       className={`w-full min-h-[44px] px-4 text-left text-sm font-medium flex items-center gap-2.5 ${
-                        sortOrder === opt
+                        sortKey === opt.key
                           ? 'bg-amber-glow/10 text-amber-glow'
                           : 'text-ink-300 active:bg-ink-800'
                       }`}
@@ -226,13 +234,13 @@ export default function WatchedList({
                         className="w-4 h-4 shrink-0"
                         aria-hidden
                       >
-                        {opt === 'newest' ? (
+                        {opt.key.endsWith('-desc') ? (
                           <path d="M12 5v14M5 12l7 7 7-7" />
                         ) : (
                           <path d="M12 19V5M5 12l7-7 7 7" />
                         )}
                       </svg>
-                      {opt === 'newest' ? 'Newest first' : 'Oldest first'}
+                      {opt.label}
                     </button>
                   ))}
                 </div>
