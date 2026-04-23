@@ -131,13 +131,18 @@ export function sortWishlist(movies: Movie[]): Movie[] {
 }
 
 /**
- * Sort watched movies: known dates first (newest first), then undated movies
- * alphabetically at the bottom.
+ * Sort watched movies: known dates first, then undated movies alphabetically
+ * at the bottom. Direction controls dated order: 'desc' = newest first
+ * (default), 'asc' = oldest first.
  */
-export function sortWatched(movies: Movie[]): Movie[] {
+export function sortWatched(
+  movies: Movie[],
+  direction: 'desc' | 'asc' = 'desc',
+): Movie[] {
   return [...movies].sort((a, b) => {
     if (a.dateWatched && b.dateWatched) {
-      return a.dateWatched < b.dateWatched ? 1 : -1;
+      const cmp = a.dateWatched < b.dateWatched ? -1 : 1;
+      return direction === 'desc' ? -cmp : cmp;
     }
     if (a.dateWatched) return -1;
     if (b.dateWatched) return 1;
