@@ -61,6 +61,10 @@ function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
     imdb: patch.imdb ?? movie.imdb,
     rottenTomatoes: patch.rottenTomatoes ?? movie.rottenTomatoes,
     poster: patch.poster ?? movie.poster,
+    awards: patch.awards ?? movie.awards,
+    production: patch.production ?? movie.production,
+    director: patch.director ?? movie.director,
+    writer: patch.writer ?? movie.writer,
     omdbRefreshedAt: new Date().toISOString(),
   };
 }
@@ -90,6 +94,10 @@ function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
     imdb: movie.imdb ?? patch.imdb,
     rottenTomatoes: movie.rottenTomatoes ?? patch.rottenTomatoes,
     poster: movie.poster ?? patch.poster,
+    awards: movie.awards ?? patch.awards,
+    production: movie.production ?? patch.production,
+    director: movie.director ?? patch.director,
+    writer: movie.writer ?? patch.writer,
     omdbRefreshedAt: new Date().toISOString(),
   };
 }
@@ -979,29 +987,28 @@ function EditForm({
 }
 
 function StudioAwardsBlock({ movie }: { movie: Movie }) {
-  if (!movie.production && !movie.awards && !movie.director && !movie.writer) return null;
   return (
     <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-3">
-      {movie.director && (
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
-            Director
-          </div>
-          <div className="mt-1 text-sm text-ink-200 leading-snug">
-            {movie.director}
-          </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+          Director
         </div>
-      )}
-      {movie.writer && (
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
-            Writer
-          </div>
-          <div className="mt-1 text-sm text-ink-200 leading-snug">
-            {movie.writer}
-          </div>
+        <div className="mt-1 text-sm leading-snug">
+          {movie.director
+            ? <span className="text-ink-200">{movie.director}</span>
+            : <span className="text-ink-600 italic">—</span>}
         </div>
-      )}
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+          Writer
+        </div>
+        <div className="mt-1 text-sm leading-snug">
+          {movie.writer
+            ? <span className="text-ink-200">{movie.writer}</span>
+            : <span className="text-ink-600 italic">—</span>}
+        </div>
+      </div>
       {movie.production && (
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
