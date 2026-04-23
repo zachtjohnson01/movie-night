@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git push*)",
+            "command": "echo '{\"hookSpecificOutput\": {\"hookEventName\": \"PreToolUse\", \"additionalContext\": \"REMINDER: Before pushing, verify the previous PR is still open via mcp__github__pull_request_read. If it has been merged, reset the branch to origin/main first, then cherry-pick your changes, and open a new PR. Do NOT push follow-up commits to a branch whose PR has already been merged.\"}}'",
+            "statusMessage": "Checking PR state before push..."
+          }
+        ]
+      }
+    ]
+  }
+}

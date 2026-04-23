@@ -1,5 +1,5 @@
 import type { Candidate, Movie } from './types';
-import { enrichCandidate, normalizeTitle } from './omdb';
+import { dedupKey, enrichCandidate, normalizeTitle } from './omdb';
 import { scoreCandidate } from './scoring';
 import { supabase } from './supabase';
 
@@ -38,10 +38,26 @@ function isEffective(c: Candidate, imdbIds: Set<string>, titles: Set<string>): b
   );
 }
 
-/** Count candidates that would actively compete for top picks (pre-slice). */
-export function countEffectiveCandidates(candidates: Candidate[], library: Movie[]): number {
-  const { imdbIds, titles } = buildLibrarySets(library);
-  return candidates.filter((c) => isEffective(c, imdbIds, titles)).length;
+/**
+ * Count eligible candidates — same criteria as PoolAdmin's "Eligible" chip so
+ * the For You header matches what the admin screen shows.
+ */
+export function countEffectiveCandidates(candidates: Candidate[]): number {
+  const counts = new Map<string, number>();
+  for (const c of candidates) {
+    const k = dedupKey(c.title);
+    counts.set(k, (counts.get(k) ?? 0) + 1);
+  }
+  const dupKeys = new Set<string>();
+  counts.forEach((n, k) => { if (n >= 2) dupKeys.add(k); });
+  return candidates.filter(
+    (c) =>
+      c.imdbId != null &&
+      !dupKeys.has(dedupKey(c.title)) &&
+      (c.type == null || c.type === 'movie') &&
+      c.removedAt == null &&
+      (c.rottenTomatoes != null || c.imdb != null),
+  ).length;
 }
 
 /**

@@ -43,8 +43,8 @@ export default function Recommendations({
   );
 
   const effectiveCount = useMemo(
-    () => countEffectiveCandidates(pool.candidates, movies),
-    [pool.candidates, movies],
+    () => countEffectiveCandidates(pool.candidates),
+    [pool.candidates],
   );
 
   const libraryTitles = useMemo(
