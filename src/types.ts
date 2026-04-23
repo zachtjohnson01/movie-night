@@ -57,6 +57,10 @@ export type Movie = {
    * expect this to be sparse. Null for manually-entered movies.
    */
   production: string | null;
+  /** Director(s) from OMDB, e.g. "Hayao Miyazaki". Null until OMDB-linked or manually entered. */
+  director: string | null;
+  /** Writer(s) from OMDB, e.g. "Hayao Miyazaki, Isao Takahata". Null until OMDB-linked or manually entered. */
+  writer: string | null;
   /**
    * User-assigned sort position on the Wishlist tab. Lower values come
    * first. Null means "no explicit order" — those rows fall to the bottom

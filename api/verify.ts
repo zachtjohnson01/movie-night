@@ -54,9 +54,11 @@ type MovieSnapshot = {
   production: string | null;
   awards: string | null;
   commonSenseAge: string | null;
+  director: string | null;
+  writer: string | null;
 };
 
-type VerifyField = 'production' | 'awards' | 'year' | 'commonSenseAge';
+type VerifyField = 'production' | 'awards' | 'year' | 'commonSenseAge' | 'director' | 'writer';
 
 type VerifyResult = {
   field: VerifyField | null;
@@ -78,13 +80,15 @@ CURRENT VALUES:
 - awards: ${movie.awards ?? '(blank)'}
 - year: ${movie.year ?? '(blank)'}
 - commonSenseAge: ${movie.commonSenseAge ?? '(blank)'}
+- director: ${movie.director ?? '(blank)'}
+- writer: ${movie.writer ?? '(blank)'}
 
 USER QUESTION: ${question}
 
-Decide which single field the question is asking about, then answer for that field. Only these fields are verifiable: "production", "awards", "year", "commonSenseAge". If the question doesn't map to one of those fields, return field: null.
+Decide which single field the question is asking about, then answer for that field. Only these fields are verifiable: "production", "awards", "year", "commonSenseAge", "director", "writer". If the question doesn't map to one of those fields, return field: null.
 
 Return ONLY a JSON object. No prose, no code fences. Shape:
-{"field": "production"|"awards"|"year"|"commonSenseAge"|null, "currentValue": "<echo the stored value as a string, or null if blank>", "suggestedValue": "<your answer as a string, or null if you aren't confident>", "matches": <true|false>, "explanation": "<one or two sentences explaining your answer>"}
+{"field": "production"|"awards"|"year"|"commonSenseAge"|"director"|"writer"|null, "currentValue": "<echo the stored value as a string, or null if blank>", "suggestedValue": "<your answer as a string, or null if you aren't confident>", "matches": <true|false>, "explanation": "<one or two sentences explaining your answer>"}
 
 RULES:
 
@@ -96,9 +100,13 @@ RULES:
 
 - "commonSenseAge": Common Sense Media's age rating, like "6+", "8+", "10+". If you don't know Common Sense Media's specific rating, set suggestedValue to null — do NOT substitute MPAA ratings (G, PG, etc).
 
+- "director": the director(s) of the film as a comma-separated string, e.g. "Hayao Miyazaki" or "Joel Coen, Ethan Coen". Use the most widely recognized form of the name(s).
+
+- "writer": the primary screenwriter(s), comma-separated, e.g. "Hayao Miyazaki". For adaptations, prefer the screenplay author over the source-material author.
+
 - "matches": true if your suggestedValue is semantically the same as the currentValue (case-insensitive, whitespace-trimmed, "N/A" counts as blank). Otherwise false. If suggestedValue is null, matches must be false.
 
-- When the user's question is unrelated to any of the four fields, return {"field": null, "currentValue": null, "suggestedValue": null, "matches": false, "explanation": "<brief note>"}.
+- When the user's question is unrelated to any of the six fields, return {"field": null, "currentValue": null, "suggestedValue": null, "matches": false, "explanation": "<brief note>"}.
 
 - When the bracketed "[tt...]" IMDb ID is present, use it to disambiguate films that share a title.`;
 }
@@ -124,7 +132,9 @@ function parseResult(text: string): VerifyResult | null {
     rawField === 'production' ||
     rawField === 'awards' ||
     rawField === 'year' ||
-    rawField === 'commonSenseAge'
+    rawField === 'commonSenseAge' ||
+    rawField === 'director' ||
+    rawField === 'writer'
       ? rawField
       : null;
   const asStr = (v: unknown): string | null => {
@@ -191,6 +201,8 @@ export default async function handler(
     awards: typeof m.awards === 'string' ? m.awards : null,
     commonSenseAge:
       typeof m.commonSenseAge === 'string' ? m.commonSenseAge : null,
+    director: typeof m.director === 'string' ? m.director : null,
+    writer: typeof m.writer === 'string' ? m.writer : null,
   };
   const question = rawQuestion.trim().slice(0, 500);
 

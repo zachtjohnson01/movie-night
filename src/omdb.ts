@@ -42,6 +42,8 @@ type OmdbDetailResponse =
       Poster: string;
       Awards: string; // "Won 1 Oscar. Another 14 wins & 13 nominations." or "N/A"
       Production: string; // often "N/A" on the free tier
+      Director: string; // "Hayao Miyazaki" or "N/A"
+      Writer: string; // "Hayao Miyazaki, Isao Takahata" or "N/A"
       Type: string; // "movie", "series", "episode"
     }
   | { Response: 'False'; Error: string };
@@ -60,6 +62,8 @@ export type OmdbMoviePatch = {
   poster: string | null;
   awards: string | null;
   production: string | null;
+  director: string | null;
+  writer: string | null;
   type: string | null;
 };
 
@@ -247,6 +251,8 @@ export type CandidateOmdbPatch = {
   poster: string | null;
   awards: string | null;
   production: string | null;
+  director: string | null;
+  writer: string | null;
   type: string | null;
 };
 
@@ -265,6 +271,8 @@ export async function enrichCandidate(
       poster: patch.poster,
       awards: patch.awards,
       production: patch.production,
+      director: patch.director,
+      writer: patch.writer,
       type: patch.type,
     };
   } catch {
@@ -281,6 +289,8 @@ function extractPatch(data: {
   Poster: string;
   Awards?: string;
   Production?: string;
+  Director?: string;
+  Writer?: string;
   Type?: string;
 }): OmdbMoviePatch {
   const rt = data.Ratings.find((r) => r.Source === 'Rotten Tomatoes');
@@ -294,6 +304,8 @@ function extractPatch(data: {
     poster: data.Poster && data.Poster !== 'N/A' ? data.Poster : null,
     awards: data.Awards && data.Awards !== 'N/A' ? data.Awards : null,
     production: data.Production && data.Production !== 'N/A' ? data.Production : null,
+    director: data.Director && data.Director !== 'N/A' ? data.Director : null,
+    writer: data.Writer && data.Writer !== 'N/A' ? data.Writer : null,
     type: data.Type ?? null,
   };
 }

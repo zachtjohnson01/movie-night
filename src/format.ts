@@ -165,6 +165,8 @@ export function emptyMovie(watched: boolean): Movie {
     notes: null,
     awards: null,
     production: null,
+    director: null,
+    writer: null,
     wishlistOrder: null,
   };
 }
@@ -186,6 +188,8 @@ export function candidateToTemplate(c: Candidate): Movie {
     notes: null,
     awards: c.awards,
     production: c.studio,
+    director: null,
+    writer: null,
     wishlistOrder: null,
   };
 }

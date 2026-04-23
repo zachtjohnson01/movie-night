@@ -73,6 +73,8 @@ type RawCandidate = {
   commonSenseAge: string | null;
   studio: string | null;
   awards: string | null;
+  director: string | null;
+  writer: string | null;
   // Tentative scores from the LLM. Kept as fallbacks — the client overlays
   // OMDB's authoritative values on top before scoring.
   rottenTomatoes: string | null;
@@ -105,11 +107,13 @@ Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a ge
 For each film, provide best-known metadata. Accuracy matters — the pool is persisted and reused across sessions. Use "N/A" sparingly; "null" is fine for fields you genuinely don't know.
 
 Return ONLY a JSON array. Each object shape:
-{"title":"","year":0,"commonSenseAge":"6+","studio":"","awards":"","rottenTomatoes":"95%","imdb":"7.8"}
+{"title":"","year":0,"commonSenseAge":"6+","studio":"","awards":"","director":"","writer":"","rottenTomatoes":"95%","imdb":"7.8"}
 
 - "commonSenseAge": format "N+" like "5+", "6+", "8+"
 - "studio": the lead production company (e.g. "Studio Ghibli", "Pixar")
 - "awards": brief summary like "Won Best Animated Feature Oscar" or "BAFTA-nominated". Empty string if none notable.
+- "director": director name(s), comma-separated. Empty string if unknown.
+- "writer": primary screenwriter(s), comma-separated. Empty string if unknown.
 - "rottenTomatoes": "NN%" or null
 - "imdb": "N.N" or null`;
 }
@@ -180,6 +184,14 @@ function parseCandidates(text: string): RawCandidate[] {
           awards:
             r.awards && String(r.awards).trim()
               ? String(r.awards).trim()
+              : null,
+          director:
+            r.director && String(r.director).trim()
+              ? String(r.director).trim()
+              : null,
+          writer:
+            r.writer && String(r.writer).trim()
+              ? String(r.writer).trim()
               : null,
           rottenTomatoes: r.rottenTomatoes ? String(r.rottenTomatoes) : null,
           imdb: r.imdb ? String(r.imdb) : null,

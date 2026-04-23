@@ -29,6 +29,8 @@ export type EnrichedFields = {
   title: string;
   production: string | null;
   awards: string | null;
+  director: string | null;
+  writer: string | null;
 };
 
 export async function enrichMovies(
@@ -39,30 +41,35 @@ export async function enrichMovies(
   // OMDB lookups run in parallel — no rate-limit throttle because batches are
   // already capped at 50 by the caller (EnhanceAllSheet). For unlinked
   // entries this resolves immediately to null.
-  const omdbAwardsP = Promise.all(
+  const omdbFieldsP = Promise.all(
     movies.map((m) =>
-      m.imdbId ? fetchOmdbAwards(m.imdbId) : Promise.resolve(null),
+      m.imdbId ? fetchOmdbFields(m.imdbId) : Promise.resolve(null),
     ),
   );
 
   // Run OMDB and Claude concurrently — Claude has to cover studio for every
   // movie anyway, so there's no point gating Claude on OMDB finishing first.
-  const [omdbAwards, claudeResults] = await Promise.all([
-    omdbAwardsP,
+  const [omdbFields, claudeResults] = await Promise.all([
+    omdbFieldsP,
     callClaude(movies),
   ]);
 
   return movies.map((m, i) => ({
     title: m.title,
     production: claudeResults[i]?.production ?? null,
-    awards: omdbAwards[i] ?? claudeResults[i]?.awards ?? null,
+    // OMDB is authoritative for awards, director, writer when linked.
+    awards: omdbFields[i]?.awards ?? claudeResults[i]?.awards ?? null,
+    director: omdbFields[i]?.director ?? claudeResults[i]?.director ?? null,
+    writer: omdbFields[i]?.writer ?? claudeResults[i]?.writer ?? null,
   }));
 }
 
-async function fetchOmdbAwards(imdbId: string): Promise<string | null> {
+type OmdbFields = { awards: string | null; director: string | null; writer: string | null };
+
+async function fetchOmdbFields(imdbId: string): Promise<OmdbFields | null> {
   try {
     const patch = await getMovieById(imdbId);
-    return patch.awards;
+    return { awards: patch.awards, director: patch.director, writer: patch.writer };
   } catch (e) {
     // not-configured → no OMDB key in this env, fall through to Claude.
     // not-found / network → swallow, let Claude try.

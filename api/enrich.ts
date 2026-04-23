@@ -78,6 +78,8 @@ type EnrichedFields = {
   title: string;
   production: string | null;
   awards: string | null;
+  director: string | null;
+  writer: string | null;
 };
 
 const MAX_BATCH = 100;
@@ -97,7 +99,7 @@ FILMS:
 ${list}
 
 Return ONLY a JSON array with one object per film, in the SAME ORDER as the input. No prose, no code fences. Each object shape:
-{"title":"","production":"","awards":""}
+{"title":"","production":"","awards":"","director":"","writer":""}
 
 RULES:
 
@@ -106,6 +108,10 @@ RULES:
 - "production": lead production company (e.g. "Pixar Animation Studios", "Studio Ghibli", "Walt Disney Pictures", "Illumination", "DreamWorks Animation"). Use "" if you don't know.
 
 - "awards": ONLY include awards if you are HIGHLY confident the film actually won or was seriously nominated for a major award — Academy Awards (Oscars), BAFTAs, Golden Globes, Cannes, Annies (for animation), or Critics' Choice. DO NOT guess. Most films have no notable awards; blank is the correct answer in that case. If you are unsure, if the film is recent (last 2 years), or if you might be confusing it with a similarly-titled film, return "". A wrong award is much worse than no award. Format when non-empty: "Won 1 Oscar. 14 wins & 13 nominations." or "BAFTA-nominated. 3 wins." Empty string is strongly preferred over any guess.
+
+- "director": director name(s), comma-separated (e.g. "Hayao Miyazaki"). Use "" if you don't know.
+
+- "writer": primary screenwriter(s), comma-separated. Use "" if you don't know.
 
 When an input line includes a bracketed "[tt...]" value, that's the canonical IMDb ID — use it to disambiguate films that share a title.
 
@@ -137,6 +143,14 @@ function parseEnriched(text: string): EnrichedFields[] {
         awards:
           typeof r.awards === 'string' && r.awards.trim()
             ? r.awards.trim()
+            : null,
+        director:
+          typeof r.director === 'string' && r.director.trim()
+            ? r.director.trim()
+            : null,
+        writer:
+          typeof r.writer === 'string' && r.writer.trim()
+            ? r.writer.trim()
             : null,
       }));
   } catch {

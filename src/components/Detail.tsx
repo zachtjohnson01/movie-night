@@ -838,6 +838,8 @@ function EditForm({
                   year: null,
                   poster: null,
                   omdbRefreshedAt: null,
+                  director: null,
+                  writer: null,
                 });
               }}
               className="text-xs text-ink-400 underline-offset-2 hover:underline active:text-ink-200"
@@ -886,6 +888,28 @@ function EditForm({
           onChange={(e) => updateStr('production', e.target.value)}
           className={inputClass}
           placeholder="e.g. Pixar Animation Studios"
+          autoCorrect="off"
+        />
+      </Field>
+
+      <Field label="Director">
+        <input
+          type="text"
+          value={draft.director ?? ''}
+          onChange={(e) => updateStr('director', e.target.value)}
+          className={inputClass}
+          placeholder="e.g. Hayao Miyazaki"
+          autoCorrect="off"
+        />
+      </Field>
+
+      <Field label="Writer">
+        <input
+          type="text"
+          value={draft.writer ?? ''}
+          onChange={(e) => updateStr('writer', e.target.value)}
+          className={inputClass}
+          placeholder="e.g. Hayao Miyazaki"
           autoCorrect="off"
         />
       </Field>
@@ -955,9 +979,29 @@ function EditForm({
 }
 
 function StudioAwardsBlock({ movie }: { movie: Movie }) {
-  if (!movie.production && !movie.awards) return null;
+  if (!movie.production && !movie.awards && !movie.director && !movie.writer) return null;
   return (
     <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-3">
+      {movie.director && (
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+            Director
+          </div>
+          <div className="mt-1 text-sm text-ink-200 leading-snug">
+            {movie.director}
+          </div>
+        </div>
+      )}
+      {movie.writer && (
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+            Writer
+          </div>
+          <div className="mt-1 text-sm text-ink-200 leading-snug">
+            {movie.writer}
+          </div>
+        </div>
+      )}
       {movie.production && (
         <div>
           <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
@@ -990,6 +1034,8 @@ const VERIFY_FIELD_LABEL: Record<
   awards: 'Awards',
   year: 'Year',
   commonSenseAge: 'CSM Age',
+  director: 'Director',
+  writer: 'Writer',
 };
 
 function VerifyBlock({
