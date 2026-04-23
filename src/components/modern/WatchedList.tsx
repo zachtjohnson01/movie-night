@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo } from 'react';
+import { useLayoutEffect, useMemo, useState } from 'react';
 import type { Movie } from '../../types';
 import {
   ageBadgeClass,
@@ -11,6 +11,8 @@ import {
 import {
   AMBER,
   BG,
+  BG_2,
+  BG_3,
   BORDER,
   DISPLAY,
   INK,
@@ -20,6 +22,29 @@ import {
 } from './palette';
 import ModernPoster from './ModernPoster';
 import Fab from './Fab';
+
+type SortKey = 'watched-desc' | 'watched-asc' | 'year-desc' | 'year-asc';
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: 'watched-desc', label: 'Watched: newest first' },
+  { key: 'watched-asc',  label: 'Watched: oldest first' },
+  { key: 'year-desc',    label: 'Released: newest first' },
+  { key: 'year-asc',     label: 'Released: oldest first' },
+];
+
+const RECENT_LABEL: Record<SortKey, string> = {
+  'watched-desc': 'Recently watched',
+  'watched-asc':  'First watches',
+  'year-desc':    'Latest releases',
+  'year-asc':     'Classic picks',
+};
+
+const REEL_ACTION: Record<SortKey, string> = {
+  'watched-desc': 'by date',
+  'watched-asc':  'by date',
+  'year-desc':    'by year',
+  'year-asc':     'by year',
+};
 
 type Props = {
   movies: Movie[];
@@ -46,9 +71,17 @@ export default function ModernWatchedList({
     return () => cancelAnimationFrame(rafId);
   }, []);
 
+  const [sortKey, setSortKey] = useState<SortKey>('watched-desc');
+  const [sortOpen, setSortOpen] = useState(false);
+
   const watched = useMemo(
-    () => sortWatched(movies.filter((m) => m.watched)),
-    [movies],
+    () =>
+      sortWatched(
+        movies.filter((m) => m.watched),
+        sortKey.endsWith('-desc') ? 'desc' : 'asc',
+        sortKey.startsWith('year') ? 'year' : 'dateWatched',
+      ),
+    [movies, sortKey],
   );
   const earliest = useMemo(() => earliestWatched(watched), [watched]);
   const recent = useMemo(() => watched.slice(0, 8), [watched]);
@@ -119,6 +152,129 @@ export default function ModernWatchedList({
             Since {formatMonthYear(earliest)} · counting every Friday.
           </div>
         )}
+
+        {/* Sort control */}
+        <div style={{ marginTop: 16, position: 'relative', display: 'inline-block' }}>
+          <button
+            type="button"
+            onClick={() => setSortOpen((o) => !o)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '7px 14px',
+              borderRadius: 999,
+              background: BG_3,
+              border: `1px solid ${BORDER}`,
+              color: INK_2,
+              fontFamily: SANS,
+              fontSize: 13,
+              fontWeight: 500,
+              cursor: 'pointer',
+              minHeight: 36,
+            }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ width: 14, height: 14, flexShrink: 0 }}
+              aria-hidden
+            >
+              {sortKey.endsWith('-desc') ? (
+                <path d="M12 5v14M5 12l7 7 7-7" />
+              ) : (
+                <path d="M12 19V5M5 12l7-7 7 7" />
+              )}
+            </svg>
+            <span>{SORT_OPTIONS.find((o) => o.key === sortKey)?.label}</span>
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.25"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{
+                width: 14,
+                height: 14,
+                flexShrink: 0,
+                transform: sortOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 150ms',
+              }}
+              aria-hidden
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
+          </button>
+          {sortOpen && (
+            <>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 20 }}
+                onClick={() => setSortOpen(false)}
+              />
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  zIndex: 30,
+                  background: BG_2,
+                  border: `1px solid ${BORDER}`,
+                  borderRadius: 16,
+                  overflow: 'hidden',
+                  minWidth: 210,
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                }}
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => { setSortKey(opt.key); setSortOpen(false); }}
+                    style={{
+                      width: '100%',
+                      minHeight: 44,
+                      padding: '0 16px',
+                      textAlign: 'left',
+                      border: 'none',
+                      color: sortKey === opt.key ? AMBER : INK_2,
+                      fontFamily: SANS,
+                      fontSize: 14,
+                      fontWeight: 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      background: sortKey === opt.key ? 'rgba(245,165,36,0.08)' : 'transparent',
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.25"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{ width: 14, height: 14, flexShrink: 0 }}
+                      aria-hidden
+                    >
+                      {opt.key.endsWith('-desc') ? (
+                        <path d="M12 5v14M5 12l7 7 7-7" />
+                      ) : (
+                        <path d="M12 19V5M5 12l7-7 7 7" />
+                      )}
+                    </svg>
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {watched.length === 0 ? (
@@ -127,7 +283,7 @@ export default function ModernWatchedList({
         <>
           {/* Recently watched */}
           <Section
-            title="Recently watched"
+            title={RECENT_LABEL[sortKey]}
             action={`${recent.length} this season`}
           >
             <div
@@ -194,7 +350,7 @@ export default function ModernWatchedList({
 
           {/* The full reel */}
           {older.length > 0 && (
-            <Section title="The full reel" action="by date">
+            <Section title="The full reel" action={REEL_ACTION[sortKey]}>
               <div>
                 {older.map((m) => (
                   <ListRow
