@@ -7,7 +7,7 @@ import type { Movie } from './types';
  * Detail page can offer as a one-tap update.
  */
 
-export type VerifyField = 'production' | 'awards' | 'year' | 'commonSenseAge';
+export type VerifyField = 'production' | 'awards' | 'year' | 'commonSenseAge' | 'director' | 'writer';
 
 export type VerifyResult = {
   field: VerifyField | null;
@@ -44,6 +44,8 @@ export async function verifyField(
         production: movie.production,
         awards: movie.awards,
         commonSenseAge: movie.commonSenseAge,
+        director: movie.director,
+        writer: movie.writer,
       },
       question,
     }),

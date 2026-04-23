@@ -60,7 +60,7 @@ export default function EnhanceAllSheet({
     [],
   );
   const missingTargets = useMemo(
-    () => allTargets.filter((m) => m.production == null || m.awards == null),
+    () => allTargets.filter((m) => m.production == null || m.awards == null || m.director == null || m.writer == null),
     [allTargets],
   );
 
@@ -134,9 +134,18 @@ export default function EnhanceAllSheet({
           nextMode === 'refresh'
             ? (item.awards ?? m.awards)
             : (m.awards ?? item.awards);
+        const nextDirector =
+          nextMode === 'refresh'
+            ? (item.director ?? m.director)
+            : (m.director ?? item.director);
+        const nextWriter =
+          nextMode === 'refresh'
+            ? (item.writer ?? m.writer)
+            : (m.writer ?? item.writer);
 
         const changed =
-          nextProduction !== m.production || nextAwards !== m.awards;
+          nextProduction !== m.production || nextAwards !== m.awards ||
+          nextDirector !== m.director || nextWriter !== m.writer;
         if (!changed) {
           acc.skipped.push(getDisplayTitle(m));
           setProgress(start + i + 1);
@@ -147,6 +156,8 @@ export default function EnhanceAllSheet({
             ...m,
             production: nextProduction,
             awards: nextAwards,
+            director: nextDirector,
+            writer: nextWriter,
           });
           acc.enriched.push(getDisplayTitle(m));
         } catch (e) {
@@ -257,8 +268,8 @@ function ConfirmView({
     <>
       <h2 className="text-xl font-bold">Enhance {tabLabel}</h2>
       <p className="mt-2 text-sm text-ink-400 leading-relaxed">
-        Pull the lead studio and a brief awards summary from OMDB (for
-        awards) and Claude (for studio). Notes, dates, ratings, and
+        Pull studio, awards, director, and writer from OMDB (for linked
+        movies) and Claude (as fallback). Notes, dates, ratings, and
         posters aren&apos;t touched.
       </p>
 
@@ -283,8 +294,8 @@ function ConfirmView({
             }`}
           >
             {missingCount === 0
-              ? 'Everything already has studio + awards.'
-              : 'Only touches movies with a blank studio or awards field.'}
+              ? 'Everything already has studio, awards, director + writer.'
+              : 'Only touches movies missing studio, awards, director, or writer.'}
           </span>
         </button>
 
