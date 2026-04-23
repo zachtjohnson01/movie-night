@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
-import { countEffectiveCandidates, expandPool, rankTopPicks, type RankedPick } from '../recommendations';
+import { countEffectiveCandidates, expandPool, extractUnique, rankTopPicks, type RankedPick } from '../recommendations';
 
 type Props = {
   movies: Movie[];
@@ -52,6 +52,10 @@ export default function Recommendations({
     [movies],
   );
 
+  const libraryDirectors = useMemo(() => extractUnique(movies.map((m) => m.director)), [movies]);
+  const libraryWriters = useMemo(() => extractUnique(movies.map((m) => m.writer)), [movies]);
+  const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
+
   const runExpansion = useCallback(
     async (batches: number) => {
       setError(null);
@@ -75,6 +79,7 @@ export default function Recommendations({
             [...currentPoolTitles()],
             libraryTitles,
             EXPAND_BATCH,
+            { directors: libraryDirectors, writers: libraryWriters, studios: libraryStudios },
           );
           if (fresh.length === 0) break;
           await pool.appendCandidates(fresh);
@@ -87,7 +92,7 @@ export default function Recommendations({
       }
       setBusy({ kind: 'idle' });
     },
-    [libraryTitles, pool],
+    [libraryTitles, libraryDirectors, libraryWriters, libraryStudios, pool],
   );
 
   const loading = pool.status === 'loading';

@@ -92,6 +92,22 @@ type RawCandidateFromApi = {
 };
 
 /**
+ * Split comma-separated strings, trim, deduplicate, and drop blanks / "N/A".
+ * Used to build director/writer/studio lists from library movies.
+ */
+export function extractUnique(raw: (string | null | undefined)[]): string[] {
+  const seen = new Set<string>();
+  for (const v of raw) {
+    if (!v) continue;
+    for (const part of v.split(',')) {
+      const s = part.trim();
+      if (s && s !== 'N/A') seen.add(s);
+    }
+  }
+  return [...seen].sort();
+}
+
+/**
  * Admin-only: request a fresh batch of candidate films from the LLM,
  * enrich each one via OMDB in parallel, and return a fully-formed
  * Candidate[] ready to append to the pool. Does NOT write to Supabase —
@@ -101,6 +117,7 @@ export async function expandPool(
   poolTitles: string[],
   libraryTitles: string[],
   batchSize: number = 100,
+  libraryContext?: { directors: string[]; writers: string[]; studios: string[] },
 ): Promise<Candidate[]> {
   // The endpoint verifies this JWT server-side and rejects anyone not on
   // the admin allowlist — without a live session we can't even try.
@@ -119,7 +136,14 @@ export async function expandPool(
       'content-type': 'application/json',
       authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ poolTitles, libraryTitles, batchSize }),
+    body: JSON.stringify({
+      poolTitles,
+      libraryTitles,
+      batchSize,
+      directors: libraryContext?.directors ?? [],
+      writers: libraryContext?.writers ?? [],
+      studios: libraryContext?.studios ?? [],
+    }),
   });
 
   if (!resp.ok) {
