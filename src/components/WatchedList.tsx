@@ -32,6 +32,7 @@ export default function WatchedList({
 }: Props) {
   const [query, setQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [sortOpen, setSortOpen] = useState(false);
 
   const watchedAll = useMemo(
     () =>
@@ -149,21 +150,82 @@ export default function WatchedList({
         </div>
 
         <div className="mt-2 flex items-center justify-between gap-2">
-          <div className="flex gap-1.5">
-            {(['newest', 'oldest'] as const).map((opt) => (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => setSortOrder(opt)}
-                className={`min-h-[36px] px-3 rounded-full text-sm font-medium transition-colors ${
-                  sortOrder === opt
-                    ? 'bg-amber-glow text-ink-950'
-                    : 'bg-ink-800 text-ink-300 active:bg-ink-700'
-                }`}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSortOpen((o) => !o)}
+              className="min-h-[36px] px-3 rounded-full text-sm font-medium bg-ink-800 text-ink-300 flex items-center gap-1.5 active:bg-ink-700"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="w-3.5 h-3.5 shrink-0"
+                aria-hidden
               >
-                {opt === 'newest' ? 'Newest first' : 'Oldest first'}
-              </button>
-            ))}
+                {sortOrder === 'newest' ? (
+                  <path d="M12 5v14M5 12l7 7 7-7" />
+                ) : (
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                )}
+              </svg>
+              <span>{sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}</span>
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`w-3.5 h-3.5 shrink-0 transition-transform duration-150 ${sortOpen ? 'rotate-180' : ''}`}
+                aria-hidden
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+            {sortOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-20"
+                  onClick={() => setSortOpen(false)}
+                />
+                <div className="absolute top-full left-0 mt-1.5 z-30 bg-ink-900 border border-ink-700 rounded-2xl shadow-2xl overflow-hidden min-w-[160px]">
+                  {(['newest', 'oldest'] as const).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => { setSortOrder(opt); setSortOpen(false); }}
+                      className={`w-full min-h-[44px] px-4 text-left text-sm font-medium flex items-center gap-2.5 ${
+                        sortOrder === opt
+                          ? 'bg-amber-glow/10 text-amber-glow'
+                          : 'text-ink-300 active:bg-ink-800'
+                      }`}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.25"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="w-4 h-4 shrink-0"
+                        aria-hidden
+                      >
+                        {opt === 'newest' ? (
+                          <path d="M12 5v14M5 12l7 7 7-7" />
+                        ) : (
+                          <path d="M12 19V5M5 12l7-7 7 7" />
+                        )}
+                      </svg>
+                      {opt === 'newest' ? 'Newest first' : 'Oldest first'}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           <BuildStamp />
         </div>
