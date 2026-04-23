@@ -61,6 +61,10 @@ function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
     imdb: patch.imdb ?? movie.imdb,
     rottenTomatoes: patch.rottenTomatoes ?? movie.rottenTomatoes,
     poster: patch.poster ?? movie.poster,
+    awards: patch.awards ?? movie.awards,
+    production: patch.production ?? movie.production,
+    director: patch.director ?? movie.director,
+    writer: patch.writer ?? movie.writer,
     omdbRefreshedAt: new Date().toISOString(),
   };
 }
@@ -90,6 +94,10 @@ function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
     imdb: movie.imdb ?? patch.imdb,
     rottenTomatoes: movie.rottenTomatoes ?? patch.rottenTomatoes,
     poster: movie.poster ?? patch.poster,
+    awards: movie.awards ?? patch.awards,
+    production: movie.production ?? patch.production,
+    director: movie.director ?? patch.director,
+    writer: movie.writer ?? patch.writer,
     omdbRefreshedAt: new Date().toISOString(),
   };
 }
