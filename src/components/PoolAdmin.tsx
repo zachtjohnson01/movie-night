@@ -468,6 +468,8 @@ function EditSheet({
   const [awards, setAwards] = useState<string | null>(candidate.awards ?? null);
   const [poster, setPoster] = useState<string | null>(candidate.poster ?? null);
   const [type, setType] = useState<string | null>(candidate.type ?? null);
+  const [director, setDirector] = useState(candidate.director ?? '');
+  const [writer, setWriter] = useState(candidate.writer ?? '');
   const [pickBusy, setPickBusy] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
   const [customReason, setCustomReason] = useState('');
@@ -498,6 +500,8 @@ function EditSheet({
       setAwards(patch.awards);
       setPoster(patch.poster);
       setType(patch.type);
+      setDirector(patch.director ?? '');
+      setWriter(patch.writer ?? '');
     } catch (e) {
       setPickError(
         e instanceof OmdbError
@@ -528,6 +532,8 @@ function EditSheet({
       awards,
       poster,
       type,
+      director: director.trim() || null,
+      writer: writer.trim() || null,
     });
   };
 
@@ -666,6 +672,24 @@ function EditSheet({
               type="text"
               value={studio}
               onChange={(e) => setStudio(e.target.value)}
+              autoCorrect="off"
+              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
+            />
+          </Field>
+          <Field label="Director">
+            <input
+              type="text"
+              value={director}
+              onChange={(e) => setDirector(e.target.value)}
+              autoCorrect="off"
+              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
+            />
+          </Field>
+          <Field label="Writer">
+            <input
+              type="text"
+              value={writer}
+              onChange={(e) => setWriter(e.target.value)}
               autoCorrect="off"
               className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 focus:outline-none focus:border-amber-glow/60"
             />
