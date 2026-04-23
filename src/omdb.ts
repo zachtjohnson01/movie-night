@@ -140,12 +140,14 @@ export async function searchMovies(query: string): Promise<OmdbSearchResult[]> {
   // an array so callers see the same shape regardless of which
   // endpoint found it.
   //
-  // OMDB honors `type=movie` on `?s=` but returns series matches from
-  // `?t=` anyway (e.g. "Arcane: League of Legends" → tt11126994). Verify
-  // the reported Type before trusting the match, otherwise series slip
-  // past linkByTitle and enrichCandidate lands them in the pool.
+  // No `type=movie` param here: empirically it hurts more than it
+  // helps on `?t=`. Short titles like "Up" return Response:False
+  // with the filter but resolve to the Pixar movie without it;
+  // OMDB also ignores the filter for e.g. "Arcane: League of
+  // Legends" (still returns tt11126994). We verify Type === 'movie'
+  // on the response so series matches don't slip into the pool.
   try {
-    const detail = await omdbGet<OmdbDetailResponse>({ t: trimmed, type: 'movie' });
+    const detail = await omdbGet<OmdbDetailResponse>({ t: trimmed });
     if (detail.Response === 'True' && detail.Type === 'movie') {
       return [
         {
