@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../../types';
 import type { CandidatePoolApi } from '../../useCandidatePool';
 import {
@@ -41,6 +41,18 @@ export default function ModernRecommendations({
   canWrite,
   onSelectPick,
 }: Props) {
+  useLayoutEffect(() => {
+    const toTop = () => {
+      window.scrollTo(0, 0);
+      if (document.scrollingElement) {
+        document.scrollingElement.scrollTop = 0;
+      }
+    };
+    toTop();
+    const rafId = requestAnimationFrame(toTop);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
   const [busy, setBusy] = useState<
     | { kind: 'idle' }
     | { kind: 'seeding'; done: number; total: number; added: number }
