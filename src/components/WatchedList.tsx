@@ -31,10 +31,15 @@ export default function WatchedList({
   onEnhanceAll,
 }: Props) {
   const [query, setQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
   const watchedAll = useMemo(
-    () => sortWatched(movies.filter((m) => m.watched)),
-    [movies],
+    () =>
+      sortWatched(
+        movies.filter((m) => m.watched),
+        sortOrder === 'newest' ? 'desc' : 'asc',
+      ),
+    [movies, sortOrder],
   );
 
   const unlinkedCount = useMemo(
@@ -143,7 +148,23 @@ export default function WatchedList({
           </svg>
         </div>
 
-        <div className="mt-2">
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="flex gap-1.5">
+            {(['newest', 'oldest'] as const).map((opt) => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => setSortOrder(opt)}
+                className={`min-h-[36px] px-3 rounded-full text-sm font-medium transition-colors ${
+                  sortOrder === opt
+                    ? 'bg-amber-glow text-ink-950'
+                    : 'bg-ink-800 text-ink-300 active:bg-ink-700'
+                }`}
+              >
+                {opt === 'newest' ? 'Newest first' : 'Oldest first'}
+              </button>
+            ))}
+          </div>
           <BuildStamp />
         </div>
       </header>
