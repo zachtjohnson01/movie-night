@@ -264,7 +264,7 @@ export default function Detail(props: Props) {
     if (props.mode !== 'existing') return;
     const ok = confirm(
       movie.watched
-        ? `Delete "${getDisplayTitle(movie)}"? This can't be undone.`
+        ? `Remove "${getDisplayTitle(movie)}" from your watched list?`
         : `Remove "${getDisplayTitle(movie)}" from your wishlist?`,
     );
     if (!ok) return;
@@ -740,7 +740,7 @@ function ViewMode(props: ViewModeProps) {
             onClick={props.onDelete}
             className="w-full min-h-[48px] rounded-2xl text-rose-400 font-medium active:bg-rose-950/40"
           >
-            {movie.watched ? 'Delete movie' : 'Remove from wishlist'}
+            {movie.watched ? 'Remove from watched list' : 'Remove from wishlist'}
           </button>
         </section>
       )}
