@@ -1,14 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { lookupMovie } from '../_lib/share-core';
 
 /**
  * Poster image proxy on a clean .jpg-extensioned URL. Used as the
  * og:image target so Apple's LPMetadataProvider sees a URL it can
  * unambiguously parse and validate as an image.
  *
- * The heavy import (share-core, which pulls in @supabase/supabase-js)
- * is deferred to runtime so any module-load error surfaces inside the
- * try/catch as a readable 500 rather than Vercel's opaque
- * FUNCTION_INVOCATION_FAILED page.
+ * Static import of share-core is intentional: Vercel's Node bundler
+ * traces static imports to decide what to include in the function
+ * deploy. A dynamic `await import(...)` here in a previous revision
+ * silently dropped `_lib/share-core` from the bundle and the
+ * function crashed at runtime with ERR_MODULE_NOT_FOUND.
  */
 export default async function handler(
   req: VercelRequest,
@@ -27,11 +29,6 @@ export default async function handler(
           ? (rawSlug[0] ?? '')
           : '';
     const title = slug.replace(/\.(jpg|jpeg|png|webp)$/i, '');
-
-    // Dynamic import so a module-load failure (bad bundling, missing
-    // dep, etc.) throws inside our try/catch instead of crashing the
-    // function before the handler runs.
-    const { lookupMovie } = await import('../_lib/share-core');
 
     if (debug) {
       const lookup = title ? await lookupMovie(title) : null;
