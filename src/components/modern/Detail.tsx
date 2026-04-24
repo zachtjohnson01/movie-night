@@ -2,6 +2,7 @@ import { useLayoutEffect, useState } from 'react';
 import type { Movie } from '../../types';
 import {
   buildShareData,
+  computeCrossovers,
   formatDate,
   getDisplayTitle,
   todayIso,
@@ -41,9 +42,11 @@ type Props =
       canWrite: boolean;
       isOwner?: boolean;
       movie: Movie;
+      library?: Movie[];
       onBack: () => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
       onDelete: (movie: Movie) => void | Promise<void>;
+      onSelectMovie?: (title: string) => void;
     }
   | {
       mode: 'new';
@@ -56,10 +59,12 @@ type Props =
       mode: 'candidate';
       canWrite: boolean;
       movie: Movie;
+      library?: Movie[];
       onBack: () => void;
       onAddToWishlist: (movie: Movie) => void | Promise<void>;
       onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
       onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
+      onSelectMovie?: (title: string) => void;
     };
 
 export default function ModernDetail(props: Props) {
@@ -76,9 +81,11 @@ export default function ModernDetail(props: Props) {
         canWrite={props.canWrite}
         isOwner={props.isOwner}
         movie={props.movie}
+        library={props.library}
         onBack={() => setShowClassic(false)}
         onUpdate={props.onUpdate}
         onDelete={props.onDelete}
+        onSelectMovie={props.onSelectMovie}
       />
     );
   }
@@ -87,10 +94,12 @@ export default function ModernDetail(props: Props) {
     <ModernView
       movie={props.movie}
       canWrite={props.canWrite}
+      library={props.library}
       onBack={props.onBack}
       onUpdate={props.onUpdate}
       onDelete={props.onDelete}
       onEditDetails={() => setShowClassic(true)}
+      onSelectMovie={props.onSelectMovie}
     />
   );
 }
@@ -98,17 +107,21 @@ export default function ModernDetail(props: Props) {
 function ModernView({
   movie,
   canWrite,
+  library,
   onBack,
   onUpdate,
   onDelete,
   onEditDetails,
+  onSelectMovie,
 }: {
   movie: Movie;
   canWrite: boolean;
+  library?: Movie[];
   onBack: () => void;
   onUpdate: (updated: Movie) => void | Promise<void>;
   onDelete: (movie: Movie) => void | Promise<void>;
   onEditDetails: () => void;
+  onSelectMovie?: (title: string) => void;
 }) {
   const { c1, c2, accent } = posterFor(movie.title);
   const age = ageTone(movie.commonSenseAge);
@@ -537,6 +550,14 @@ function ModernView({
         </div>
       )}
 
+      {library && (
+        <ModernCrossoverBlock
+          movie={movie}
+          library={library}
+          onSelectMovie={onSelectMovie}
+        />
+      )}
+
       {/* Primary action */}
       {canWrite && (
         <div
@@ -664,6 +685,188 @@ function ModernPillRow({
             {n}
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ModernCrossoverBlock({
+  movie,
+  library,
+  onSelectMovie,
+}: {
+  movie: Movie;
+  library: Movie[];
+  onSelectMovie?: (title: string) => void;
+}) {
+  const { studioMatches, directorMatches, writerMatches } = computeCrossovers(
+    movie,
+    library,
+  );
+  if (
+    studioMatches.length === 0 &&
+    directorMatches.length === 0 &&
+    writerMatches.length === 0
+  ) {
+    return null;
+  }
+
+  return (
+    <div style={{ padding: '22px 20px 0' }}>
+      <div
+        style={{
+          fontFamily: SANS,
+          fontSize: 11,
+          color: INK_3,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          marginBottom: 8,
+        }}
+      >
+        Also in your watched list
+      </div>
+      <div
+        style={{
+          background: BG_3,
+          border: `1px solid ${BORDER}`,
+          borderRadius: 14,
+          padding: 14,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 14,
+        }}
+      >
+        {studioMatches.length > 0 && (
+          <ModernCrossoverSection
+            label="Studio"
+            matches={studioMatches}
+            trailing={(m) => m.production ?? null}
+            onSelectMovie={onSelectMovie}
+          />
+        )}
+        {directorMatches.length > 0 && (
+          <ModernCrossoverSection
+            label={directorMatches.length > 1 ? 'Directors' : 'Director'}
+            matches={directorMatches}
+            trailing={(m) => m.directors?.join(', ') ?? null}
+            onSelectMovie={onSelectMovie}
+          />
+        )}
+        {writerMatches.length > 0 && (
+          <ModernCrossoverSection
+            label={writerMatches.length > 1 ? 'Writers' : 'Writer'}
+            matches={writerMatches}
+            trailing={(m) => m.writers?.join(', ') ?? null}
+            onSelectMovie={onSelectMovie}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ModernCrossoverSection({
+  label,
+  matches,
+  trailing,
+  onSelectMovie,
+}: {
+  label: string;
+  matches: Movie[];
+  trailing: (m: Movie) => string | null;
+  onSelectMovie?: (title: string) => void;
+}) {
+  return (
+    <div>
+      <div
+        style={{
+          fontFamily: SANS,
+          fontSize: 10,
+          color: INK_3,
+          letterSpacing: 1.5,
+          textTransform: 'uppercase',
+          fontWeight: 600,
+          marginBottom: 6,
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {matches.map((m, i) => {
+          const title = getDisplayTitle(m);
+          const year = m.year;
+          const tail = trailing(m);
+          const rowStyle: React.CSSProperties = {
+            minHeight: 44,
+            padding: '8px 0',
+            borderTop: i === 0 ? 'none' : `1px solid ${BORDER}`,
+            background: 'transparent',
+            border: 'none',
+            textAlign: 'left',
+            cursor: onSelectMovie ? 'pointer' : 'default',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 2,
+            width: '100%',
+            color: 'inherit',
+            fontFamily: 'inherit',
+          };
+          const content = (
+            <>
+              <span
+                style={{
+                  fontFamily: SANS,
+                  fontSize: 14,
+                  color: INK,
+                  fontWeight: 500,
+                  lineHeight: 1.3,
+                }}
+              >
+                {title}
+                {year != null && (
+                  <span
+                    style={{
+                      color: INK_2,
+                      fontVariantNumeric: 'tabular-nums',
+                      marginLeft: 4,
+                      fontWeight: 400,
+                    }}
+                  >
+                    ({year})
+                  </span>
+                )}
+              </span>
+              {tail && (
+                <span
+                  style={{
+                    fontFamily: SANS,
+                    fontSize: 12,
+                    color: INK_2,
+                    lineHeight: 1.3,
+                  }}
+                >
+                  {tail}
+                </span>
+              )}
+            </>
+          );
+          const key = m.imdbId ?? m.title;
+          return onSelectMovie ? (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onSelectMovie(m.title)}
+              style={rowStyle}
+            >
+              {content}
+            </button>
+          ) : (
+            <div key={key} style={rowStyle}>
+              {content}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

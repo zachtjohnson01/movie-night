@@ -295,6 +295,51 @@ export function coerceCreatorLists<T>(raw: T): T {
  * Used for OMDB response parsing, manual-input parsing on edit forms, and
  * the one-way migration of legacy string rows read from Supabase.
  */
+export type MovieCrossover = {
+  studioMatches: Movie[];
+  directorMatches: Movie[];
+  writerMatches: Movie[];
+};
+
+/**
+ * Find watched movies in `library` that share the current movie's studio,
+ * directors, or writers. Excludes the current movie itself (matched by
+ * imdbId when available, else title). Name comparisons are
+ * case-insensitive and trimmed.
+ */
+export function computeCrossovers(
+  current: Movie,
+  library: Movie[],
+): MovieCrossover {
+  const selfKey = current.imdbId ?? current.title;
+  const watched = library.filter(
+    (m) => m.watched && (m.imdbId ?? m.title) !== selfKey,
+  );
+
+  const norm = (s: string) => s.trim().toLowerCase();
+  const currentStudio = current.production ? norm(current.production) : null;
+  const currentDirectors = new Set((current.directors ?? []).map(norm));
+  const currentWriters = new Set((current.writers ?? []).map(norm));
+
+  return {
+    studioMatches: currentStudio
+      ? watched.filter(
+          (m) => m.production && norm(m.production) === currentStudio,
+        )
+      : [],
+    directorMatches: currentDirectors.size
+      ? watched.filter((m) =>
+          (m.directors ?? []).some((n) => currentDirectors.has(norm(n))),
+        )
+      : [],
+    writerMatches: currentWriters.size
+      ? watched.filter((m) =>
+          (m.writers ?? []).some((n) => currentWriters.has(norm(n))),
+        )
+      : [],
+  };
+}
+
 export function parseNameList(raw: unknown): string[] | null {
   let parts: string[] = [];
   if (Array.isArray(raw)) {
