@@ -29,7 +29,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   const html = await templateRes.text();
 
-  const movie = await lookupMovie(m);
+  // `?debug=1` returns a JSON dump of the lookup state so we can diagnose
+  // "why did the unfurl fall back to the generic icon?" from a browser
+  // without inspecting the rendered meta tags. Safe to leave in — no
+  // secrets are exposed beyond the already-client-visible Supabase key.
+  const debug = req.query.debug === '1';
+
+  const lookup = await lookupMovie(m);
+
+  if (debug) {
+    res.setHeader('content-type', 'application/json; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    return res.status(200).json({
+      requestedTitle: m,
+      hasSupabaseUrl: Boolean(supabaseUrl),
+      hasSupabaseKey: Boolean(supabaseKey),
+      ...lookup.debug,
+      resolved: lookup.movie,
+    });
+  }
+
+  const movie = lookup.movie;
 
   const titleTxt = movie
     ? `${(movie.displayTitle?.trim() || movie.title) as string}${
@@ -66,10 +86,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const out = html.replace('</head>', `    ${tags}\n  </head>`);
 
   res.setHeader('content-type', 'text/html; charset=utf-8');
+  // Hits cache for 60s; misses do not cache so a deploy/fix propagates
+  // without a 24h SWR tail of stale generic previews on earlier misses.
   res.setHeader(
     'cache-control',
-    'public, s-maxage=300, stale-while-revalidate=86400',
+    movie
+      ? 'public, s-maxage=60, stale-while-revalidate=300'
+      : 'public, no-cache, no-store, must-revalidate',
   );
+  res.setHeader('x-share-resolved', movie ? '1' : '0');
   return res.status(200).send(out);
 }
 
@@ -100,50 +125,99 @@ type CandidateLike = {
   commonSenseAge?: string | null;
 };
 
+type LookupResult = {
+  movie: MovieLike | null;
+  debug: {
+    entryCount: number;
+    candidateCount: number;
+    entryMatch: 'exact' | 'ci' | 'none';
+    candidateMatch: 'imdbId' | 'exact' | 'ci' | 'none';
+    supabaseError?: string;
+  };
+};
+
+// Normalize for comparison: lowercase, NFC-normalize, trim, collapse
+// internal whitespace. Catches casing drift, stray trailing spaces, and
+// stylistic whitespace differences between an OMDB-canonical title and
+// what's stored in the row.
+function normalizeTitle(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
 // Row id=1 holds LibraryEntry[] (user overlay), row id=2 holds Candidate[]
 // (OMDB enrichment). The rendered movie is the join of the two — same
 // precedence as `findCandidate` / `mergeEntry` in src/useMovies.ts.
 // When the shared title isn't in the library (e.g. a For You candidate
 // shared straight from the Detail preview), fall back to the Candidate
 // alone so the unfurl still gets a poster.
-async function lookupMovie(title: string): Promise<MovieLike | null> {
-  if (!title || !supabaseUrl || !supabaseKey) return null;
+async function lookupMovie(title: string): Promise<LookupResult> {
+  const debug: LookupResult['debug'] = {
+    entryCount: 0,
+    candidateCount: 0,
+    entryMatch: 'none',
+    candidateMatch: 'none',
+  };
+  if (!title || !supabaseUrl || !supabaseKey) return { movie: null, debug };
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('movie_night')
       .select('id, movies')
       .in('id', [1, 2]);
-    if (error || !data) return null;
+    if (error) {
+      debug.supabaseError = error.message;
+      return { movie: null, debug };
+    }
+    if (!data) return { movie: null, debug };
     const entries =
       (data.find((r) => r.id === 1)?.movies ?? []) as LibraryEntryLike[];
     const candidates =
       (data.find((r) => r.id === 2)?.movies ?? []) as CandidateLike[];
-    const titleLower = title.toLowerCase();
-    const entry =
-      entries.find((x) => x?.title === title) ??
-      entries.find((x) => x?.title?.toLowerCase() === titleLower);
-    const candidate = entry
-      ? ((entry.imdbId
-          ? candidates.find((c) => c.imdbId === entry.imdbId)
-          : undefined) ??
-          candidates.find(
-            (c) => c.title?.toLowerCase() === entry.title.toLowerCase(),
-          ))
-      : (candidates.find((c) => c.title === title) ??
-          candidates.find((c) => c.title?.toLowerCase() === titleLower));
-    if (!entry && !candidate) return null;
+    debug.entryCount = entries.length;
+    debug.candidateCount = candidates.length;
+    const titleNorm = normalizeTitle(title);
+    let entry = entries.find((x) => x?.title === title);
+    if (entry) debug.entryMatch = 'exact';
+    else {
+      entry = entries.find((x) => normalizeTitle(x?.title) === titleNorm);
+      if (entry) debug.entryMatch = 'ci';
+    }
+    let candidate: CandidateLike | undefined;
+    if (entry) {
+      if (entry.imdbId) {
+        candidate = candidates.find((c) => c.imdbId === entry!.imdbId);
+        if (candidate) debug.candidateMatch = 'imdbId';
+      }
+      if (!candidate) {
+        const entryNorm = normalizeTitle(entry.title);
+        candidate = candidates.find((c) => normalizeTitle(c.title) === entryNorm);
+        if (candidate) debug.candidateMatch = 'ci';
+      }
+    } else {
+      candidate = candidates.find((c) => c.title === title);
+      if (candidate) debug.candidateMatch = 'exact';
+      else {
+        candidate = candidates.find((c) => normalizeTitle(c.title) === titleNorm);
+        if (candidate) debug.candidateMatch = 'ci';
+      }
+    }
+    if (!entry && !candidate) return { movie: null, debug };
     return {
-      title: entry?.title ?? candidate?.title ?? title,
-      displayTitle: entry?.displayTitle ?? null,
-      commonSenseAge: entry?.commonSenseAge ?? candidate?.commonSenseAge ?? null,
-      year: candidate?.year ?? null,
-      poster: candidate?.poster ?? null,
-      rottenTomatoes: candidate?.rottenTomatoes ?? null,
-      imdb: candidate?.imdb ?? null,
+      movie: {
+        title: entry?.title ?? candidate?.title ?? title,
+        displayTitle: entry?.displayTitle ?? null,
+        commonSenseAge: entry?.commonSenseAge ?? candidate?.commonSenseAge ?? null,
+        year: candidate?.year ?? null,
+        poster: candidate?.poster ?? null,
+        rottenTomatoes: candidate?.rottenTomatoes ?? null,
+        imdb: candidate?.imdb ?? null,
+      },
+      debug,
     };
-  } catch {
-    return null;
+  } catch (e) {
+    debug.supabaseError = e instanceof Error ? e.message : String(e);
+    return { movie: null, debug };
   }
 }
 
