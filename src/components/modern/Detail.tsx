@@ -1,11 +1,13 @@
 import { useLayoutEffect, useState } from 'react';
 import type { Movie } from '../../types';
 import {
+  buildShareData,
   formatDate,
   getDisplayTitle,
   todayIso,
 } from '../../format';
 import { commonSenseUrl } from '../../omdb';
+import { CheckIcon, ShareIcon, useShareAction } from '../ShareButton';
 import {
   AMBER,
   BG,
@@ -112,6 +114,9 @@ function ModernView({
   const age = ageTone(movie.commonSenseAge);
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
+  const share = useShareAction(
+    buildShareData(movie, typeof window !== 'undefined' ? window.location.origin : ''),
+  );
 
   // Detail screens are deep-link destinations — scroll to top on mount so
   // the gradient hero actually appears first. Matches the behaviour of the
@@ -210,6 +215,40 @@ function ModernView({
               strokeLinejoin="round"
             />
           </svg>
+        </button>
+        <button
+          type="button"
+          onClick={share.onClick}
+          aria-label={share.copied ? 'Link copied' : 'Share'}
+          style={{
+            position: 'absolute',
+            top: 'calc(env(safe-area-inset-top) + 12px)',
+            right: 16,
+            zIndex: 2,
+            width: 38,
+            height: 38,
+            minWidth: 44,
+            minHeight: 44,
+            borderRadius: 999,
+            background: 'rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(14px)',
+            WebkitBackdropFilter: 'blur(14px)',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: '#fff',
+          }}
+        >
+          {share.copied ? (
+            <CheckIcon className="w-5 h-5" />
+          ) : (
+            <ShareIcon className="w-5 h-5" />
+          )}
+          <span className="sr-only" aria-live="polite">
+            {share.copied ? 'Link copied' : ''}
+          </span>
         </button>
         <div
           style={{
