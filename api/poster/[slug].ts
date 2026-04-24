@@ -1,30 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { lookupMovie } from '../_lib/share-core';
 
 /**
  * Poster image proxy on a clean .jpg-extensioned URL. Used as the
  * og:image target so Apple's LPMetadataProvider sees a URL it can
  * unambiguously parse and validate as an image.
  *
- * Why this exists: Amazon's OMDB poster URLs include an "@" character
- * in the path (Amazon's content hash). Browsers parse it leniently,
- * but Apple's link-preview image loader appears to choke on it,
- * silently dropping the image. Routing through `/api/poster/<title>.jpg`
- * gives Apple a URL with no special characters and a recognizable
- * extension; we fetch from Amazon server-side where strict parsing
- * isn't an issue.
- *
- * The path segment is the URL-encoded movie title with `.jpg` suffix.
- * We strip the suffix, look up the movie, then proxy the poster bytes.
+ * The heavy import (share-core, which pulls in @supabase/supabase-js)
+ * is deferred to runtime so any module-load error surfaces inside the
+ * try/catch as a readable 500 rather than Vercel's opaque
+ * FUNCTION_INVOCATION_FAILED page.
  */
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
 ) {
-  // Wrap the entire handler in try/catch so unhandled errors surface
-  // as a readable text response instead of Vercel's opaque
-  // FUNCTION_INVOCATION_FAILED page. Debug hits can then get the
-  // actual stack trace with ?debug=1.
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev';
+  res.setHeader('x-commit', commit);
+
   const debug = req.query.debug === '1';
   try {
     const rawSlug = req.query.slug;
@@ -36,15 +28,21 @@ export default async function handler(
           : '';
     const title = slug.replace(/\.(jpg|jpeg|png|webp)$/i, '');
 
+    // Dynamic import so a module-load failure (bad bundling, missing
+    // dep, etc.) throws inside our try/catch instead of crashing the
+    // function before the handler runs.
+    const { lookupMovie } = await import('../_lib/share-core');
+
     if (debug) {
       const lookup = title ? await lookupMovie(title) : null;
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('cache-control', 'no-store');
       return res.status(200).json({
+        commit,
         rawSlug,
         slug,
         title,
-        lookup: lookup?.debug,
+        lookup: lookup?.debug ?? null,
         poster: lookup?.movie?.poster ?? null,
       });
     }
@@ -60,7 +58,9 @@ export default async function handler(
       res.setHeader('access-control-allow-origin', '*');
       return res
         .status(404)
-        .send(`poster not found for "${title}" (match=${lookup.debug.entryMatch})`);
+        .send(
+          `poster not found for "${title}" (match=${lookup.debug.entryMatch})`,
+        );
     }
 
     const upstream = await fetch(posterUrl, {
@@ -88,6 +88,10 @@ export default async function handler(
     res.setHeader('content-type', 'text/plain; charset=utf-8');
     res.setHeader('access-control-allow-origin', '*');
     res.setHeader('cache-control', 'no-store');
-    return res.status(500).send(`poster handler crashed: ${msg}${stack ? '\n\n' + stack : ''}`);
+    return res
+      .status(500)
+      .send(
+        `poster handler crashed (commit ${commit}): ${msg}${stack ? '\n\n' + stack : ''}`,
+      );
   }
 }
