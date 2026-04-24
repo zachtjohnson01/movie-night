@@ -284,10 +284,12 @@ export default function App() {
           mode="candidate"
           movie={screen.template}
           canWrite={auth.canWrite}
+          library={movies}
           onBack={() => setScreen({ name: 'list' })}
           onAddToWishlist={handleAddCandidateToWishlist}
           onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
           onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
+          onSelectMovie={(title) => setScreen({ name: 'detail', title })}
         />
       );
     }
@@ -300,6 +302,7 @@ export default function App() {
         mode="candidate"
         movie={screen.template}
         canWrite={auth.canWrite}
+        library={movies}
         onBack={() => setScreen({ name: 'list' })}
         onAddToWishlist={handleAddCandidateToWishlist}
         onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
@@ -310,6 +313,7 @@ export default function App() {
             ? () => void pool.toggleDownvote(screen.candidateTitle)
             : undefined
         }
+        onSelectMovie={(title) => setScreen({ name: 'detail', title })}
       />
     );
   }
@@ -322,9 +326,11 @@ export default function App() {
         movie={selected}
         canWrite={auth.canWrite}
         isOwner={effectiveIsOwner}
+        library={movies}
         onBack={() => setScreen({ name: 'list' })}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
         onDelete={handleDelete}
+        onSelectMovie={(title) => setScreen({ name: 'detail', title })}
       />
     );
   }

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Movie } from '../types';
 import {
   buildShareData,
+  computeCrossovers,
   formatDate,
   formatRelativeTime,
   getDisplayTitle,
@@ -31,9 +32,11 @@ type Props =
       canWrite: boolean;
       isOwner?: boolean;
       movie: Movie;
+      library?: Movie[];
       onBack: () => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
       onDelete: (movie: Movie) => void | Promise<void>;
+      onSelectMovie?: (title: string) => void;
     }
   | {
       mode: 'new';
@@ -46,6 +49,7 @@ type Props =
       mode: 'candidate';
       canWrite: boolean;
       movie: Movie; // template from candidateToTemplate
+      library?: Movie[];
       /** Live downvote state from the candidate pool, null if not in the pool. */
       downvoted?: boolean;
       onBack: () => void;
@@ -53,6 +57,7 @@ type Props =
       onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
       onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
       onToggleDownvote?: () => void | Promise<void>;
+      onSelectMovie?: (title: string) => void;
     };
 
 /** Overwrite fields with fresh OMDB data. Used by refresh. */
@@ -447,6 +452,8 @@ export default function Detail(props: Props) {
             isWatched={isWatched}
             canWrite={props.canWrite}
             isOwner={props.isOwner ?? false}
+            library={props.library}
+            onSelectMovie={props.onSelectMovie}
             onMarkWatchedTonight={markWatchedTonight}
             onMarkWatchedUndated={markWatchedUndated}
             onSaveNotes={saveNotes}
@@ -467,6 +474,8 @@ export default function Detail(props: Props) {
             variant="candidate"
             movie={movie}
             canWrite={props.canWrite}
+            library={props.library}
+            onSelectMovie={props.onSelectMovie}
             onAddToWishlist={() => props.onAddToWishlist(props.movie)}
             onMarkWatchedTonight={() => props.onMarkWatchedTonight(props.movie)}
             onMarkWatchedUndated={() => props.onMarkWatchedUndated(props.movie)}
@@ -482,6 +491,8 @@ export default function Detail(props: Props) {
 type ViewModeProps = {
   movie: Movie;
   canWrite: boolean;
+  library?: Movie[];
+  onSelectMovie?: (title: string) => void;
 } & (
   | {
       variant: 'existing';
@@ -641,6 +652,14 @@ function ViewMode(props: ViewModeProps) {
             </div>
           )}
         </div>
+      )}
+
+      {props.library && (
+        <CrossoverBlock
+          movie={movie}
+          library={props.library}
+          onSelectMovie={props.onSelectMovie}
+        />
       )}
 
       {variant === 'existing' &&
@@ -1062,6 +1081,119 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function CrossoverBlock({
+  movie,
+  library,
+  onSelectMovie,
+}: {
+  movie: Movie;
+  library: Movie[];
+  onSelectMovie?: (title: string) => void;
+}) {
+  const { studioMatches, directorMatches, writerMatches } = computeCrossovers(
+    movie,
+    library,
+  );
+  if (
+    studioMatches.length === 0 &&
+    directorMatches.length === 0 &&
+    writerMatches.length === 0
+  ) {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-4">
+      <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+        Also in your watched list
+      </div>
+      {studioMatches.length > 0 && (
+        <CrossoverSection
+          label="Studio"
+          matches={studioMatches}
+          trailing={(m) => m.production ?? null}
+          onSelectMovie={onSelectMovie}
+        />
+      )}
+      {directorMatches.length > 0 && (
+        <CrossoverSection
+          label={directorMatches.length > 1 ? 'Directors' : 'Director'}
+          matches={directorMatches}
+          trailing={(m) => m.directors?.join(', ') ?? null}
+          onSelectMovie={onSelectMovie}
+        />
+      )}
+      {writerMatches.length > 0 && (
+        <CrossoverSection
+          label={writerMatches.length > 1 ? 'Writers' : 'Writer'}
+          matches={writerMatches}
+          trailing={(m) => m.writers?.join(', ') ?? null}
+          onSelectMovie={onSelectMovie}
+        />
+      )}
+    </div>
+  );
+}
+
+function CrossoverSection({
+  label,
+  matches,
+  trailing,
+  onSelectMovie,
+}: {
+  label: string;
+  matches: Movie[];
+  trailing: (m: Movie) => string | null;
+  onSelectMovie?: (title: string) => void;
+}) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
+        {label}
+      </div>
+      <ul className="mt-1 divide-y divide-ink-800/70">
+        {matches.map((m) => {
+          const title = getDisplayTitle(m);
+          const year = m.year;
+          const tail = trailing(m);
+          const content = (
+            <div className="flex flex-col text-left">
+              <span className="text-sm text-ink-100 leading-snug">
+                {title}
+                {year != null && (
+                  <span className="ml-1 text-ink-400 tabular-nums">
+                    ({year})
+                  </span>
+                )}
+              </span>
+              {tail && (
+                <span className="text-xs text-ink-400 leading-snug">
+                  {tail}
+                </span>
+              )}
+            </div>
+          );
+          return (
+            <li key={m.imdbId ?? m.title}>
+              {onSelectMovie ? (
+                <button
+                  type="button"
+                  onClick={() => onSelectMovie(m.title)}
+                  className="w-full min-h-[44px] py-2 active:bg-ink-800/60 rounded-lg px-1 -mx-1"
+                >
+                  {content}
+                </button>
+              ) : (
+                <div className="py-2 px-1 -mx-1">{content}</div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
