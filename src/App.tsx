@@ -371,6 +371,7 @@ export default function App() {
                 canWrite={auth.canWrite}
                 isOwner={effectiveIsOwner}
                 onSelectPick={openPick}
+                onOpenPool={() => setScreen({ name: 'pool' })}
               />
             )}
           </>
