@@ -33,7 +33,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // "why did the unfurl fall back to the generic icon?" from a browser
   // without inspecting the rendered meta tags. Safe to leave in — no
   // secrets are exposed beyond the already-client-visible Supabase key.
+  // `?debug=html` returns the rendered HTML as text/plain so we can
+  // inspect the injected og/twitter tags from mobile Safari (iOS has
+  // no built-in view-source).
   const debug = req.query.debug === '1';
+  const debugHtml = req.query.debug === 'html';
 
   const lookup = await lookupMovie(m);
 
@@ -90,6 +94,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   ].join('\n    ');
 
   const out = stripped.replace('</head>', `    ${tags}\n  </head>`);
+
+  if (debugHtml) {
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    return res.status(200).send(out);
+  }
 
   res.setHeader('content-type', 'text/html; charset=utf-8');
   // Hits cache for 60s; misses do not cache so a deploy/fix propagates
