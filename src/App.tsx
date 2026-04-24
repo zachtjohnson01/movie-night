@@ -302,6 +302,7 @@ export default function App() {
                 movies={movies}
                 pool={pool}
                 canWrite={auth.canWrite}
+                isOwner={effectiveIsOwner}
                 onSelectPick={openPick}
               />
             )}
@@ -335,6 +336,7 @@ export default function App() {
                 movies={movies}
                 pool={pool}
                 canWrite={auth.canWrite}
+                isOwner={effectiveIsOwner}
                 onSelectPick={openPick}
                 reloadMovies={reloadMovies}
                 onOpenPool={() => setScreen({ name: 'pool' })}
