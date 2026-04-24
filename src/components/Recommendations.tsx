@@ -9,6 +9,7 @@ type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
   canWrite: boolean;
+  isOwner: boolean;
   onSelectPick: (c: Candidate) => void;
   reloadMovies: () => void;
   onOpenPool: () => void;
@@ -26,6 +27,7 @@ export default function Recommendations({
   movies,
   pool,
   canWrite,
+  isOwner,
   onSelectPick,
   reloadMovies,
   onOpenPool,
@@ -143,7 +145,8 @@ export default function Recommendations({
               </span>
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">
-              from {effectiveCount} candidates · {describeWeights(pool.weights)}
+              from {effectiveCount} candidates
+              {isOwner && <> · {describeWeights(pool.weights)}</>}
             </p>
           </div>
           <button

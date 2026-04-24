@@ -30,6 +30,7 @@ type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
   canWrite: boolean;
+  isOwner: boolean;
   onSelectPick: (c: Candidate) => void;
 };
 
@@ -41,6 +42,7 @@ export default function ModernRecommendations({
   movies,
   pool,
   canWrite,
+  isOwner,
   onSelectPick,
 }: Props) {
   useLayoutEffect(() => {
@@ -189,7 +191,8 @@ export default function ModernRecommendations({
             </span>
           ) : (
             <span>
-              from {effectiveCount} candidates · {describeWeights(pool.weights ?? DEFAULT_WEIGHTS)}
+              from {effectiveCount} candidates
+              {isOwner && <> · {describeWeights(pool.weights ?? DEFAULT_WEIGHTS)}</>}
             </span>
           )}
         </div>
