@@ -136,10 +136,10 @@ export default function Recommendations({
               For you
             </div>
             <h1 className="mt-1 font-display text-[32px] font-medium leading-[0.95] tracking-tight">
-              <span className="italic">Top {picks.length}</span>
+              <span className="italic">{picks.length} curated</span>
               <br />
               <span className="text-ink-300 font-light italic">
-                for what's next.
+                picks.
               </span>
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">
