@@ -33,7 +33,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // "why did the unfurl fall back to the generic icon?" from a browser
   // without inspecting the rendered meta tags. Safe to leave in — no
   // secrets are exposed beyond the already-client-visible Supabase key.
+  // `?debug=html` returns the rendered HTML as text/plain so we can
+  // inspect the injected og/twitter tags from mobile Safari (iOS has
+  // no built-in view-source).
   const debug = req.query.debug === '1';
+  const debugHtml = req.query.debug === 'html';
 
   const lookup = await lookupMovie(m);
 
@@ -64,18 +68,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     descParts.length > 0
       ? descParts.join(' — ')
       : 'Our family movie night tracker';
-  const img =
-    (movie?.poster as string | undefined) || `${origin}/apple-touch-icon.png`;
+  const img = movie?.poster
+    ? `${origin}/api/poster?url=${encodeURIComponent(movie.poster)}`
+    : `${origin}/apple-touch-icon.png`;
   const canonical = `${origin}/?m=${encodeURIComponent(m)}`;
 
-  // Strip the static og:* and twitter:* meta tags from the template so
-  // the injected ones are the only copy the unfurler sees. Apple's
-  // LPMetadataProvider picks the *first* og:image, so leaving the
-  // static "/apple-touch-icon.png" tag above ours silently drops the
-  // movie poster every time.
+  // Strip the static og:*, twitter:*, and apple-touch-icon link tags
+  // from the template so the injected ones are the only copy the
+  // unfurler sees. Apple's LPMetadataProvider picks the *first*
+  // og:image, and falls back to apple-touch-icon when og:image
+  // can't be fetched, so leaving either in place risked the static
+  // play-button icon winning.
   const stripped = html
     .replace(/\s*<meta\s+property="og:[^"]+"[^>]*\/?\s*>/gi, '')
-    .replace(/\s*<meta\s+name="twitter:[^"]+"[^>]*\/?\s*>/gi, '');
+    .replace(/\s*<meta\s+name="twitter:[^"]+"[^>]*\/?\s*>/gi, '')
+    .replace(/\s*<link\s+rel="apple-touch-icon"[^>]*\/?\s*>/gi, '');
 
   const tags = [
     `<meta property="og:type" content="video.movie" />`,
@@ -91,15 +98,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const out = stripped.replace('</head>', `    ${tags}\n  </head>`);
 
+  if (debugHtml) {
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    return res.status(200).send(out);
+  }
+
   res.setHeader('content-type', 'text/html; charset=utf-8');
-  // Hits cache for 60s; misses do not cache so a deploy/fix propagates
-  // without a 24h SWR tail of stale generic previews on earlier misses.
-  res.setHeader(
-    'cache-control',
-    movie
-      ? 'public, s-maxage=60, stale-while-revalidate=300'
-      : 'public, no-cache, no-store, must-revalidate',
-  );
+  // Edge caching disabled while we're still iterating on the tag
+  // generation. Re-add s-maxage once the unfurl is verified working.
+  res.setHeader('cache-control', 'public, no-cache, no-store, must-revalidate');
   res.setHeader('x-share-resolved', movie ? '1' : '0');
   return res.status(200).send(out);
 }
