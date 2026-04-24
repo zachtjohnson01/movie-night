@@ -266,7 +266,7 @@ export default function ModernWatchedList({
               letterSpacing: 0.2,
             }}
           >
-            Since {formatMonthYear(earliest)} · counting every Friday.
+            Since {formatMonthYear(earliest)}.
           </div>
         )}
       </div>
