@@ -102,7 +102,7 @@ export default function ModernWishlist({
             lineHeight: 1,
           }}
         >
-          <span style={{ fontStyle: 'italic' }}>{wishAll.length}</span> to watch
+          <span style={{ fontStyle: 'italic' }}>{wishAll.length}</span> in the
           <br />
           <span
             style={{
@@ -111,7 +111,7 @@ export default function ModernWishlist({
               fontWeight: 300,
             }}
           >
-            next.
+            queue.
           </span>
         </div>
 

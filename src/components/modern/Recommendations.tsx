@@ -160,7 +160,7 @@ export default function ModernRecommendations({
             lineHeight: 1,
           }}
         >
-          <span style={{ fontStyle: 'italic' }}>Top {picks.length}</span>
+          <span style={{ fontStyle: 'italic' }}>{picks.length} curated</span>
           <br />
           <span
             style={{
@@ -169,7 +169,7 @@ export default function ModernRecommendations({
               fontWeight: 300,
             }}
           >
-            for what's next.
+            picks.
           </span>
         </div>
         <div
