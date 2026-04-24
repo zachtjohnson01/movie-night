@@ -5,6 +5,7 @@ import {
   getDisplayTitle,
   todayIso,
 } from '../../format';
+import { commonSenseUrl } from '../../omdb';
 import {
   AMBER,
   BG,
@@ -268,42 +269,51 @@ function ModernView({
 
       {/* Chip stats */}
       <div style={{ padding: '24px 20px 0' }}>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          {movie.commonSenseAge && (
+        <div
+          style={{
+            display: 'grid',
+            gap: 10,
+            gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          }}
+        >
+          <a
+            href={commonSenseUrl(movie)}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: '10px 14px',
+              borderRadius: 12,
+              background: age.bg,
+              border: `1px solid ${age.border}`,
+              textDecoration: 'none',
+              display: 'block',
+            }}
+          >
             <div
               style={{
-                padding: '10px 14px',
-                borderRadius: 12,
-                background: age.bg,
-                border: `1px solid ${age.border}`,
+                fontFamily: SANS,
+                fontSize: 10,
+                color: INK_3,
+                letterSpacing: 1,
+                textTransform: 'uppercase',
+                fontWeight: 600,
               }}
             >
-              <div
-                style={{
-                  fontFamily: SANS,
-                  fontSize: 10,
-                  color: INK_3,
-                  letterSpacing: 1,
-                  textTransform: 'uppercase',
-                  fontWeight: 600,
-                }}
-              >
-                Common Sense
-              </div>
-              <div
-                style={{
-                  fontFamily: DISPLAY,
-                  fontSize: 22,
-                  color: age.fg,
-                  fontWeight: 600,
-                  marginTop: 2,
-                  letterSpacing: -0.3,
-                }}
-              >
-                {movie.commonSenseAge}
-              </div>
+              CSM Age
             </div>
-          )}
+            <div
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: 22,
+                color: age.fg,
+                fontWeight: 600,
+                marginTop: 2,
+                letterSpacing: -0.3,
+              }}
+            >
+              {movie.commonSenseAge || '—'}
+            </div>
+          </a>
           <ChipStat label="Rotten T." value={movie.rottenTomatoes || '—'} />
           <ChipStat label="IMDb" value={movie.imdb || '—'} />
         </div>
