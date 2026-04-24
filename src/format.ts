@@ -81,6 +81,39 @@ export function primaryScore(m: Movie): string | null {
   return null;
 }
 
+export type ShareData = { title: string; text: string; url: string };
+
+/**
+ * Build the payload passed to `navigator.share()` (or clipboard fallback).
+ * `url` deep-links into the PWA via the `?m=<title>` query param so the
+ * recipient lands on this movie's Detail page. `text` includes the
+ * primary score and Common Sense age when available so the iOS unfurl
+ * has useful context even before the image preview loads.
+ */
+export function buildShareData(
+  m: Pick<
+    Movie,
+    'title' | 'displayTitle' | 'year' | 'rottenTomatoes' | 'imdb' | 'commonSenseAge'
+  >,
+  origin: string,
+): ShareData {
+  const displayed = getDisplayTitle(m);
+  const titleBase = m.year ? `${displayed} (${m.year})` : displayed;
+  const parts: string[] = [titleBase];
+  const score = m.rottenTomatoes
+    ? `RT ${m.rottenTomatoes}`
+    : m.imdb
+      ? `IMDb ${m.imdb}`
+      : null;
+  if (score) parts.push(score);
+  if (m.commonSenseAge) parts.push(m.commonSenseAge);
+  return {
+    title: titleBase,
+    text: parts.join(' — '),
+    url: `${origin}/?m=${encodeURIComponent(m.title)}`,
+  };
+}
+
 /**
  * Find the earliest known dateWatched among a list of movies.
  * Returns an ISO string or null if no movie has a known date.

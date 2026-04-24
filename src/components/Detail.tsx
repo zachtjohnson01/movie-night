@@ -1,12 +1,14 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Movie } from '../types';
 import {
+  buildShareData,
   formatDate,
   formatRelativeTime,
   getDisplayTitle,
   parseNameList,
   todayIso,
 } from '../format';
+import ShareButton from './ShareButton';
 import {
   OmdbError,
   commonSenseUrl,
@@ -350,19 +352,27 @@ export default function Detail(props: Props) {
             <span className="text-base font-medium">Back</span>
           </button>
           {!editing ? (
-            props.canWrite && props.mode !== 'candidate' ? (
-              <button
-                type="button"
-                onClick={startEdit}
-                className="min-h-[44px] px-4 rounded-xl text-amber-glow font-semibold active:bg-ink-800"
-              >
-                Edit
-              </button>
-            ) : (
-              <div aria-hidden className="min-h-[44px]" />
-            )
+            <div className="flex items-center gap-1">
+              <ShareButton
+                data={buildShareData(movie, window.location.origin)}
+              />
+              {props.canWrite && props.mode !== 'candidate' && (
+                <button
+                  type="button"
+                  onClick={startEdit}
+                  className="min-h-[44px] px-4 rounded-xl text-amber-glow font-semibold active:bg-ink-800"
+                >
+                  Edit
+                </button>
+              )}
+            </div>
           ) : (
             <div className="flex items-center gap-1">
+              {draft.title.trim() && (
+                <ShareButton
+                  data={buildShareData(draft, window.location.origin)}
+                />
+              )}
               <button
                 type="button"
                 onClick={cancelEdit}

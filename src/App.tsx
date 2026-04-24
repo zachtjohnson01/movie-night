@@ -45,6 +45,39 @@ function readInitialDesign(): Design {
   }
 }
 
+/**
+ * Read the `?m=<title>` deep-link param from the URL on first render.
+ * The title can't be resolved synchronously — movies haven't loaded
+ * from Supabase yet — so we stash it and match once `movies` arrives.
+ */
+function readPendingDeepLink(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const param = new URL(window.location.href).searchParams.get('m');
+    return param ? param : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Rewrite the URL's `?m=` param without reloading. Used when navigating
+ * between list and detail views so a refresh or back-button keeps the
+ * right state, and shared URLs still work.
+ */
+function setDeepLinkParam(title: string | null) {
+  if (typeof window === 'undefined') return;
+  try {
+    const url = new URL(window.location.href);
+    if (title) url.searchParams.set('m', title);
+    else url.searchParams.delete('m');
+    const next = url.pathname + (url.search ? url.search : '') + url.hash;
+    window.history.replaceState(null, '', next);
+  } catch {
+    // URL manipulation can fail in odd sandboxes — just no-op.
+  }
+}
+
 export default function App() {
   const pool = useCandidatePool();
   const {
@@ -68,6 +101,12 @@ export default function App() {
     'watched' | 'wishlist' | null
   >(null);
   const [design, setDesign] = useState<Design>(readInitialDesign);
+  // A shared `?m=<title>` link was opened: hold the requested title
+  // until `movies` loads, then match and switch to the detail view.
+  // Cleared to null once consumed (hit or miss).
+  const [pendingDeepLink, setPendingDeepLink] = useState<string | null>(
+    readPendingDeepLink,
+  );
   // Preview-only state: lets the owner temporarily hide owner-exclusive
   // tools (Enhance / Enhance All) to see what the UI looks like for a
   // non-owner allowlisted user. Not persisted — resets on reload so the
@@ -100,6 +139,30 @@ export default function App() {
       setScreen({ name: 'list' });
     }
   }, [movies, screen]);
+
+  // Resolve a pending `?m=<title>` deep link once movies have loaded.
+  // If the title matches, open that movie's detail view; otherwise
+  // just clear the param so the URL reflects the actual state.
+  useEffect(() => {
+    if (!pendingDeepLink) return;
+    if (movies.length === 0) return;
+    const match = movies.find((m) => m.title === pendingDeepLink);
+    if (match) {
+      setScreen({ name: 'detail', title: match.title });
+    } else {
+      setDeepLinkParam(null);
+    }
+    setPendingDeepLink(null);
+  }, [pendingDeepLink, movies]);
+
+  // Mirror the current screen into the URL so refresh / browser-back /
+  // Shared copy keep working. Only list ↔ detail participates; ephemeral
+  // flows (new / candidate / pool) don't persist in the URL.
+  useEffect(() => {
+    if (pendingDeepLink) return;
+    if (screen.name === 'detail') setDeepLinkParam(screen.title);
+    else if (screen.name === 'list') setDeepLinkParam(null);
+  }, [screen, pendingDeepLink]);
 
   // Admin screens require write access. If the user signs out while on
   // the pool admin screen, bounce them back to the list.
