@@ -83,18 +83,56 @@ type MovieLike = {
   poster?: string | null;
 };
 
+type LibraryEntryLike = {
+  title: string;
+  imdbId?: string | null;
+  displayTitle?: string | null;
+  commonSenseAge?: string | null;
+};
+
+type CandidateLike = {
+  title: string;
+  imdbId?: string | null;
+  year?: number | null;
+  poster?: string | null;
+  rottenTomatoes?: string | null;
+  imdb?: string | null;
+};
+
+// Row id=1 holds LibraryEntry[] (user overlay), row id=2 holds Candidate[]
+// (OMDB enrichment). The rendered movie is the join of the two — same
+// precedence as `findCandidate` / `mergeEntry` in src/useMovies.ts.
 async function lookupMovie(title: string): Promise<MovieLike | null> {
   if (!title || !supabaseUrl || !supabaseKey) return null;
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('movie_night')
-      .select('movies')
-      .eq('id', 1)
-      .maybeSingle();
+      .select('id, movies')
+      .in('id', [1, 2]);
     if (error || !data) return null;
-    const movies = (data.movies ?? []) as MovieLike[];
-    return movies.find((x) => x?.title === title) ?? null;
+    const entries =
+      (data.find((r) => r.id === 1)?.movies ?? []) as LibraryEntryLike[];
+    const candidates =
+      (data.find((r) => r.id === 2)?.movies ?? []) as CandidateLike[];
+    const entry = entries.find((x) => x?.title === title);
+    if (!entry) return null;
+    const candidate =
+      (entry.imdbId
+        ? candidates.find((c) => c.imdbId === entry.imdbId)
+        : undefined) ??
+      candidates.find(
+        (c) => c.title?.toLowerCase() === entry.title.toLowerCase(),
+      );
+    return {
+      title: entry.title,
+      displayTitle: entry.displayTitle ?? null,
+      commonSenseAge: entry.commonSenseAge ?? null,
+      year: candidate?.year ?? null,
+      poster: candidate?.poster ?? null,
+      rottenTomatoes: candidate?.rottenTomatoes ?? null,
+      imdb: candidate?.imdb ?? null,
+    };
   } catch {
     return null;
   }
