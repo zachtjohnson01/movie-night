@@ -283,6 +283,7 @@ export default function ModernWatchedList({
             <div
               style={{
                 display: 'flex',
+                alignItems: 'flex-start',
                 gap: 14,
                 padding: '0 20px',
                 overflowX: 'auto',
@@ -316,11 +317,6 @@ export default function ModernWatchedList({
                       marginTop: 8,
                       lineHeight: 1.25,
                       letterSpacing: -0.1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
                     }}
                   >
                     {getDisplayTitle(m)}
