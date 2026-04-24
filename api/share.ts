@@ -68,6 +68,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     (movie?.poster as string | undefined) || `${origin}/apple-touch-icon.png`;
   const canonical = `${origin}/?m=${encodeURIComponent(m)}`;
 
+  // Strip the static og:* and twitter:* meta tags from the template so
+  // the injected ones are the only copy the unfurler sees. Apple's
+  // LPMetadataProvider picks the *first* og:image, so leaving the
+  // static "/apple-touch-icon.png" tag above ours silently drops the
+  // movie poster every time.
+  const stripped = html
+    .replace(/\s*<meta\s+property="og:[^"]+"[^>]*\/?\s*>/gi, '')
+    .replace(/\s*<meta\s+name="twitter:[^"]+"[^>]*\/?\s*>/gi, '');
+
   const tags = [
     `<meta property="og:type" content="video.movie" />`,
     `<meta property="og:title" content="${escapeHtml(titleTxt)}" />`,
@@ -80,10 +89,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     `<meta name="twitter:image" content="${escapeHtml(img)}" />`,
   ].join('\n    ');
 
-  // Append the dynamic tags just before </head>. Placing them after
-  // the static OG fallbacks in index.html means unfurlers that use
-  // "last wins" rules pick the movie-specific values.
-  const out = html.replace('</head>', `    ${tags}\n  </head>`);
+  const out = stripped.replace('</head>', `    ${tags}\n  </head>`);
 
   res.setHeader('content-type', 'text/html; charset=utf-8');
   // Hits cache for 60s; misses do not cache so a deploy/fix propagates
