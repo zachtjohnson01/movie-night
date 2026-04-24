@@ -2,38 +2,11 @@ import { useState } from 'react';
 import type { ShareData } from '../format';
 
 /**
- * Fetch the movie poster through the same-origin `/api/poster` proxy
- * and wrap it in a `File` so `navigator.share({ files })` can attach
- * the image directly. Direct cross-origin fetch from the browser to
- * m.media-amazon.com is blocked by CORS, so the proxy is required.
- * Returns null on any failure — callers fall back to a URL-only share.
- */
-async function fetchPosterAsFile(posterUrl: string): Promise<File | null> {
-  try {
-    const proxyUrl = `/api/poster?url=${encodeURIComponent(posterUrl)}`;
-    const res = await fetch(proxyUrl);
-    if (!res.ok) return null;
-    const blob = await res.blob();
-    if (blob.size === 0) return null;
-    const ext = blob.type === 'image/png' ? 'png' : 'jpg';
-    return new File([blob], `poster.${ext}`, {
-      type: blob.type || 'image/jpeg',
-    });
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Shared click behaviour for Share buttons. Invokes `navigator.share()`
  * when the Web Share API is available (iOS Safari + installed PWA),
  * falls back to copying the deep link to the clipboard and flashing a
  * transient `copied` state for confirmation. AbortError/NotAllowedError
  * are swallowed (user cancelled the share sheet).
- *
- * When a poster is available and the platform supports file sharing,
- * the image is attached directly so iMessage etc. show the real poster
- * even when the server-side `/api/share` unfurl is unavailable.
  */
 export function useShareAction(data: ShareData): {
   onClick: () => Promise<void>;
@@ -45,38 +18,8 @@ export function useShareAction(data: ShareData): {
 
   async function onClick() {
     if (canNativeShare) {
-      // Try attaching the poster as a file first so the recipient sees
-      // the actual movie artwork without relying on iMessage unfurling
-      // the URL server-side. Inline the URL into `text` so the deep
-      // link is still tappable.
-      if (data.posterUrl) {
-        const file = await fetchPosterAsFile(data.posterUrl);
-        if (
-          file &&
-          typeof navigator.canShare === 'function' &&
-          navigator.canShare({ files: [file] })
-        ) {
-          try {
-            await navigator.share({
-              title: data.title,
-              text: `${data.text}\n\n${data.url}`,
-              files: [file],
-            });
-            return;
-          } catch (err) {
-            const name = (err as { name?: string } | null)?.name;
-            if (name === 'AbortError' || name === 'NotAllowedError') return;
-            // File-share rejected at the OS level — fall through to URL.
-            console.warn('file share failed, retrying with URL only', err);
-          }
-        }
-      }
       try {
-        await navigator.share({
-          title: data.title,
-          text: data.text,
-          url: data.url,
-        });
+        await navigator.share(data);
       } catch (err) {
         const name = (err as { name?: string } | null)?.name;
         if (name === 'AbortError' || name === 'NotAllowedError') return;

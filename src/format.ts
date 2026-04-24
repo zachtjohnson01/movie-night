@@ -81,27 +81,16 @@ export function primaryScore(m: Movie): string | null {
   return null;
 }
 
-export type ShareData = {
-  title: string;
-  text: string;
-  url: string;
-  /**
-   * Poster image URL, if available. When `navigator.canShare({ files })`
-   * is supported, the ShareButton fetches this via `/api/poster` and
-   * attaches the bytes directly to `navigator.share()` so iMessage
-   * renders the poster inline without round-tripping through the
-   * server-side unfurler. Null = no poster on the movie, use URL-only
-   * share.
-   */
-  posterUrl: string | null;
-};
+export type ShareData = { title: string; text: string; url: string };
 
 /**
  * Build the payload passed to `navigator.share()` (or clipboard fallback).
  * `url` deep-links into the PWA via the `?m=<title>` query param so the
  * recipient lands on this movie's Detail page. `text` includes the
  * primary score and Common Sense age when available so the iOS unfurl
- * has useful context even before the image preview loads.
+ * has useful context even before the image preview loads. The leading
+ * question changes based on whether the movie has been watched — a
+ * recommendation to watch vs. an "already seen, here's our take".
  */
 export function buildShareData(
   m: Pick<
@@ -112,7 +101,7 @@ export function buildShareData(
     | 'rottenTomatoes'
     | 'imdb'
     | 'commonSenseAge'
-    | 'poster'
+    | 'watched'
   >,
   origin: string,
 ): ShareData {
@@ -122,11 +111,13 @@ export function buildShareData(
   if (m.rottenTomatoes) parts.push(`RT ${m.rottenTomatoes}`);
   if (m.imdb) parts.push(`IMDb ${m.imdb}`);
   if (m.commonSenseAge) parts.push(m.commonSenseAge);
+  const prefix = m.watched
+    ? 'We watched this for family movie night!'
+    : 'Next family movie night?';
   return {
     title: titleBase,
-    text: `Next family movie night?\n\n${parts.join(' — ')}`,
+    text: `${prefix}\n\n${parts.join(' — ')}`,
     url: `${origin}/?m=${encodeURIComponent(m.title)}`,
-    posterUrl: m.poster ?? null,
   };
 }
 
