@@ -188,9 +188,15 @@ export function buildShareHtml(params: {
     descParts.length > 0
       ? descParts.join(' — ')
       : 'Our family movie night tracker';
-  const img = movie?.poster
-    ? `${origin}/api/poster?url=${encodeURIComponent(movie.poster)}`
-    : `${origin}/apple-touch-icon.png`;
+  // og:image points directly at the poster URL (Amazon / TMDB).
+  // We briefly proxied it through /api/poster to avoid a theorised
+  // Amazon-blocks-Apple-UA problem, but the real bug was the root-path
+  // rewrite — now that we're on /share/<title> the unfurler is reading
+  // our tags correctly, so skip the extra fetch hop. Apple's link
+  // previewer has ~5s to assemble the card and routing through the
+  // proxy added latency + a URL without an image extension, both of
+  // which can silently drop the image.
+  const img = movie?.poster ? movie.poster : `${origin}/apple-touch-icon.png`;
 
   // Strip the static og:*, twitter:*, and apple-touch-icon link tags
   // from the template so the injected ones are the only copy the
