@@ -217,6 +217,41 @@ export default function Detail(props: Props) {
   const movie = props.mode === 'new' ? draft : props.movie;
   const isWatched = movie.watched;
 
+  // Override the page's og:image / og:title (and Twitter equivalents)
+  // while a Detail with a known poster is open so the iOS Share Sheet
+  // preview card — which reads the current document, not /api/share —
+  // shows the movie's poster and "Title (Year)" instead of the static
+  // play-button icon. iMessage's after-send unfurl is handled
+  // separately by api/share.ts. Restore originals on unmount/change.
+  const sharePoster = movie.poster;
+  const shareTitle = movie.poster
+    ? `${getDisplayTitle(movie)}${movie.year ? ` (${movie.year})` : ''}`
+    : null;
+  useEffect(() => {
+    if (!sharePoster || !shareTitle) return;
+    const targets: Array<{
+      el: Element | null;
+      attr: 'content';
+      next: string;
+    }> = [
+      { el: document.querySelector('meta[property="og:image"]'), attr: 'content', next: sharePoster },
+      { el: document.querySelector('meta[name="twitter:image"]'), attr: 'content', next: sharePoster },
+      { el: document.querySelector('meta[property="og:title"]'), attr: 'content', next: shareTitle },
+      { el: document.querySelector('meta[name="twitter:title"]'), attr: 'content', next: shareTitle },
+    ];
+    const originals = targets.map((t) => ({
+      el: t.el,
+      attr: t.attr,
+      prev: t.el?.getAttribute(t.attr) ?? null,
+    }));
+    targets.forEach((t) => t.el?.setAttribute(t.attr, t.next));
+    return () => {
+      originals.forEach((o) => {
+        if (o.prev !== null) o.el?.setAttribute(o.attr, o.prev);
+      });
+    };
+  }, [sharePoster, shareTitle]);
+
   function startEdit() {
     setDraft(movie);
     setEditing(true);

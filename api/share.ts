@@ -38,7 +38,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     : 'Family Movie Night';
   const descParts: string[] = [];
   if (movie?.rottenTomatoes) descParts.push(`RT ${movie.rottenTomatoes}`);
-  else if (movie?.imdb) descParts.push(`IMDb ${movie.imdb}`);
+  if (movie?.imdb) descParts.push(`IMDb ${movie.imdb}`);
   if (movie?.commonSenseAge) descParts.push(movie.commonSenseAge as string);
   const desc =
     descParts.length > 0
