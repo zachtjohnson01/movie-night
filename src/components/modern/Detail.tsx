@@ -141,11 +141,10 @@ function ModernView({
     await onUpdate({ ...movie, notes: notes || null });
   }
   async function handleDelete() {
-    if (
-      !confirm(`Delete "${getDisplayTitle(movie)}"? This can't be undone.`)
-    ) {
-      return;
-    }
+    const prompt = movie.watched
+      ? `Delete "${getDisplayTitle(movie)}"? This can't be undone.`
+      : `Remove "${getDisplayTitle(movie)}" from your wishlist?`;
+    if (!confirm(prompt)) return;
     await onDelete(movie);
   }
 
@@ -609,7 +608,7 @@ function ModernView({
               cursor: 'pointer',
             }}
           >
-            Delete movie
+            {movie.watched ? 'Delete movie' : 'Remove from wishlist'}
           </button>
         </div>
       )}
