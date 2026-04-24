@@ -81,7 +81,20 @@ export function primaryScore(m: Movie): string | null {
   return null;
 }
 
-export type ShareData = { title: string; text: string; url: string };
+export type ShareData = {
+  title: string;
+  text: string;
+  url: string;
+  /**
+   * Poster image URL, if available. When `navigator.canShare({ files })`
+   * is supported, the ShareButton fetches this via `/api/poster` and
+   * attaches the bytes directly to `navigator.share()` so iMessage
+   * renders the poster inline without round-tripping through the
+   * server-side unfurler. Null = no poster on the movie, use URL-only
+   * share.
+   */
+  posterUrl: string | null;
+};
 
 /**
  * Build the payload passed to `navigator.share()` (or clipboard fallback).
@@ -93,7 +106,13 @@ export type ShareData = { title: string; text: string; url: string };
 export function buildShareData(
   m: Pick<
     Movie,
-    'title' | 'displayTitle' | 'year' | 'rottenTomatoes' | 'imdb' | 'commonSenseAge'
+    | 'title'
+    | 'displayTitle'
+    | 'year'
+    | 'rottenTomatoes'
+    | 'imdb'
+    | 'commonSenseAge'
+    | 'poster'
   >,
   origin: string,
 ): ShareData {
@@ -107,6 +126,7 @@ export function buildShareData(
     title: titleBase,
     text: `Next family movie night?\n\n${parts.join(' — ')}`,
     url: `${origin}/?m=${encodeURIComponent(m.title)}`,
+    posterUrl: m.poster ?? null,
   };
 }
 
