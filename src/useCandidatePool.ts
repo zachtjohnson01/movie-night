@@ -25,6 +25,7 @@ export type CandidatePoolApi = {
   toggleDownvote: (title: string) => Promise<void>;
   removeCandidate: (title: string, reason: string) => Promise<void>;
   restoreCandidate: (title: string) => Promise<void>;
+  updateWeights: (next: ScoringWeights) => Promise<void>;
   reload: () => void;
   bulkRefreshOmdb: (
     onProgress: (done: number, total: number) => void,
@@ -51,6 +52,8 @@ export function useCandidatePool(): CandidatePoolApi {
   latestRef.current = candidates;
   const reasonsRef = useRef<string[]>([]);
   reasonsRef.current = reasons;
+  const weightsRef = useRef<ScoringWeights>(DEFAULT_WEIGHTS);
+  weightsRef.current = weights;
 
   useEffect(() => {
     if (!supabase) return;
@@ -118,7 +121,7 @@ export function useCandidatePool(): CandidatePoolApi {
       if (!weightsRes.error && weightsRes.data?.movies) {
         const raw = weightsRes.data.movies as Partial<ScoringWeights>;
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-          setWeights({ ...DEFAULT_WEIGHTS, ...raw });
+          setWeights(normalizeWeights({ ...DEFAULT_WEIGHTS, ...raw }));
         }
       }
     }
@@ -157,6 +160,26 @@ export function useCandidatePool(): CandidatePoolApi {
         (payload) => {
           const next = (payload.new as { movies?: string[] } | null)?.movies;
           if (Array.isArray(next)) setReasons(next);
+        },
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: MOVIE_NIGHT_TABLE,
+          filter: `id=eq.${SCORING_WEIGHTS_ROW_ID}`,
+        },
+        (payload) => {
+          const next = (payload.new as { movies?: unknown } | null)?.movies;
+          if (next && typeof next === 'object' && !Array.isArray(next)) {
+            setWeights(
+              normalizeWeights({
+                ...DEFAULT_WEIGHTS,
+                ...(next as Partial<ScoringWeights>),
+              }),
+            );
+          }
         },
       )
       .subscribe();
@@ -282,6 +305,24 @@ export function useCandidatePool(): CandidatePoolApi {
     [writePool],
   );
 
+  const updateWeights = useCallback(async (next: ScoringWeights) => {
+    if (!supabase) return;
+    const total = Object.values(next).reduce((a, b) => a + b, 0);
+    if (total !== 100) {
+      throw new Error(`Weights must sum to 100 (got ${total})`);
+    }
+    const previous = weightsRef.current;
+    setWeights(next);
+    const { error } = await supabase
+      .from(MOVIE_NIGHT_TABLE)
+      .upsert({ id: SCORING_WEIGHTS_ROW_ID, movies: next });
+    if (error) {
+      console.error('[useCandidatePool] weights write failed', error);
+      setWeights(previous);
+      throw error;
+    }
+  }, []);
+
   const bulkRefreshOmdb = useCallback(
     async (
       onProgress: (done: number, total: number) => void,
@@ -348,9 +389,42 @@ export function useCandidatePool(): CandidatePoolApi {
     toggleDownvote,
     removeCandidate,
     restoreCandidate,
+    updateWeights,
     reload,
     bulkRefreshOmdb,
   };
+}
+
+/**
+ * Handles the scale drift from the pre-editor decimal weights (which summed
+ * to ~1.15) to the new integer-percent scale (which must sum to 100). If
+ * every value looks like a fraction (<=1), rescale to integers and nudge
+ * the largest weight to absorb rounding so the sum lands at 100. Otherwise
+ * assume the stored values are already on the new scale and pass through.
+ */
+function normalizeWeights(w: ScoringWeights): ScoringWeights {
+  const values = Object.values(w);
+  const allFractional = values.every((v) => v <= 1);
+  if (!allFractional) return w;
+
+  const total = values.reduce((a, b) => a + b, 0);
+  if (total <= 0) return DEFAULT_WEIGHTS;
+
+  const keys = Object.keys(w) as Array<keyof ScoringWeights>;
+  const scaled = keys.map((k) => Math.round((w[k] / total) * 100));
+  const diff = 100 - scaled.reduce((a, b) => a + b, 0);
+  if (diff !== 0) {
+    let maxIdx = 0;
+    for (let i = 1; i < scaled.length; i++) {
+      if (scaled[i] > scaled[maxIdx]) maxIdx = i;
+    }
+    scaled[maxIdx] += diff;
+  }
+  const out = {} as ScoringWeights;
+  keys.forEach((k, i) => {
+    out[k] = scaled[i];
+  });
+  return out;
 }
 
 function sameNameList(

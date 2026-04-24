@@ -31,14 +31,19 @@ export type ScoringWeights = {
   writer: number;
 };
 
+// Integer percentages that must sum to 100 — the admin weights editor
+// enforces this invariant on save. The scoring algorithm itself doesn't
+// care about absolute scale (it renormalizes against the sum of weights
+// of signals actually present), so the 0–100 representation is purely a
+// UX choice that makes the "tweak the model" form obvious to read.
 export const DEFAULT_WEIGHTS: ScoringWeights = {
-  rt: 0.30,
-  imdb: 0.30,
-  csm: 0.20,
-  studio: 0.10,
-  awards: 0.10,
-  director: 0.10,
-  writer: 0.05,
+  rt: 26,
+  imdb: 26,
+  csm: 17,
+  studio: 9,
+  awards: 9,
+  director: 9,
+  writer: 4,
 };
 
 export type ScoreInput = Pick<
