@@ -1,16 +1,38 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { buildShareHtml, env, lookupMovie } from './_lib/share-core';
+import {
+  buildShareHtml,
+  env,
+  lookupMovie,
+} from '../_lib/share-core';
 
 /**
- * Legacy OG-tag injector for `/?m=<title>` URLs. Kept so iMessage
- * bubbles that were sent before we switched to `/share/<title>`
- * continue to unfurl. New shares go through api/share/[title].ts.
+ * OG-tag injector for share links like `/share/<title>`.
+ *
+ * This replaces the fragile `/?m=<title>` + root-path rewrite
+ * approach. Vercel routes `/share/*` here via a path-prefix rewrite
+ * in vercel.json, which is far more reliable than matching the root
+ * path with a `has`-query-param condition.
+ *
+ * The returned HTML includes:
+ *   - Dynamic og:* / twitter:* tags so unfurlers (iMessage, Slack,
+ *     Twitter, etc.) render a rich preview with the movie poster.
+ *   - A <meta http-equiv="refresh"> redirect to `/?m=<title>` so when
+ *     a human taps the link, their browser lands in the SPA with the
+ *     existing client-side deep-link reader handling the rest.
+ *     Unfurlers read meta tags but don't follow meta-refresh, so they
+ *     see the preview tags before the redirect.
  */
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
 ) {
-  const m = typeof req.query.m === 'string' ? req.query.m : '';
+  const rawTitle = req.query.title;
+  const title =
+    typeof rawTitle === 'string'
+      ? decodeURIComponent(rawTitle)
+      : Array.isArray(rawTitle)
+        ? decodeURIComponent(rawTitle[0] ?? '')
+        : '';
   const host = req.headers.host ?? '';
   const proto =
     (req.headers['x-forwarded-proto'] as string | undefined) || 'https';
@@ -26,26 +48,28 @@ export default async function handler(
   const debug = req.query.debug === '1';
   const debugHtml = req.query.debug === 'html';
 
-  const lookup = await lookupMovie(m);
+  const lookup = await lookupMovie(title);
 
   if (debug) {
     res.setHeader('content-type', 'application/json; charset=utf-8');
     res.setHeader('cache-control', 'no-store');
     return res.status(200).json({
-      requestedTitle: m,
+      requestedTitle: title,
       ...env,
       ...lookup.debug,
       resolved: lookup.movie,
     });
   }
 
-  const canonical = `${origin}/?m=${encodeURIComponent(m)}`;
-  // No spaRedirect needed — `/?m=...` already loads the SPA directly.
+  const canonical = `${origin}/share/${encodeURIComponent(title)}`;
+  const spaRedirect = `/?m=${encodeURIComponent(title)}`;
+
   const out = buildShareHtml({
     template,
     origin,
     movie: lookup.movie,
     canonical,
+    spaRedirect,
   });
 
   if (debugHtml) {

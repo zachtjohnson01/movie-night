@@ -117,7 +117,7 @@ export function buildShareData(
   return {
     title: titleBase,
     text: `${prefix}\n\n${parts.join(' — ')}`,
-    url: `${origin}/?m=${encodeURIComponent(m.title)}`,
+    url: `${origin}/share/${encodeURIComponent(m.title)}`,
   };
 }
 
