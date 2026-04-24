@@ -100,16 +100,12 @@ export function buildShareData(
   const displayed = getDisplayTitle(m);
   const titleBase = m.year ? `${displayed} (${m.year})` : displayed;
   const parts: string[] = [titleBase];
-  const score = m.rottenTomatoes
-    ? `RT ${m.rottenTomatoes}`
-    : m.imdb
-      ? `IMDb ${m.imdb}`
-      : null;
-  if (score) parts.push(score);
+  if (m.rottenTomatoes) parts.push(`RT ${m.rottenTomatoes}`);
+  if (m.imdb) parts.push(`IMDb ${m.imdb}`);
   if (m.commonSenseAge) parts.push(m.commonSenseAge);
   return {
     title: titleBase,
-    text: parts.join(' — '),
+    text: `Next family movie night?\n\n${parts.join(' — ')}`,
     url: `${origin}/?m=${encodeURIComponent(m.title)}`,
   };
 }
