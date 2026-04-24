@@ -188,15 +188,17 @@ export function buildShareHtml(params: {
     descParts.length > 0
       ? descParts.join(' — ')
       : 'Our family movie night tracker';
-  // og:image points directly at the poster URL (Amazon / TMDB).
-  // We briefly proxied it through /api/poster to avoid a theorised
-  // Amazon-blocks-Apple-UA problem, but the real bug was the root-path
-  // rewrite — now that we're on /share/<title> the unfurler is reading
-  // our tags correctly, so skip the extra fetch hop. Apple's link
-  // previewer has ~5s to assemble the card and routing through the
-  // proxy added latency + a URL without an image extension, both of
-  // which can silently drop the image.
-  const img = movie?.poster ? movie.poster : `${origin}/apple-touch-icon.png`;
+  // og:image points at our same-origin .jpg-extensioned proxy at
+  // /api/poster/<title>.jpg. Originally we tried the raw Amazon URL,
+  // but those poster paths contain "@" (Amazon's content-hash
+  // delimiter) which Apple's LPMetadataProvider appears to reject
+  // when validating the URL — Safari renders it fine, but the
+  // unfurl card silently drops the image. Routing through our
+  // domain gives Apple a clean URL to fetch and we handle the
+  // Amazon side server-side where lenient URL parsing is the norm.
+  const img = movie?.poster
+    ? `${origin}/api/poster/${encodeURIComponent(movie.title)}.jpg`
+    : `${origin}/apple-touch-icon.png`;
 
   // Strip the static og:*, twitter:*, and apple-touch-icon link tags
   // from the template so the injected ones are the only copy the
