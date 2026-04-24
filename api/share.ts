@@ -97,11 +97,15 @@ type CandidateLike = {
   poster?: string | null;
   rottenTomatoes?: string | null;
   imdb?: string | null;
+  commonSenseAge?: string | null;
 };
 
 // Row id=1 holds LibraryEntry[] (user overlay), row id=2 holds Candidate[]
 // (OMDB enrichment). The rendered movie is the join of the two — same
 // precedence as `findCandidate` / `mergeEntry` in src/useMovies.ts.
+// When the shared title isn't in the library (e.g. a For You candidate
+// shared straight from the Detail preview), fall back to the Candidate
+// alone so the unfurl still gets a poster.
 async function lookupMovie(title: string): Promise<MovieLike | null> {
   if (!title || !supabaseUrl || !supabaseKey) return null;
   try {
@@ -115,19 +119,24 @@ async function lookupMovie(title: string): Promise<MovieLike | null> {
       (data.find((r) => r.id === 1)?.movies ?? []) as LibraryEntryLike[];
     const candidates =
       (data.find((r) => r.id === 2)?.movies ?? []) as CandidateLike[];
-    const entry = entries.find((x) => x?.title === title);
-    if (!entry) return null;
-    const candidate =
-      (entry.imdbId
-        ? candidates.find((c) => c.imdbId === entry.imdbId)
-        : undefined) ??
-      candidates.find(
-        (c) => c.title?.toLowerCase() === entry.title.toLowerCase(),
-      );
+    const titleLower = title.toLowerCase();
+    const entry =
+      entries.find((x) => x?.title === title) ??
+      entries.find((x) => x?.title?.toLowerCase() === titleLower);
+    const candidate = entry
+      ? ((entry.imdbId
+          ? candidates.find((c) => c.imdbId === entry.imdbId)
+          : undefined) ??
+          candidates.find(
+            (c) => c.title?.toLowerCase() === entry.title.toLowerCase(),
+          ))
+      : (candidates.find((c) => c.title === title) ??
+          candidates.find((c) => c.title?.toLowerCase() === titleLower));
+    if (!entry && !candidate) return null;
     return {
-      title: entry.title,
-      displayTitle: entry.displayTitle ?? null,
-      commonSenseAge: entry.commonSenseAge ?? null,
+      title: entry?.title ?? candidate?.title ?? title,
+      displayTitle: entry?.displayTitle ?? null,
+      commonSenseAge: entry?.commonSenseAge ?? candidate?.commonSenseAge ?? null,
       year: candidate?.year ?? null,
       poster: candidate?.poster ?? null,
       rottenTomatoes: candidate?.rottenTomatoes ?? null,
