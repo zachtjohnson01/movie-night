@@ -269,7 +269,11 @@ export default function App() {
 
   if (screen.name === 'pool' && auth.canWrite) {
     return (
-      <PoolAdmin pool={pool} onBack={() => setScreen({ name: 'list' })} />
+      <PoolAdmin
+        pool={pool}
+        onBack={() => setScreen({ name: 'list' })}
+        isOwner={effectiveIsOwner}
+      />
     );
   }
 

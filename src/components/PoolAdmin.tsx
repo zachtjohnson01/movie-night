@@ -16,10 +16,12 @@ import MoviePoster from './MoviePoster';
 import MovieSearchCombobox from './MovieSearchCombobox';
 import StatLink from './StatLink';
 import CreatorPills from './CreatorPills';
+import WeightsEditor from './WeightsEditor';
 
 type Props = {
   pool: CandidatePoolApi;
   onBack: () => void;
+  isOwner: boolean;
 };
 
 type FilterKey = 'eligible' | 'missingLink' | 'duplicate' | 'tvShow' | 'removed';
@@ -50,7 +52,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
  * selected problem (missing OMDB link, duplicate title, confirmed TV
  * show, already removed) or to the clean "eligible" subset.
  */
-export default function PoolAdmin({ pool, onBack }: Props) {
+export default function PoolAdmin({ pool, onBack, isOwner }: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Candidate | null>(null);
   const [active, setActive] = useState<Set<FilterKey>>(new Set());
@@ -248,6 +250,10 @@ export default function PoolAdmin({ pool, onBack }: Props) {
           })}
         </div>
       </header>
+
+      {isOwner && (
+        <WeightsEditor weights={pool.weights} onSave={pool.updateWeights} />
+      )}
 
       <BulkOmdbSection pool={pool} />
 
