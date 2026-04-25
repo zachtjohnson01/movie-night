@@ -23,14 +23,20 @@ import { useSwipeBack } from './useSwipeBack';
 import { useUserRoles } from './useUserRoles';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
+import {
+  DEFAULT_FAMILY_SLUG,
+  pathFromRoute,
+  pushPath,
+  replacePath,
+  useRoute,
+} from './router';
 
-type Screen =
-  | { name: 'list' }
-  | { name: 'detail'; title: string }
+// Modal-ish flows that don't deserve their own URL: creating a new
+// movie, picking from the candidate pool, the owner's pool admin
+// screen, the owner's scoring weights screen. List + detail views
+// come from the URL via `useRoute`.
+type ModalScreen =
   | { name: 'new'; template: Movie }
-  // `candidateTitle` keeps us anchored to the pool row so the Detail
-  // downvote toggle writes back to the right entry. The template itself
-  // is a Movie shape for the existing Detail component to consume.
   | { name: 'candidate'; template: Movie; candidateTitle: string }
   | { name: 'pool' }
   | { name: 'users' }
@@ -51,40 +57,8 @@ function readInitialDesign(): Design {
   }
 }
 
-/**
- * Read the `?m=<title>` deep-link param from the URL on first render.
- * The title can't be resolved synchronously — movies haven't loaded
- * from Supabase yet — so we stash it and match once `movies` arrives.
- */
-function readPendingDeepLink(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const param = new URL(window.location.href).searchParams.get('m');
-    return param ? param : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Rewrite the URL's `?m=` param without reloading. Used when navigating
- * between list and detail views so a refresh or back-button keeps the
- * right state, and shared URLs still work.
- */
-function setDeepLinkParam(title: string | null) {
-  if (typeof window === 'undefined') return;
-  try {
-    const url = new URL(window.location.href);
-    if (title) url.searchParams.set('m', title);
-    else url.searchParams.delete('m');
-    const next = url.pathname + (url.search ? url.search : '') + url.hash;
-    window.history.replaceState(null, '', next);
-  } catch {
-    // URL manipulation can fail in odd sandboxes — just no-op.
-  }
-}
-
 export default function App() {
+  const route = useRoute();
   const pool = useCandidatePool();
   const {
     movies,
@@ -102,24 +76,27 @@ export default function App() {
   const userRoles = useUserRoles();
   const auth = useAuth(userRoles.roles);
   const [tab, setTab] = useState<Tab>('watched');
-  const [screen, setScreen] = useState<Screen>({ name: 'list' });
+  const [modal, setModal] = useState<ModalScreen | null>(null);
   const [showBulkLink, setShowBulkLink] = useState(false);
   const [enhanceScope, setEnhanceScope] = useState<
     'watched' | 'wishlist' | null
   >(null);
   const [design, setDesign] = useState<Design>(readInitialDesign);
-  // A shared `?m=<title>` link was opened: hold the requested title
-  // until `movies` loads, then match and switch to the detail view.
-  // Cleared to null once consumed (hit or miss).
-  const [pendingDeepLink, setPendingDeepLink] = useState<string | null>(
-    readPendingDeepLink,
-  );
   // Preview-only state: lets the owner temporarily hide owner-exclusive
   // tools (Enhance / Enhance All) to see what the UI looks like for a
   // non-owner allowlisted user. Not persisted — resets on reload so the
   // owner can't forget they toggled it and think a feature broke.
   const [viewAsNonOwner, setViewAsNonOwner] = useState(false);
   const effectiveIsOwner = auth.isOwner && !viewAsNonOwner;
+
+  // The slug owning the current view. PR 1 only knows the default
+  // family; later PRs derive this from membership + the route.
+  const currentSlug =
+    route.kind === 'movie' ||
+    route.kind === 'family' ||
+    route.kind === 'settings'
+      ? route.slug
+      : DEFAULT_FAMILY_SLUG;
 
   useEffect(() => {
     try {
@@ -138,95 +115,96 @@ export default function App() {
     setViewAsNonOwner((v) => !v);
   }, []);
 
-  // If the selected movie disappears (deleted by the other user, or
-  // renamed), bail back to the list view.
+  // Supabase processes the OAuth code via `detectSessionInUrl: true`
+  // before React mounts, so by the time we land on /auth/callback the
+  // session is already attached. Bounce the user to the landing route
+  // so the URL reflects the actual app state.
   useEffect(() => {
-    if (screen.name !== 'detail') return;
-    if (!movies.some((m) => m.title === screen.title)) {
-      setScreen({ name: 'list' });
+    if (route.kind === 'auth-callback') {
+      replacePath('/');
     }
-  }, [movies, screen]);
+  }, [route]);
 
-  // Resolve a pending `?m=<title>` deep link once movies have loaded.
-  // If the title matches, open that movie's detail view; otherwise
-  // just clear the param so the URL reflects the actual state.
+  // If the movie referenced by the URL no longer exists (deleted by
+  // the other user, or the title changed and the URL didn't keep up),
+  // bail back to the family view. Wait for movies to load so a cold
+  // deep-link doesn't bounce while the fetch is in flight.
   useEffect(() => {
-    if (!pendingDeepLink) return;
+    if (route.kind !== 'movie') return;
     if (movies.length === 0) return;
-    const match = movies.find((m) => m.title === pendingDeepLink);
-    if (match) {
-      setScreen({ name: 'detail', title: match.title });
-    } else {
-      setDeepLinkParam(null);
+    if (!movies.some((m) => m.title === route.title)) {
+      replacePath(pathFromRoute({ kind: 'family', slug: route.slug }));
     }
-    setPendingDeepLink(null);
-  }, [pendingDeepLink, movies]);
+  }, [movies, route]);
 
-  // Mirror the current screen into the URL so refresh / browser-back /
-  // Shared copy keep working. Only list ↔ detail participates; ephemeral
-  // flows (new / candidate / pool) don't persist in the URL.
-  useEffect(() => {
-    if (pendingDeepLink) return;
-    if (screen.name === 'detail') setDeepLinkParam(screen.title);
-    else if (screen.name === 'list') setDeepLinkParam(null);
-  }, [screen, pendingDeepLink]);
-
-  // Admin screens are owner-only. If the user signs out, isn't the owner,
-  // or toggles "view as non-owner" while on the pool admin or users
-  // screen, bounce them back to the list.
+  // Pool admin and users admin are owner-only. If the user signs out,
+  // isn't the owner, or toggles "view as non-owner" while either is
+  // open, drop the modal.
   useEffect(() => {
     if (
-      (screen.name === 'pool' || screen.name === 'users') &&
+      (modal?.name === 'pool' || modal?.name === 'users') &&
       !effectiveIsOwner
     ) {
-      setScreen({ name: 'list' });
+      setModal(null);
     }
-  }, [screen, effectiveIsOwner]);
+  }, [modal, effectiveIsOwner]);
 
-  // The For You tab is hidden from non-signed-in users. If they were on
-  // it and lose write access (sign out, or never had it on first load),
-  // bounce the active tab back to Watched so they're not stranded on a
-  // tab whose button no longer exists.
+  // Scoring weights is owner-only (not just write-allowed). Bounce out
+  // if the user signs out, isn't the owner, or toggles "view as
+  // non-owner" while it's open.
+  useEffect(() => {
+    if (modal?.name === 'weights' && !effectiveIsOwner) {
+      setModal(null);
+    }
+  }, [modal, effectiveIsOwner]);
+
+  // The For You tab is hidden from non-signed-in users. If they were
+  // on it and lose write access (sign out, or never had it on first
+  // load), bounce the active tab back to Watched so they're not
+  // stranded on a tab whose button no longer exists.
   useEffect(() => {
     if (tab === 'recs' && !auth.canWrite) {
       setTab('watched');
     }
   }, [tab, auth.canWrite]);
 
-  // Scoring weights is owner-only (not just write-allowed). Bounce out
-  // if the user signs out, isn't the owner, or toggles "view as
-  // non-owner" while it's open.
-  useEffect(() => {
-    if (screen.name === 'weights' && !effectiveIsOwner) {
-      setScreen({ name: 'list' });
-    }
-  }, [screen, effectiveIsOwner]);
-
   const selected = useMemo(() => {
-    if (screen.name !== 'detail') return null;
-    return movies.find((m) => m.title === screen.title) ?? null;
-  }, [movies, screen]);
+    if (route.kind !== 'movie') return null;
+    return movies.find((m) => m.title === route.title) ?? null;
+  }, [movies, route]);
 
   // Edge-swipe back: standalone PWAs lose iOS's native gesture, so we
-  // synthesize one. Any non-list screen swipes back to the list — same
-  // destination as every in-header Back button.
+  // synthesize one. From a modal, dismiss it. From a movie route,
+  // bounce up to the family view (same destination as the in-header
+  // Back button).
   useSwipeBack(
-    useMemo(
-      () =>
-        screen.name === 'list' ? null : () => setScreen({ name: 'list' }),
-      [screen.name],
-    ),
+    useMemo(() => {
+      if (modal !== null) return () => setModal(null);
+      if (route.kind === 'movie') {
+        const slug = route.slug;
+        return () => pushPath(pathFromRoute({ kind: 'family', slug }));
+      }
+      return null;
+    }, [modal, route]),
   );
+
+  function openMovie(title: string) {
+    pushPath(pathFromRoute({ kind: 'movie', slug: currentSlug, title }));
+  }
+
+  function closeMovie() {
+    pushPath(pathFromRoute({ kind: 'family', slug: currentSlug }));
+  }
 
   function openAdd() {
     if (!auth.canWrite) return;
     const template = emptyMovie(tab === 'watched');
-    setScreen({ name: 'new', template });
+    setModal({ name: 'new', template });
   }
 
   function openPick(c: Candidate) {
     if (!auth.canWrite) return;
-    setScreen({
+    setModal({
       name: 'candidate',
       template: candidateToTemplate(c),
       candidateTitle: c.title,
@@ -235,17 +213,21 @@ export default function App() {
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
     if (!auth.canWrite) return;
-    // If the title is changing, update `screen.title` BEFORE kicking
-    // off the updateMovie write. React 18 auto-batches state updates
-    // within the same synchronous chunk, so setting screen here and
-    // the setMovies inside updateMovie (which runs before its internal
-    // await) land in the same render. Otherwise React renders a
-    // transient state where `movies` has the renamed movie but
-    // `screen.title` still points at the old name, and the
-    // list-bailout effect below fires and kicks the user back to the
-    // list.
+    // If the title is changing, replace the URL BEFORE kicking off the
+    // updateMovie write. React 18 auto-batches: the route update from
+    // replacePath and the setMovies inside updateMovie (which runs
+    // before its internal await) land in the same render. Otherwise
+    // React renders a transient state where movies has the renamed
+    // entry but route.title still points at the old name, and the
+    // bail-effect above kicks the user back to the family view.
     if (updated.title !== originalTitle) {
-      setScreen({ name: 'detail', title: updated.title });
+      replacePath(
+        pathFromRoute({
+          kind: 'movie',
+          slug: currentSlug,
+          title: updated.title,
+        }),
+      );
     }
     await updateMovie(originalTitle, updated);
   }
@@ -254,127 +236,135 @@ export default function App() {
     if (!auth.canWrite) return;
     await addMovie(created);
     setTab(created.watched ? 'watched' : 'wishlist');
-    setScreen({ name: 'list' });
+    setModal(null);
   }
 
   async function handleAddCandidateToWishlist(template: Movie) {
     if (!auth.canWrite) return;
     await addMovie({ ...template, watched: false, dateWatched: null });
     setTab('wishlist');
-    setScreen({ name: 'list' });
+    setModal(null);
   }
 
   async function handleMarkCandidateWatchedTonight(template: Movie) {
     if (!auth.canWrite) return;
     await addMovie({ ...template, watched: true, dateWatched: todayIso() });
     setTab('watched');
-    setScreen({ name: 'list' });
+    setModal(null);
   }
 
   async function handleMarkCandidateWatchedUndated(template: Movie) {
     if (!auth.canWrite) return;
     await addMovie({ ...template, watched: true, dateWatched: null });
     setTab('watched');
-    setScreen({ name: 'list' });
+    setModal(null);
   }
 
   async function handleDelete(movie: Movie) {
     if (!auth.canWrite) return;
     await deleteMovie(movie.title);
-    setScreen({ name: 'list' });
+    closeMovie();
   }
 
   // Signing out while scrolled deep into a Detail view left the page
   // looking blank — the mutating controls vanished and the scroll
   // position was past the end of the shrunken content. Bouncing back
-  // to the list view guarantees the user lands on something visible.
+  // to the family view guarantees the user lands on something visible.
   async function handleSignOut() {
     await auth.signOut();
-    setScreen({ name: 'list' });
+    setModal(null);
+    if (route.kind === 'movie') closeMovie();
   }
 
   const isModern = design === 'modern';
 
-  if (screen.name === 'new') {
+  if (modal?.name === 'new') {
     const DetailComponent = isModern ? ModernDetail : Detail;
     return (
       <DetailComponent
         mode="new"
-        movie={screen.template}
+        movie={modal.template}
         canWrite={auth.canWrite}
-        onBack={() => setScreen({ name: 'list' })}
+        onBack={() => setModal(null)}
         onCreate={handleCreate}
       />
     );
   }
 
-  if (screen.name === 'pool' && effectiveIsOwner) {
+  if (modal?.name === 'pool' && effectiveIsOwner) {
     return (
       <PoolAdmin
         pool={pool}
         movies={movies}
-        onBack={() => setScreen({ name: 'list' })}
+        onBack={() => setModal(null)}
       />
     );
   }
 
-  if (screen.name === 'weights' && effectiveIsOwner) {
+  if (modal?.name === 'weights' && effectiveIsOwner) {
     return (
       <WeightsAdmin
         weights={pool.weights}
         onSave={pool.updateWeights}
-        onBack={() => setScreen({ name: 'list' })}
+        onBack={() => setModal(null)}
       />
     );
   }
 
-  if (screen.name === 'users' && effectiveIsOwner) {
+  if (modal?.name === 'users' && effectiveIsOwner) {
     return (
       <UsersAdmin
         api={userRoles}
         currentEmail={auth.email}
-        onBack={() => setScreen({ name: 'list' })}
+        onBack={() => setModal(null)}
       />
     );
   }
 
-  if (screen.name === 'candidate') {
+  if (modal?.name === 'candidate') {
     if (isModern) {
       return (
         <ModernDetail
           mode="candidate"
-          movie={screen.template}
+          movie={modal.template}
           canWrite={auth.canWrite}
           library={movies}
-          onBack={() => setScreen({ name: 'list' })}
+          onBack={() => setModal(null)}
           onAddToWishlist={handleAddCandidateToWishlist}
           onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
           onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
-          onSelectMovie={(title) => setScreen({ name: 'detail', title })}
+          onSelectMovie={(title) => {
+            setModal(null);
+            openMovie(title);
+          }}
         />
       );
     }
     // Live state from the pool so the downvote reflects what any user has
     // done — including the current user in an earlier session.
-    const live = pool.candidates.find((c) => c.title === screen.candidateTitle);
+    const live = pool.candidates.find((c) => c.title === modal.candidateTitle);
     const canDownvote = auth.canWrite && pool.status === 'synced' && !!live;
+    const candidateTitle = modal.candidateTitle;
     return (
       <Detail
         mode="candidate"
-        movie={screen.template}
+        movie={modal.template}
         canWrite={auth.canWrite}
         library={movies}
-        onBack={() => setScreen({ name: 'list' })}
+        onBack={() => setModal(null)}
         onAddToWishlist={handleAddCandidateToWishlist}
         onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
         onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
         downvoted={!!live?.downvoted}
         onToggleDownvote={
           canDownvote
-            ? () => void pool.toggleDownvote(screen.candidateTitle)
+            ? () => void pool.toggleDownvote(candidateTitle)
             : undefined
         }
-        onSelectMovie={(title) => setScreen({ name: 'detail', title })}
+        onSelectMovie={(title) => {
+          setModal(null);
+          openMovie(title);
+        }}
       />
     );
   }
@@ -388,10 +378,10 @@ export default function App() {
         canWrite={auth.canWrite}
         isOwner={effectiveIsOwner}
         library={movies}
-        onBack={() => setScreen({ name: 'list' })}
+        onBack={closeMovie}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
         onDelete={handleDelete}
-        onSelectMovie={(title) => setScreen({ name: 'detail', title })}
+        onSelectMovie={openMovie}
       />
     );
   }
@@ -411,11 +401,11 @@ export default function App() {
         design={design}
         onToggleDesign={toggleDesign}
         canManagePool={effectiveIsOwner}
-        onOpenPool={() => setScreen({ name: 'pool' })}
+        onOpenPool={() => setModal({ name: 'pool' })}
         canManageUsers={effectiveIsOwner}
-        onOpenUsers={() => setScreen({ name: 'users' })}
+        onOpenUsers={() => setModal({ name: 'users' })}
         canManageWeights={effectiveIsOwner}
-        onOpenWeights={() => setScreen({ name: 'weights' })}
+        onOpenWeights={() => setModal({ name: 'weights' })}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
@@ -425,7 +415,7 @@ export default function App() {
               <ModernWatchedList
                 movies={movies}
                 canWrite={auth.canWrite}
-                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
               />
             )}
@@ -433,7 +423,7 @@ export default function App() {
               <ModernWishlist
                 movies={movies}
                 canWrite={auth.canWrite}
-                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
               />
             )}
@@ -453,7 +443,7 @@ export default function App() {
                 movies={movies}
                 canWrite={auth.canWrite}
                 isOwner={effectiveIsOwner}
-                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
                 onBulkLink={() => setShowBulkLink(true)}
                 onEnhanceAll={() => setEnhanceScope('watched')}
@@ -464,7 +454,7 @@ export default function App() {
                 movies={movies}
                 canWrite={auth.canWrite}
                 isOwner={effectiveIsOwner}
-                onSelect={(m) => setScreen({ name: 'detail', title: m.title })}
+                onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
                 onEnhanceAll={() => setEnhanceScope('wishlist')}
                 onReorder={reorderWishlist}

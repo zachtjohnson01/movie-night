@@ -3,6 +3,10 @@
     {
       "source": "/share/:title",
       "destination": "/api/share/:title"
+    },
+    {
+      "source": "/((?!api|share|assets|icons|.*\\.).*)",
+      "destination": "/index.html"
     }
   ]
 }
