@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <rect width="1200" height="630" fill="#0b0b0f"/>
+  <circle cx="600" cy="280" r="120" fill="none" stroke="#ffb347" stroke-width="14"/>
+  <polygon points="565,220 685,280 565,340" fill="#ffb347"/>
+  <text x="600" y="490" text-anchor="middle" fill="#f4f4f5" font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="64" font-weight="700">Family Movie Night</text>
+  <text x="600" y="555" text-anchor="middle" fill="#a1a1aa" font-family="Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif" font-size="28" font-weight="400">What we watched and what's next</text>
+</svg>

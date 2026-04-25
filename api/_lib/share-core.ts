@@ -204,7 +204,7 @@ export function buildShareHtml(params: {
   const commit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev';
   const img = movie?.poster
     ? `${origin}/api/poster/${encodeURIComponent(movie.title)}.jpg?v=${commit}`
-    : `${origin}/apple-touch-icon.png`;
+    : `${origin}/og-image.svg`;
 
   // Strip the static og:*, twitter:*, and apple-touch-icon link tags
   // from the template so the injected ones are the only copy the
