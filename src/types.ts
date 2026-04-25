@@ -14,6 +14,14 @@ export type Movie = {
   commonSenseAge: string | null;
   commonSenseScore: string | null;
   rottenTomatoes: string | null;
+  /**
+   * Rotten Tomatoes URL slug like "toy_story_1995", surfaced from the matching
+   * Candidate at merge time. Source of truth lives on Candidate (manually
+   * entered in the Manage pool edit sheet); Movie is read-only for this
+   * field. When set, `rottenTomatoesUrl()` deep-links to /m/<slug> instead of
+   * falling back to a title search.
+   */
+  rottenTomatoesId: string | null;
   imdb: string | null;
   /**
    * IMDb ID like "tt0096283". Populated when the movie has been linked to
