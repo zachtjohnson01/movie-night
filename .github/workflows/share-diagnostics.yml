@@ -1,0 +1,58 @@
+name: Share preview diagnostics
+
+# Hits the share/poster endpoints on the deployed app and asserts on
+# their shape. Catches regressions in:
+#   - /api/version (zero-dep, must always work)
+#   - /share/<title> og:image / og:title injection
+#   - /api/poster/<title>.jpg proxy + image bytes
+#   - schema-split movie lookup (row 1 + row 2 join)
+#
+# On PRs: runs against the Vercel preview deploy.
+# On push to main: runs against production.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  pull-requests: read
+  deployments: read
+  statuses: read
+
+jobs:
+  diagnostics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Vercel posts the preview URL to GitHub as a deployment status
+      # once the build finishes. This action polls until that status
+      # exists and emits the URL.
+      - name: Wait for Vercel preview
+        if: github.event_name == 'pull_request'
+        id: preview
+        uses: patrickedqvist/wait-for-vercel-preview@v1.3.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          max_timeout: 600
+          check_interval: 10
+
+      - name: Resolve base URL
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "url=${{ steps.preview.outputs.url }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://familymovienight.watch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run share diagnostics
+        run: node scripts/share-diagnostics.mjs
+        env:
+          BASE_URL: ${{ steps.base.outputs.url }}
+          TEST_TITLE: Bolt
