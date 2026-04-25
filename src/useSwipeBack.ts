@@ -2,15 +2,14 @@ import { useEffect, useRef } from 'react';
 
 // Standalone iOS PWAs don't get the native edge-swipe-back gesture,
 // and Safari's native edge-swipe will hijack ours unless we actively
-// claim it via preventDefault on the first horizontally-dominant
-// touchmove. We listen with passive: false on touchmove so the
-// preventDefault actually suppresses the system gesture.
+// claim it on touchstart. iOS commits to its own gesture early —
+// touchmove preventDefault arrives too late once Safari has decided.
+// So we preventDefault on touchstart with passive: false, but skip
+// the block when the touch landed on the in-header Back button so
+// its tap still fires.
 const EDGE_PX = 24;
 const MIN_DELTA_X = 60;
 const MAX_VERTICAL_RATIO = 0.6;
-// Once horizontal travel exceeds this, claim the gesture by calling
-// preventDefault. Smaller than MIN_DELTA_X so we win before iOS's
-// gesture engine commits to its own swipe-back.
 const CLAIM_DX = 8;
 
 export function useSwipeBack(onBack: (() => void) | null) {
@@ -27,9 +26,20 @@ export function useSwipeBack(onBack: (() => void) | null) {
       if (e.touches.length !== 1) return;
       const t = e.touches[0];
       if (t.clientX > EDGE_PX) return;
+      // Don't block taps on the back button itself or anything that
+      // explicitly opts out — the synthetic click would never fire
+      // otherwise.
+      const target = e.target as Element | null;
+      if (
+        target?.closest('[aria-label="Back"], [data-swipe-passthrough]')
+      ) {
+        return;
+      }
       tracking = true;
       startX = t.clientX;
       startY = t.clientY;
+      // Eagerly claim the gesture before iOS commits to swipe-back.
+      e.preventDefault();
     }
 
     function onMove(e: TouchEvent) {
@@ -42,8 +52,7 @@ export function useSwipeBack(onBack: (() => void) | null) {
         tracking = false;
         return;
       }
-      // Horizontally-dominant rightward motion → claim the gesture.
-      if (dx > CLAIM_DX && Math.abs(dy) < dx) {
+      if (dx > CLAIM_DX) {
         e.preventDefault();
       }
     }
@@ -67,10 +76,7 @@ export function useSwipeBack(onBack: (() => void) | null) {
       tracking = false;
     }
 
-    // touchstart stays passive — we never preventDefault there, which
-    // would break taps near the screen edge (e.g. the in-header Back
-    // button at left padding ~8px).
-    window.addEventListener('touchstart', onStart, { passive: true });
+    window.addEventListener('touchstart', onStart, { passive: false });
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onEnd);
     window.addEventListener('touchcancel', onCancel);
