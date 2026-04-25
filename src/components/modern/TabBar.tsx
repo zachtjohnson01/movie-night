@@ -4,6 +4,7 @@ import { AMBER, BORDER, INK_2, SANS } from './palette';
 type Props = {
   tab: Tab;
   onChange: (tab: Tab) => void;
+  canSeeRecs: boolean;
 };
 
 /*
@@ -11,11 +12,13 @@ type Props = {
  * so the underlying page can scroll behind it. Respects the iPhone bottom
  * safe-area inset via CSS env().
  */
-export default function TabBar({ tab, onChange }: Props) {
+export default function TabBar({ tab, onChange, canSeeRecs }: Props) {
   const items: { id: Tab; label: string; icon: string }[] = [
     { id: 'watched', label: 'Watched', icon: '▶' },
     { id: 'wishlist', label: 'Up Next', icon: '✦' },
-    { id: 'recs', label: 'For you', icon: '✨' },
+    ...(canSeeRecs
+      ? [{ id: 'recs' as Tab, label: 'For you', icon: '✨' }]
+      : []),
   ];
   return (
     <nav
