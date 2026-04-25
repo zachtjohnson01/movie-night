@@ -14,6 +14,7 @@ import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
+import WeightsAdmin from './components/WeightsAdmin';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
@@ -29,7 +30,8 @@ type Screen =
   // downvote toggle writes back to the right entry. The template itself
   // is a Movie shape for the existing Detail component to consume.
   | { name: 'candidate'; template: Movie; candidateTitle: string }
-  | { name: 'pool' };
+  | { name: 'pool' }
+  | { name: 'weights' };
 
 type Design = 'classic' | 'modern';
 
@@ -184,6 +186,15 @@ export default function App() {
     }
   }, [tab, auth.canWrite]);
 
+  // Scoring weights is owner-only (not just write-allowed). Bounce out
+  // if the user signs out, isn't the owner, or toggles "view as
+  // non-owner" while it's open.
+  useEffect(() => {
+    if (screen.name === 'weights' && !effectiveIsOwner) {
+      setScreen({ name: 'list' });
+    }
+  }, [screen, effectiveIsOwner]);
+
   const selected = useMemo(() => {
     if (screen.name !== 'detail') return null;
     return movies.find((m) => m.title === screen.title) ?? null;
@@ -296,7 +307,16 @@ export default function App() {
         pool={pool}
         movies={movies}
         onBack={() => setScreen({ name: 'list' })}
-        isOwner={effectiveIsOwner}
+      />
+    );
+  }
+
+  if (screen.name === 'weights' && effectiveIsOwner) {
+    return (
+      <WeightsAdmin
+        weights={pool.weights}
+        onSave={pool.updateWeights}
+        onBack={() => setScreen({ name: 'list' })}
       />
     );
   }
@@ -375,6 +395,8 @@ export default function App() {
         onToggleDesign={toggleDesign}
         canManagePool={effectiveIsOwner}
         onOpenPool={() => setScreen({ name: 'pool' })}
+        canManageWeights={effectiveIsOwner}
+        onOpenWeights={() => setScreen({ name: 'weights' })}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
