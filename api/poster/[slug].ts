@@ -1,17 +1,88 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { lookupMovie } from '../_lib/share-core';
+import { createClient } from '@supabase/supabase-js';
 
 /**
  * Poster image proxy on a clean .jpg-extensioned URL. Used as the
  * og:image target so Apple's LPMetadataProvider sees a URL it can
  * unambiguously parse and validate as an image.
  *
- * Static import of share-core is intentional: Vercel's Node bundler
- * traces static imports to decide what to include in the function
- * deploy. A dynamic `await import(...)` here in a previous revision
- * silently dropped `_lib/share-core` from the bundle and the
- * function crashed at runtime with ERR_MODULE_NOT_FOUND.
+ * The lookup logic is intentionally inlined (rather than imported
+ * from ../_lib/share-core) because Vercel's function bundler dropped
+ * the helper module from this route's deploy when imported via the
+ * underscore-prefixed folder, even with a static top-of-file import.
+ * Sibling /api/share/[title].ts using the same import works; this
+ * route consistently crashed with ERR_MODULE_NOT_FOUND. Inlining
+ * removes the bundler quirk entirely.
  */
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+type LibraryEntryLike = {
+  title: string;
+  imdbId?: string | null;
+};
+
+type CandidateLike = {
+  title: string;
+  imdbId?: string | null;
+  poster?: string | null;
+};
+
+function normalizeTitle(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+async function lookupPosterUrl(
+  title: string,
+): Promise<{ poster: string | null; entryMatch: string }> {
+  if (!title || !supabaseUrl || !supabaseKey) {
+    return { poster: null, entryMatch: 'no-env' };
+  }
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const { data, error } = await supabase
+    .from('movie_night')
+    .select('id, movies')
+    .in('id', [1, 2]);
+  if (error || !data) {
+    return { poster: null, entryMatch: error ? 'supabase-error' : 'no-data' };
+  }
+  const entries =
+    (data.find((r) => r.id === 1)?.movies ?? []) as LibraryEntryLike[];
+  const candidates =
+    (data.find((r) => r.id === 2)?.movies ?? []) as CandidateLike[];
+  const titleNorm = normalizeTitle(title);
+
+  let entry = entries.find((x) => x?.title === title);
+  let entryMatch = entry ? 'exact' : 'none';
+  if (!entry) {
+    entry = entries.find((x) => normalizeTitle(x?.title) === titleNorm);
+    if (entry) entryMatch = 'ci';
+  }
+
+  let candidate: CandidateLike | undefined;
+  if (entry) {
+    if (entry.imdbId) {
+      candidate = candidates.find((c) => c.imdbId === entry!.imdbId);
+    }
+    if (!candidate) {
+      const entryNorm = normalizeTitle(entry.title);
+      candidate = candidates.find(
+        (c) => normalizeTitle(c.title) === entryNorm,
+      );
+    }
+  } else {
+    candidate = candidates.find((c) => c.title === title);
+    if (!candidate) {
+      candidate = candidates.find(
+        (c) => normalizeTitle(c.title) === titleNorm,
+      );
+    }
+  }
+  return { poster: candidate?.poster ?? null, entryMatch };
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -31,7 +102,9 @@ export default async function handler(
     const title = slug.replace(/\.(jpg|jpeg|png|webp)$/i, '');
 
     if (debug) {
-      const lookup = title ? await lookupMovie(title) : null;
+      const lookup = title
+        ? await lookupPosterUrl(title)
+        : { poster: null, entryMatch: 'no-title' };
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('cache-control', 'no-store');
       return res.status(200).json({
@@ -39,8 +112,9 @@ export default async function handler(
         rawSlug,
         slug,
         title,
-        lookup: lookup?.debug ?? null,
-        poster: lookup?.movie?.poster ?? null,
+        ...lookup,
+        hasSupabaseUrl: Boolean(supabaseUrl),
+        hasSupabaseKey: Boolean(supabaseKey),
       });
     }
 
@@ -49,15 +123,12 @@ export default async function handler(
       return res.status(400).send('missing title');
     }
 
-    const lookup = await lookupMovie(title);
-    const posterUrl = lookup.movie?.poster;
+    const { poster: posterUrl, entryMatch } = await lookupPosterUrl(title);
     if (!posterUrl) {
       res.setHeader('access-control-allow-origin', '*');
       return res
         .status(404)
-        .send(
-          `poster not found for "${title}" (match=${lookup.debug.entryMatch})`,
-        );
+        .send(`poster not found for "${title}" (match=${entryMatch})`);
     }
 
     const upstream = await fetch(posterUrl, {
