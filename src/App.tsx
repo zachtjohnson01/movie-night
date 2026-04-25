@@ -165,13 +165,14 @@ export default function App() {
     else if (screen.name === 'list') setDeepLinkParam(null);
   }, [screen, pendingDeepLink]);
 
-  // Admin screens require write access. If the user signs out while on
-  // the pool admin screen, bounce them back to the list.
+  // Admin screens are owner-only. If the user signs out, isn't the owner,
+  // or toggles "view as non-owner" while on the pool admin screen, bounce
+  // them back to the list.
   useEffect(() => {
-    if (screen.name === 'pool' && !auth.canWrite) {
+    if (screen.name === 'pool' && !effectiveIsOwner) {
       setScreen({ name: 'list' });
     }
-  }, [screen, auth.canWrite]);
+  }, [screen, effectiveIsOwner]);
 
   const selected = useMemo(() => {
     if (screen.name !== 'detail') return null;
@@ -279,10 +280,11 @@ export default function App() {
     );
   }
 
-  if (screen.name === 'pool' && auth.canWrite) {
+  if (screen.name === 'pool' && effectiveIsOwner) {
     return (
       <PoolAdmin
         pool={pool}
+        movies={movies}
         onBack={() => setScreen({ name: 'list' })}
         isOwner={effectiveIsOwner}
       />
@@ -361,6 +363,8 @@ export default function App() {
         onToggleViewAsNonOwner={toggleViewAsNonOwner}
         design={design}
         onToggleDesign={toggleDesign}
+        canManagePool={effectiveIsOwner}
+        onOpenPool={() => setScreen({ name: 'pool' })}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
@@ -386,10 +390,8 @@ export default function App() {
               <ModernRecommendations
                 movies={movies}
                 pool={pool}
-                canWrite={auth.canWrite}
                 isOwner={effectiveIsOwner}
                 onSelectPick={openPick}
-                onOpenPool={() => setScreen({ name: 'pool' })}
               />
             )}
           </>
@@ -421,11 +423,9 @@ export default function App() {
               <Recommendations
                 movies={movies}
                 pool={pool}
-                canWrite={auth.canWrite}
                 isOwner={effectiveIsOwner}
                 onSelectPick={openPick}
                 reloadMovies={reloadMovies}
-                onOpenPool={() => setScreen({ name: 'pool' })}
               />
             )}
           </>

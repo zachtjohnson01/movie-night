@@ -29,10 +29,8 @@ import ModernPoster from './ModernPoster';
 type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
-  canWrite: boolean;
   isOwner: boolean;
   onSelectPick: (c: Candidate) => void;
-  onOpenPool: () => void;
 };
 
 const TOP_N = 20;
@@ -42,10 +40,8 @@ const SEED_BATCHES = 5;
 export default function ModernRecommendations({
   movies,
   pool,
-  canWrite,
   isOwner,
   onSelectPick,
-  onOpenPool,
 }: Props) {
   useLayoutEffect(() => {
     const toTop = () => {
@@ -115,8 +111,6 @@ export default function ModernRecommendations({
   const poolEmpty = pool.status === 'empty';
   const poolErrored = pool.status === 'error';
   const seeding = busy.kind === 'seeding';
-  const expanding = busy.kind === 'expanding';
-  const anyBusy = seeding || expanding;
 
   return (
     <div
@@ -200,53 +194,6 @@ export default function ModernRecommendations({
         </div>
       </div>
 
-      {!poolEmpty && !loading && !poolErrored && canWrite && (
-        <div
-          style={{
-            padding: '16px 20px 0',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-          }}
-        >
-          <button
-            type="button"
-            disabled={anyBusy}
-            onClick={() => void runExpansion(1)}
-            style={secondaryButtonStyle(anyBusy)}
-          >
-            {expanding ? (
-              <>
-                <Spinner size={12} color={INK_3} />
-                Adding {EXPAND_BATCH} more…
-              </>
-            ) : (
-              <>Pool: {pool.candidates.length} · Expand +{EXPAND_BATCH}</>
-            )}
-          </button>
-          <button
-            type="button"
-            disabled={anyBusy}
-            onClick={onOpenPool}
-            style={secondaryButtonStyle(anyBusy)}
-          >
-            Manage pool →
-          </button>
-          {error && (
-            <div
-              style={{
-                fontFamily: SANS,
-                fontSize: 11,
-                color: CRIMSON,
-                textAlign: 'center',
-              }}
-            >
-              {error}
-            </div>
-          )}
-        </div>
-      )}
-
       <div style={{ marginTop: 18 }}>
         {loading && (
           <>
@@ -310,7 +257,7 @@ export default function ModernRecommendations({
               rank against. Each film is enriched with authoritative scores
               from OMDB. This takes a couple minutes.
             </div>
-            {canWrite ? (
+            {isOwner ? (
               <button
                 type="button"
                 onClick={() => void runExpansion(SEED_BATCHES)}
@@ -327,7 +274,7 @@ export default function ModernRecommendations({
                   fontStyle: 'italic',
                 }}
               >
-                Sign in as an allowed user to seed the pool.
+                Only the admin can seed the candidate pool.
               </div>
             )}
             {error && (
@@ -420,26 +367,6 @@ function primaryButtonStyle(busy: boolean): React.CSSProperties {
     fontFamily: SANS,
     fontSize: 14,
     fontWeight: 700,
-    cursor: busy ? 'default' : 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    transition: 'all 200ms',
-  };
-}
-
-function secondaryButtonStyle(busy: boolean): React.CSSProperties {
-  return {
-    width: '100%',
-    minHeight: 48,
-    borderRadius: 12,
-    background: BG_3,
-    color: busy ? INK_3 : INK_2,
-    border: `1px solid ${BORDER}`,
-    fontFamily: SANS,
-    fontSize: 14,
-    fontWeight: 600,
     cursor: busy ? 'default' : 'pointer',
     display: 'flex',
     alignItems: 'center',

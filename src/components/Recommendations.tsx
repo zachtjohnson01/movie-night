@@ -8,11 +8,9 @@ import { type ScoringWeights } from '../scoring';
 type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
-  canWrite: boolean;
   isOwner: boolean;
   onSelectPick: (c: Candidate) => void;
   reloadMovies: () => void;
-  onOpenPool: () => void;
 };
 
 // Minimum visible spinner time on refresh so the button doesn't flicker
@@ -26,11 +24,9 @@ const SEED_BATCHES = 5; // 5 × 100 = 500-film initial pool
 export default function Recommendations({
   movies,
   pool,
-  canWrite,
   isOwner,
   onSelectPick,
   reloadMovies,
-  onOpenPool,
 }: Props) {
   useLayoutEffect(() => {
     const toTop = () => {
@@ -114,8 +110,6 @@ export default function Recommendations({
   const poolEmpty = pool.status === 'empty';
   const poolErrored = pool.status === 'error';
   const seeding = busy.kind === 'seeding';
-  const expanding = busy.kind === 'expanding';
-  const anyBusy = seeding || expanding;
 
   const handleRefresh = useCallback(async () => {
     if (refreshing || loading) return;
@@ -166,45 +160,6 @@ export default function Recommendations({
       </header>
 
       <div className="pt-2">
-        {!poolEmpty && !loading && !poolErrored && canWrite && (
-          <div className="px-5 pt-3 pb-1 flex flex-col gap-1.5">
-            <button
-              type="button"
-              disabled={anyBusy}
-              onClick={() => void runExpansion(1)}
-              className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
-                anyBusy
-                  ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
-                  : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
-              }`}
-            >
-              {expanding ? (
-                <>
-                  <Spinner size={10} />
-                  Adding {EXPAND_BATCH} more…
-                </>
-              ) : (
-                <>Pool: {pool.candidates.length} · Expand +{EXPAND_BATCH}</>
-              )}
-            </button>
-            <button
-              type="button"
-              disabled={anyBusy}
-              onClick={onOpenPool}
-              className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold transition-colors ${
-                anyBusy
-                  ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
-                  : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
-              }`}
-            >
-              Manage pool →
-            </button>
-            {error && (
-              <p className="text-center text-xs text-crimson-bright">{error}</p>
-            )}
-          </div>
-        )}
-
         {loading && (
           <>
             <RecSkeleton />
@@ -243,7 +198,7 @@ export default function Recommendations({
               rank against. Each film is enriched with authoritative scores
               from OMDB. This takes a couple minutes.
             </p>
-            {canWrite ? (
+            {isOwner ? (
               <button
                 type="button"
                 onClick={() => void runExpansion(SEED_BATCHES)}
@@ -253,7 +208,7 @@ export default function Recommendations({
               </button>
             ) : (
               <p className="text-xs text-ink-500 italic">
-                Sign in as an allowed user to seed the pool.
+                Only the admin can seed the candidate pool.
               </p>
             )}
             {error && (

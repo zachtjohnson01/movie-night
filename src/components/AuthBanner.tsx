@@ -13,6 +13,8 @@ type Props = {
   onToggleViewAsNonOwner: () => void;
   design: 'classic' | 'modern';
   onToggleDesign: () => void;
+  canManagePool: boolean;
+  onOpenPool: () => void;
 };
 
 /**
@@ -36,6 +38,8 @@ export default function AuthBanner({
   onToggleViewAsNonOwner,
   design,
   onToggleDesign,
+  canManagePool,
+  onOpenPool,
 }: Props) {
   if (status === 'loading') return null;
 
@@ -89,6 +93,8 @@ export default function AuthBanner({
       onToggleViewAsNonOwner={onToggleViewAsNonOwner}
       design={design}
       onToggleDesign={onToggleDesign}
+      canManagePool={canManagePool}
+      onOpenPool={onOpenPool}
     />
   );
 }
@@ -105,6 +111,8 @@ function SignedInBanner({
   onToggleViewAsNonOwner,
   design,
   onToggleDesign,
+  canManagePool,
+  onOpenPool,
 }: SignedInProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -197,6 +205,14 @@ function SignedInBanner({
           role="menu"
           className="absolute right-3 top-full mt-1 z-50 w-60 rounded-xl bg-ink-900 border border-ink-700 shadow-xl shadow-black/40 p-1"
         >
+          {canManagePool && (
+            <MenuItem onClick={() => runAndClose(onOpenPool)}>
+              <div>Manage pool</div>
+              <div className="text-[11px] text-ink-500 font-normal">
+                Browse, expand, edit candidates
+              </div>
+            </MenuItem>
+          )}
           {isOwner && (
             <MenuItem
               onClick={() => runAndClose(onToggleViewAsNonOwner)}
