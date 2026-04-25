@@ -3,11 +3,6 @@
     {
       "source": "/share/:title",
       "destination": "/api/share/:title"
-    },
-    {
-      "source": "/",
-      "has": [{ "type": "query", "key": "m" }],
-      "destination": "/api/share"
     }
   ]
 }

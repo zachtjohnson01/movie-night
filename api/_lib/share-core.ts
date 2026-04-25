@@ -56,7 +56,7 @@ export type LookupResult = {
 // internal whitespace. Catches casing drift, stray trailing spaces,
 // and stylistic whitespace differences between an OMDB-canonical title
 // and what's stored in the row.
-function normalizeTitle(s: string | null | undefined): string {
+export function normalizeTitle(s: string | null | undefined): string {
   if (!s) return '';
   return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
 }
