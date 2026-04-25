@@ -115,6 +115,7 @@ function mergeEntry(
     omdbRefreshedAt: candidate?.omdbRefreshedAt ?? null,
     imdb: candidate?.imdb ?? null,
     rottenTomatoes: candidate?.rottenTomatoes ?? null,
+    rottenTomatoesId: candidate?.rottenTomatoesId ?? null,
     awards: candidate?.awards ?? null,
     production: candidate?.studio ?? null,
     directors: candidate?.directors ?? null,
