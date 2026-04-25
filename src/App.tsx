@@ -17,6 +17,7 @@ import PoolAdmin from './components/PoolAdmin';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
+import { useSwipeBack } from './useSwipeBack';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
 
@@ -176,6 +177,17 @@ export default function App() {
     if (screen.name !== 'detail') return null;
     return movies.find((m) => m.title === screen.title) ?? null;
   }, [movies, screen]);
+
+  // Edge-swipe back: standalone PWAs lose iOS's native gesture, so we
+  // synthesize one. Any non-list screen swipes back to the list — same
+  // destination as every in-header Back button.
+  useSwipeBack(
+    useMemo(
+      () =>
+        screen.name === 'list' ? null : () => setScreen({ name: 'list' }),
+      [screen.name],
+    ),
+  );
 
   function openAdd() {
     if (!auth.canWrite) return;
