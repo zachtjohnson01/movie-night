@@ -69,13 +69,16 @@ describe('buildShareHtml', () => {
     poster: 'https://m.media-amazon.com/images/M/abc._SX300.jpg',
   };
 
+  const baseParams = {
+    template: TEMPLATE,
+    origin: 'https://x.test',
+    movie: baseMovie,
+    canonical: 'https://x.test/share/Bolt',
+    posterPath: '/api/poster/Bolt.jpg',
+  };
+
   it('strips static og:* tags from the template', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const out = buildShareHtml(baseParams);
     expect(out).not.toContain(
       '<meta property="og:title" content="Family Movie Night"',
     );
@@ -85,57 +88,42 @@ describe('buildShareHtml', () => {
   });
 
   it('strips the static apple-touch-icon link', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const out = buildShareHtml(baseParams);
     expect(out).not.toContain('apple-touch-icon');
   });
 
   it('strips the static twitter:* tags', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const out = buildShareHtml(baseParams);
     expect(out).not.toContain(
       '<meta name="twitter:image" content="https://familymovienight.watch/og-image.svg"',
     );
   });
 
   it('emits exactly one og:image tag', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const out = buildShareHtml(baseParams);
     const ogImageMatches = out.match(/<meta property="og:image"/g);
     expect(ogImageMatches?.length).toBe(1);
   });
 
-  it('points og:image at /api/poster/<title>.jpg with cache-buster when poster is set', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+  it('points og:image at the supplied posterPath with cache-buster when poster is set', () => {
+    const out = buildShareHtml(baseParams);
     expect(out).toMatch(
       /<meta property="og:image" content="https:\/\/x\.test\/api\/poster\/Bolt\.jpg\?v=[a-f0-9]{1,7}"/,
     );
   });
 
-  it('declares 600x888 dimensions and image/jpeg type when poster is set', () => {
+  it('uses the family-prefixed posterPath when one is supplied', () => {
     const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
+      ...baseParams,
+      posterPath: '/api/poster/f/smith/Bolt.jpg',
     });
+    expect(out).toMatch(
+      /<meta property="og:image" content="https:\/\/x\.test\/api\/poster\/f\/smith\/Bolt\.jpg\?v=[a-f0-9]{1,7}"/,
+    );
+  });
+
+  it('declares 600x888 dimensions and image/jpeg type when poster is set', () => {
+    const out = buildShareHtml(baseParams);
     expect(out).toContain('<meta property="og:image:width" content="600"');
     expect(out).toContain('<meta property="og:image:height" content="888"');
     expect(out).toContain('<meta property="og:image:type" content="image/jpeg"');
@@ -143,10 +131,8 @@ describe('buildShareHtml', () => {
 
   it('falls back to /og-image.svg and omits dimensions when poster is missing', () => {
     const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
+      ...baseParams,
       movie: { ...baseMovie, poster: null },
-      canonical: 'https://x.test/share/Bolt',
     });
     expect(out).toContain(
       '<meta property="og:image" content="https://x.test/og-image.svg"',
@@ -157,8 +143,7 @@ describe('buildShareHtml', () => {
 
   it('falls back to /og-image.svg when movie is null entirely', () => {
     const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
+      ...baseParams,
       movie: null,
       canonical: 'https://x.test/share/missing',
     });
@@ -172,33 +157,21 @@ describe('buildShareHtml', () => {
 
   it('builds og:title from displayTitle when set, falling back to title', () => {
     const withDisplay = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
+      ...baseParams,
       movie: { ...baseMovie, displayTitle: 'Bolt the Dog' },
-      canonical: 'https://x.test/share/Bolt',
     });
     expect(withDisplay).toContain(
       '<meta property="og:title" content="Bolt the Dog (2008)"',
     );
 
-    const withoutDisplay = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const withoutDisplay = buildShareHtml(baseParams);
     expect(withoutDisplay).toContain(
       '<meta property="og:title" content="Bolt (2008)"',
     );
   });
 
   it('joins description parts with em-dash separators', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const out = buildShareHtml(baseParams);
     expect(out).toContain(
       '<meta property="og:description" content="RT 90% — IMDb 6.8 — 5+"',
     );
@@ -206,8 +179,7 @@ describe('buildShareHtml', () => {
 
   it('HTML-escapes the title in og tags', () => {
     const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
+      ...baseParams,
       movie: { ...baseMovie, title: `Tom & Jerry "The Movie"` },
       canonical: 'https://x.test/share/Tom%20%26%20Jerry',
     });
@@ -215,38 +187,15 @@ describe('buildShareHtml', () => {
     expect(out).not.toContain('Tom & Jerry "The Movie"');
   });
 
-  it('URL-encodes the title in the og:image path', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: { ...baseMovie, title: 'Bolt: The Movie' },
-      canonical: 'https://x.test/share/Bolt%3A%20The%20Movie',
-    });
-    expect(out).toMatch(
-      /\/api\/poster\/Bolt%3A%20The%20Movie\.jpg\?v=[a-f0-9]{1,7}/,
-    );
-  });
-
   it('emits the meta-refresh tag when spaRedirect is provided', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-      spaRedirect: '/?m=Bolt',
-    });
+    const out = buildShareHtml({ ...baseParams, spaRedirect: '/?m=Bolt' });
     expect(out).toContain(
       '<meta http-equiv="refresh" content="0; url=/?m=Bolt"',
     );
   });
 
   it('omits the meta-refresh tag when spaRedirect is not provided', () => {
-    const out = buildShareHtml({
-      template: TEMPLATE,
-      origin: 'https://x.test',
-      movie: baseMovie,
-      canonical: 'https://x.test/share/Bolt',
-    });
+    const out = buildShareHtml(baseParams);
     expect(out).not.toContain('http-equiv="refresh"');
   });
 });

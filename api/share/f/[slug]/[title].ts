@@ -1,36 +1,23 @@
+import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /**
- * Shared types and lookup logic for the share handlers
- * (/api/share and /api/share/[title]). The `_lib` prefix keeps this
- * file from being treated as a serverless function by Vercel.
+ * Family-prefixed share handler: `/share/f/<slug>/<title>`. Used by
+ * non-Johnson families so the unfurl resolves the right library +
+ * surfaces a per-family canonical URL. Default Johnsons shares stay
+ * on the legacy `/share/<title>` path so existing iMessage previews
+ * keep working unchanged.
+ *
+ * Logic is inlined for the same Vercel-bundler reason as the sibling
+ * default route — the `_lib/share-core.ts` module gets dropped from
+ * the deploy when imported here.
  */
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
-export const env = {
-  hasSupabaseUrl: Boolean(supabaseUrl),
-  hasSupabaseKey: Boolean(supabaseKey),
-};
-
-/**
- * Same UUID as `JOHNSON_FAMILY_UUID` in src/supabase.ts. Duplicated as
- * a string literal because the API routes can't import from the bundled
- * Vite client tree (different tsconfig + Vercel function bundling).
- */
 const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
 const DEFAULT_FAMILY_SLUG = 'johnson';
-
-export type MovieLike = {
-  title: string;
-  displayTitle?: string | null;
-  year?: number | null;
-  rottenTomatoes?: string | null;
-  imdb?: string | null;
-  commonSenseAge?: string | null;
-  poster?: string | null;
-};
 
 type LibraryEntryLike = {
   title: string;
@@ -49,7 +36,17 @@ type CandidateLike = {
   commonSenseAge?: string | null;
 };
 
-export type LookupResult = {
+type MovieLike = {
+  title: string;
+  displayTitle?: string | null;
+  year?: number | null;
+  rottenTomatoes?: string | null;
+  imdb?: string | null;
+  commonSenseAge?: string | null;
+  poster?: string | null;
+};
+
+type LookupResult = {
   movie: MovieLike | null;
   debug: {
     entryCount: number;
@@ -61,25 +58,41 @@ export type LookupResult = {
   };
 };
 
-// Normalize for comparison: lowercase, NFC-normalize, trim, collapse
-// internal whitespace. Catches casing drift, stray trailing spaces,
-// and stylistic whitespace differences between an OMDB-canonical title
-// and what's stored in the row.
-export function normalizeTitle(s: string | null | undefined): string {
+type MovieNightRow = {
+  family_id: string | null;
+  kind: string;
+  movies: unknown;
+};
+
+function normalizeTitle(s: string | null | undefined): string {
   if (!s) return '';
   return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-/**
- * Resolves a public slug to its `families.id`. Null/the default
- * Johnsons slug short-circuit to the bootstrap UUID so the existing
- * single-family hot path doesn't pay an extra round trip.
- */
-export async function resolveFamilyId(
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => {
+    switch (c) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case "'":
+        return '&#39;';
+      default:
+        return c;
+    }
+  });
+}
+
+async function resolveFamilyId(
   supabase: SupabaseClient,
-  slug: string | null,
+  slug: string,
 ): Promise<string | null> {
-  if (!slug || slug === DEFAULT_FAMILY_SLUG) return JOHNSON_FAMILY_UUID;
+  if (slug === DEFAULT_FAMILY_SLUG) return JOHNSON_FAMILY_UUID;
   const { data, error } = await supabase
     .from('families')
     .select('id')
@@ -89,19 +102,8 @@ export async function resolveFamilyId(
   return (data as { id: string }).id;
 }
 
-type MovieNightRow = {
-  family_id: string | null;
-  kind: string;
-  movies: unknown;
-};
-
-// Per-family library row joined with the global pool row to produce a
-// renderable Movie. Same precedence as `findCandidate` / `mergeEntry`
-// in src/useMovies.ts. When the shared title isn't in the library
-// (e.g. a For You candidate shared straight from the Detail preview),
-// fall back to the Candidate alone so the unfurl still gets a poster.
-export async function lookupMovie(
-  slug: string | null,
+async function lookupMovie(
+  slug: string,
   title: string,
 ): Promise<LookupResult> {
   const debug: LookupResult['debug'] = {
@@ -110,7 +112,9 @@ export async function lookupMovie(
     entryMatch: 'none',
     candidateMatch: 'none',
   };
-  if (!title || !supabaseUrl || !supabaseKey) return { movie: null, debug };
+  if (!title || !slug || !supabaseUrl || !supabaseKey) {
+    return { movie: null, debug };
+  }
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const familyId = await resolveFamilyId(supabase, slug);
@@ -119,9 +123,6 @@ export async function lookupMovie(
       return { movie: null, debug };
     }
     debug.familyId = familyId;
-    // Single round-trip: pull every library + pool row, filter to the
-    // ones that match the family. Fan-out is O(families) — fine at
-    // current scale; can switch to a per-family `.eq` join if it grows.
     const { data, error } = await supabase
       .from('movie_night')
       .select('family_id, kind, movies')
@@ -194,31 +195,7 @@ export async function lookupMovie(
   }
 }
 
-export function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => {
-    switch (c) {
-      case '&':
-        return '&amp;';
-      case '<':
-        return '&lt;';
-      case '>':
-        return '&gt;';
-      case '"':
-        return '&quot;';
-      case "'":
-        return '&#39;';
-      default:
-        return c;
-    }
-  });
-}
-
-/**
- * Build the modified index.html with dynamic og/twitter tags injected
- * and static fallbacks stripped. Optionally adds a meta-refresh so a
- * human tapping the share URL lands in the SPA.
- */
-export function buildShareHtml(params: {
+function buildShareHtml(params: {
   template: string;
   origin: string;
   movie: MovieLike | null;
@@ -242,43 +219,16 @@ export function buildShareHtml(params: {
     descParts.length > 0
       ? descParts.join(' — ')
       : 'Our family movie night tracker';
-  // og:image points at our same-origin .jpg-extensioned proxy. The
-  // exact path is built by the caller because it differs between the
-  // default share route (/api/poster/<title>.jpg) and the family-
-  // prefixed route (/api/poster/f/<slug>/<title>.jpg). Originally we
-  // tried the raw Amazon URL, but those poster paths contain "@"
-  // (Amazon's content-hash delimiter) which Apple's
-  // LPMetadataProvider appears to reject when validating the URL —
-  // Safari renders it fine, but the unfurl card silently drops the
-  // image. Routing through our domain gives Apple a clean URL to
-  // fetch and we handle the Amazon side server-side where lenient
-  // URL parsing is the norm.
-  //
-  // The ?v=<commit> cache-buster ensures Apple's per-URL "this image
-  // is broken" cache (built up during many failed deploys) doesn't
-  // poison fresh attempts. Each new deploy emits a different
-  // og:image URL, sidestepping any prior negative cache entry.
   const commit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev';
   const img = movie?.poster
     ? `${origin}${posterPath}?v=${commit}`
     : `${origin}/og-image.svg`;
 
-  // Strip the static og:*, twitter:*, and apple-touch-icon link tags
-  // from the template so the injected ones are the only copy the
-  // unfurler sees. Apple's LPMetadataProvider picks the *first*
-  // og:image, and falls back to apple-touch-icon when og:image can't
-  // be fetched, so leaving either in place risked the static
-  // play-button icon winning.
   const stripped = template
     .replace(/\s*<meta\s+property="og:[^"]+"[^>]*\/?\s*>/gi, '')
     .replace(/\s*<meta\s+name="twitter:[^"]+"[^>]*\/?\s*>/gi, '')
     .replace(/\s*<link\s+rel="apple-touch-icon"[^>]*\/?\s*>/gi, '');
 
-  // Apple's LPMetadataProvider rejects og:image below ~600x315 and
-  // silently falls back to apple-touch-icon / Safari placeholder.
-  // Declaring dimensions matching what /api/poster returns (600px
-  // wide, ~888px tall after the SX300→SX600 upscale, 2:3 poster
-  // aspect ratio) tells the unfurler the image is large enough.
   const tagLines: string[] = [
     `<meta property="og:type" content="video.movie" />`,
     `<meta property="og:title" content="${escapeHtml(titleTxt)}" />`,
@@ -298,9 +248,6 @@ export function buildShareHtml(params: {
     `<meta name="twitter:image" content="${escapeHtml(img)}" />`,
   ];
   if (spaRedirect) {
-    // Unfurlers (iMessage, Slack, etc.) read meta tags but don't
-    // follow meta-refresh — they see the og:* tags and render a
-    // preview. Browsers follow the refresh and land in the SPA.
     tagLines.unshift(
       `<meta http-equiv="refresh" content="0; url=${escapeHtml(spaRedirect)}" />`,
     );
@@ -308,4 +255,94 @@ export function buildShareHtml(params: {
 
   const tags = tagLines.join('\n    ');
   return stripped.replace('</head>', `    ${tags}\n  </head>`);
+}
+
+function decodeParam(raw: string | string[] | undefined): string {
+  const v =
+    typeof raw === 'string'
+      ? raw
+      : Array.isArray(raw)
+        ? (raw[0] ?? '')
+        : '';
+  return decodeURIComponent(v);
+}
+
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse,
+) {
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev';
+  res.setHeader('x-commit', commit);
+
+  try {
+    const slug = decodeParam(req.query.slug);
+    const title = decodeParam(req.query.title);
+    const host = req.headers.host ?? '';
+    const proto =
+      (req.headers['x-forwarded-proto'] as string | undefined) || 'https';
+    const origin = `${proto}://${host}`;
+
+    const templateRes = await fetch(`${origin}/index.html`);
+    if (!templateRes.ok) {
+      res.setHeader('content-type', 'text/plain; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      return res
+        .status(502)
+        .send(`failed to fetch index.html template (commit ${commit})`);
+    }
+    const template = await templateRes.text();
+
+    const debug = req.query.debug === '1';
+    const debugHtml = req.query.debug === 'html';
+
+    const lookup = await lookupMovie(slug, title);
+
+    if (debug) {
+      res.setHeader('content-type', 'application/json; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      return res.status(200).json({
+        commit,
+        requestedSlug: slug,
+        requestedTitle: title,
+        hasSupabaseUrl: Boolean(supabaseUrl),
+        hasSupabaseKey: Boolean(supabaseKey),
+        ...lookup.debug,
+        resolved: lookup.movie,
+      });
+    }
+
+    const canonical = `${origin}/share/f/${encodeURIComponent(slug)}/${encodeURIComponent(title)}`;
+    const spaRedirect = `/family/${encodeURIComponent(slug)}/m/${encodeURIComponent(title)}`;
+    const posterPath = `/api/poster/f/${encodeURIComponent(slug)}/${encodeURIComponent(title)}.jpg`;
+
+    const out = buildShareHtml({
+      template,
+      origin,
+      movie: lookup.movie,
+      canonical,
+      posterPath,
+      spaRedirect,
+    });
+
+    if (debugHtml) {
+      res.setHeader('content-type', 'text/plain; charset=utf-8');
+      res.setHeader('cache-control', 'no-store');
+      return res.status(200).send(out);
+    }
+
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    res.setHeader(
+      'cache-control',
+      'public, no-cache, no-store, must-revalidate',
+    );
+    res.setHeader('x-share-resolved', lookup.movie ? '1' : '0');
+    return res.status(200).send(out);
+  } catch (e) {
+    const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    res.setHeader('content-type', 'text/plain; charset=utf-8');
+    res.setHeader('cache-control', 'no-store');
+    return res
+      .status(500)
+      .send(`share handler crashed (commit ${commit}): ${msg}`);
+  }
 }

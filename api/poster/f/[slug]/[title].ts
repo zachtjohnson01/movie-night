@@ -1,24 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 /**
- * Poster image proxy on a clean .jpg-extensioned URL. Default route
- * scoped to the bootstrap Johnsons family — preserves the existing
- * iMessage og:image URL shape.
+ * Family-prefixed poster proxy: `/api/poster/f/<slug>/<title>.jpg`.
+ * Companion to `/share/f/<slug>/<title>` — used by non-Johnson families
+ * so the unfurl image resolves against the correct library + global
+ * pool. Default Johnsons posters stay on `/api/poster/<title>.jpg`.
  *
- * The lookup logic is intentionally inlined (rather than imported
- * from ../_lib/share-core) because Vercel's function bundler dropped
- * the helper module from this route's deploy when imported via the
- * underscore-prefixed folder, even with a static top-of-file import.
- * Sibling /api/share/[title].ts using the same import works; this
- * route consistently crashed with ERR_MODULE_NOT_FOUND. Inlining
- * removes the bundler quirk entirely.
+ * Inlined for the same Vercel-bundler reason as the sibling routes.
  */
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
 const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
+const DEFAULT_FAMILY_SLUG = 'johnson';
 
 type LibraryEntryLike = {
   title: string;
@@ -37,26 +33,41 @@ type MovieNightRow = {
   movies: unknown;
 };
 
-export function normalizeTitle(s: string | null | undefined): string {
+function normalizeTitle(s: string | null | undefined): string {
   if (!s) return '';
   return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-// Apple's LPMetadataProvider needs at least 600px-wide images to render a
-// rich preview card (300px gets rejected). OMDB returns posters at `_SX300`;
-// upscale to `_SX600` via Amazon's CDN size operator. Same image, larger render.
-// Already-`_SX600`-or-larger URLs stay; non-matching URLs pass through unchanged.
-export function rewritePosterSize(url: string): string {
+function rewritePosterSize(url: string): string {
   return url.replace(/_SX\d+/, '_SX600');
 }
 
-export async function lookupPosterUrl(
+async function resolveFamilyId(
+  supabase: SupabaseClient,
+  slug: string,
+): Promise<string | null> {
+  if (slug === DEFAULT_FAMILY_SLUG) return JOHNSON_FAMILY_UUID;
+  const { data, error } = await supabase
+    .from('families')
+    .select('id')
+    .eq('slug', slug)
+    .maybeSingle();
+  if (error || !data) return null;
+  return (data as { id: string }).id;
+}
+
+async function lookupPosterUrl(
+  slug: string,
   title: string,
 ): Promise<{ poster: string | null; entryMatch: string }> {
-  if (!title || !supabaseUrl || !supabaseKey) {
+  if (!title || !slug || !supabaseUrl || !supabaseKey) {
     return { poster: null, entryMatch: 'no-env' };
   }
   const supabase = createClient(supabaseUrl, supabaseKey);
+  const familyId = await resolveFamilyId(supabase, slug);
+  if (!familyId) {
+    return { poster: null, entryMatch: 'unknown-slug' };
+  }
   const { data, error } = await supabase
     .from('movie_night')
     .select('family_id, kind, movies')
@@ -66,7 +77,7 @@ export async function lookupPosterUrl(
   }
   const rows = data as MovieNightRow[];
   const libRow = rows.find(
-    (r) => r.kind === 'library' && r.family_id === JOHNSON_FAMILY_UUID,
+    (r) => r.kind === 'library' && r.family_id === familyId,
   );
   const poolRow = rows.find((r) => r.kind === 'pool' && r.family_id == null);
   const entries = (Array.isArray(libRow?.movies)
@@ -106,6 +117,16 @@ export async function lookupPosterUrl(
   return { poster: candidate?.poster ?? null, entryMatch };
 }
 
+function decodeParam(raw: string | string[] | undefined): string {
+  const v =
+    typeof raw === 'string'
+      ? raw
+      : Array.isArray(raw)
+        ? (raw[0] ?? '')
+        : '';
+  return decodeURIComponent(v);
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -115,24 +136,18 @@ export default async function handler(
 
   const debug = req.query.debug === '1';
   try {
-    const rawSlug = req.query.slug;
-    const slug =
-      typeof rawSlug === 'string'
-        ? rawSlug
-        : Array.isArray(rawSlug)
-          ? (rawSlug[0] ?? '')
-          : '';
-    const title = slug.replace(/\.(jpg|jpeg|png|webp)$/i, '');
+    const slug = decodeParam(req.query.slug);
+    const titleParam = decodeParam(req.query.title);
+    const title = titleParam.replace(/\.(jpg|jpeg|png|webp)$/i, '');
 
     if (debug) {
       const lookup = title
-        ? await lookupPosterUrl(title)
+        ? await lookupPosterUrl(slug, title)
         : { poster: null, entryMatch: 'no-title' };
       res.setHeader('content-type', 'application/json; charset=utf-8');
       res.setHeader('cache-control', 'no-store');
       return res.status(200).json({
         commit,
-        rawSlug,
         slug,
         title,
         ...lookup,
@@ -141,17 +156,20 @@ export default async function handler(
       });
     }
 
-    if (!title) {
+    if (!title || !slug) {
       res.setHeader('access-control-allow-origin', '*');
-      return res.status(400).send('missing title');
+      return res.status(400).send('missing slug or title');
     }
 
-    const { poster: posterRawUrl, entryMatch } = await lookupPosterUrl(title);
+    const { poster: posterRawUrl, entryMatch } = await lookupPosterUrl(
+      slug,
+      title,
+    );
     if (!posterRawUrl) {
       res.setHeader('access-control-allow-origin', '*');
       return res
         .status(404)
-        .send(`poster not found for "${title}" (match=${entryMatch})`);
+        .send(`poster not found for "${slug}/${title}" (match=${entryMatch})`);
     }
 
     const posterUrl = rewritePosterSize(posterRawUrl);

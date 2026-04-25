@@ -8,6 +8,8 @@ vi.mock('@supabase/supabase-js', () => ({
 import { createClient } from '@supabase/supabase-js';
 import handler from './[title]';
 
+const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
+
 const TEMPLATE = `<!doctype html>
 <html><head>
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -68,7 +70,9 @@ function makeRes(): FakeRes {
   return res as FakeRes;
 }
 
-function stubSupabase(rows: { id: number; movies: unknown[] }[]) {
+type MovieRow = { family_id: string | null; kind: string; movies: unknown[] };
+
+function stubSupabase(rows: MovieRow[]) {
   vi.mocked(createClient).mockReturnValue({
     from: vi.fn().mockReturnValue({
       select: vi.fn().mockReturnValue({
@@ -77,6 +81,18 @@ function stubSupabase(rows: { id: number; movies: unknown[] }[]) {
     }),
   } as never);
 }
+
+const johnsonsLib = (movies: unknown[]): MovieRow => ({
+  family_id: JOHNSON_FAMILY_UUID,
+  kind: 'library',
+  movies,
+});
+
+const globalPool = (movies: unknown[]): MovieRow => ({
+  family_id: null,
+  kind: 'pool',
+  movies,
+});
 
 function stubTemplateFetch() {
   global.fetch = vi.fn().mockResolvedValue({
@@ -88,10 +104,7 @@ function stubTemplateFetch() {
 describe('share handler', () => {
   beforeEach(() => {
     vi.mocked(createClient).mockReset();
-    stubSupabase([
-      { id: 1, movies: [BOLT_ENTRY] },
-      { id: 2, movies: [BOLT_CANDIDATE] },
-    ]);
+    stubSupabase([johnsonsLib([BOLT_ENTRY]), globalPool([BOLT_CANDIDATE])]);
     stubTemplateFetch();
   });
 
@@ -149,8 +162,8 @@ describe('share handler', () => {
 
   it('decodes percent-encoded titles before looking them up', async () => {
     stubSupabase([
-      { id: 1, movies: [{ ...BOLT_ENTRY, title: 'Bolt: The Movie' }] },
-      { id: 2, movies: [{ ...BOLT_CANDIDATE, title: 'Bolt: The Movie' }] },
+      johnsonsLib([{ ...BOLT_ENTRY, title: 'Bolt: The Movie' }]),
+      globalPool([{ ...BOLT_CANDIDATE, title: 'Bolt: The Movie' }]),
     ]);
     const req = makeReq({ title: 'Bolt%3A%20The%20Movie' });
     const res = makeRes();
@@ -160,16 +173,33 @@ describe('share handler', () => {
   });
 
   it('sets x-share-resolved=0 and falls back to og-image.svg when no movie is found', async () => {
-    stubSupabase([
-      { id: 1, movies: [] },
-      { id: 2, movies: [] },
-    ]);
+    stubSupabase([johnsonsLib([]), globalPool([])]);
     const req = makeReq({ title: 'Missing' });
     const res = makeRes();
     await handler(req, res);
     expect(res._status).toBe(200);
     expect(res._headers['x-share-resolved']).toBe('0');
     expect(String(res._body)).toContain('og-image.svg');
+  });
+
+  it('ignores library rows from other families when resolving the default route', async () => {
+    const otherFamilyId = '00000002-0000-0000-0000-000000000002';
+    stubSupabase([
+      johnsonsLib([]),
+      {
+        family_id: otherFamilyId,
+        kind: 'library',
+        movies: [{ ...BOLT_ENTRY, displayTitle: 'Smith Bolt' }],
+      },
+      globalPool([BOLT_CANDIDATE]),
+    ]);
+    const req = makeReq({ title: 'Bolt' });
+    const res = makeRes();
+    await handler(req, res);
+    // Library miss for Johnsons → falls through to candidate-only.
+    // The other family's library entry must not contribute.
+    expect(res._headers['x-share-resolved']).toBe('1');
+    expect(String(res._body)).not.toContain('Smith Bolt');
   });
 
   it('returns 502 if the index.html template fetch fails', async () => {

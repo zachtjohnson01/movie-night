@@ -12,13 +12,17 @@ import handler, {
   lookupPosterUrl,
 } from './[slug]';
 
+const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
+
 type FakeRes = VercelResponse & {
   _status: number;
   _body: unknown;
   _headers: Record<string, string>;
 };
 
-function stubSupabase(rows: { id: number; movies: unknown[] }[]) {
+type MovieRow = { family_id: string | null; kind: string; movies: unknown[] };
+
+function stubSupabase(rows: MovieRow[]) {
   vi.mocked(createClient).mockReturnValue({
     from: vi.fn().mockReturnValue({
       select: vi.fn().mockReturnValue({
@@ -27,6 +31,18 @@ function stubSupabase(rows: { id: number; movies: unknown[] }[]) {
     }),
   } as never);
 }
+
+const johnsonsLib = (movies: unknown[]): MovieRow => ({
+  family_id: JOHNSON_FAMILY_UUID,
+  kind: 'library',
+  movies,
+});
+
+const globalPool = (movies: unknown[]): MovieRow => ({
+  family_id: null,
+  kind: 'pool',
+  movies,
+});
 
 function makeReq(query: Record<string, string>): VercelRequest {
   return {
@@ -98,13 +114,10 @@ describe('lookupPosterUrl', () => {
 
   it('joins by imdbId when entry has one', async () => {
     stubSupabase([
-      { id: 1, movies: [{ title: 'Bolt', imdbId: 'tt1' }] },
-      {
-        id: 2,
-        movies: [
-          { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
-        ],
-      },
+      johnsonsLib([{ title: 'Bolt', imdbId: 'tt1' }]),
+      globalPool([
+        { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
+      ]),
     ]);
     const r = await lookupPosterUrl('Bolt');
     expect(r.poster).toBe('http://p/abc._SX300.jpg');
@@ -113,13 +126,10 @@ describe('lookupPosterUrl', () => {
 
   it('falls back to candidate-only match when no entry exists', async () => {
     stubSupabase([
-      { id: 1, movies: [] },
-      {
-        id: 2,
-        movies: [
-          { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
-        ],
-      },
+      johnsonsLib([]),
+      globalPool([
+        { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
+      ]),
     ]);
     const r = await lookupPosterUrl('Bolt');
     expect(r.poster).toBe('http://p/abc._SX300.jpg');
@@ -127,12 +137,28 @@ describe('lookupPosterUrl', () => {
   });
 
   it('returns {poster: null} when nothing matches', async () => {
-    stubSupabase([
-      { id: 1, movies: [] },
-      { id: 2, movies: [] },
-    ]);
+    stubSupabase([johnsonsLib([]), globalPool([])]);
     const r = await lookupPosterUrl('Missing');
     expect(r.poster).toBeNull();
+  });
+
+  it('ignores library rows from other families', async () => {
+    const otherId = '00000002-0000-0000-0000-000000000002';
+    stubSupabase([
+      {
+        family_id: otherId,
+        kind: 'library',
+        movies: [{ title: 'Bolt', imdbId: 'tt1' }],
+      },
+      globalPool([
+        { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
+      ]),
+    ]);
+    const r = await lookupPosterUrl('Bolt');
+    // Other family's library should not contribute the entry; we
+    // still resolve the poster via the global pool fallback.
+    expect(r.poster).toBe('http://p/abc._SX300.jpg');
+    expect(r.entryMatch).toBe('none');
   });
 });
 
@@ -140,13 +166,10 @@ describe('poster handler', () => {
   beforeEach(() => {
     vi.mocked(createClient).mockReset();
     stubSupabase([
-      { id: 1, movies: [{ title: 'Bolt', imdbId: 'tt1' }] },
-      {
-        id: 2,
-        movies: [
-          { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
-        ],
-      },
+      johnsonsLib([{ title: 'Bolt', imdbId: 'tt1' }]),
+      globalPool([
+        { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
+      ]),
     ]);
   });
 
@@ -183,10 +206,7 @@ describe('poster handler', () => {
   });
 
   it('returns 404 when no poster matches', async () => {
-    stubSupabase([
-      { id: 1, movies: [] },
-      { id: 2, movies: [] },
-    ]);
+    stubSupabase([johnsonsLib([]), globalPool([])]);
     const req = makeReq({ slug: 'Missing.jpg' });
     const res = makeRes();
     await handler(req, res);
