@@ -2,7 +2,9 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 /**
- * OG-tag injector for share links like `/share/<title>`.
+ * OG-tag injector for share links like `/share/<title>`. Default route
+ * scoped to the bootstrap Johnsons family — preserves existing iMessage
+ * unfurls without changing their URL shape.
  *
  * The lookup + HTML-build logic is intentionally inlined (not imported
  * from ../_lib/share-core) because Vercel's function bundler drops the
@@ -28,6 +30,10 @@ import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+// Same UUID as src/supabase.ts. Inlined because API routes can't pull
+// from the Vite client tree without dragging the bundler quirk back in.
+const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
 
 type LibraryEntryLike = {
   title: string;
@@ -67,6 +73,12 @@ type LookupResult = {
   };
 };
 
+type MovieNightRow = {
+  family_id: string | null;
+  kind: string;
+  movies: unknown;
+};
+
 function normalizeTitle(s: string | null | undefined): string {
   if (!s) return '';
   return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
@@ -103,17 +115,26 @@ async function lookupMovie(title: string): Promise<LookupResult> {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('movie_night')
-      .select('id, movies')
-      .in('id', [1, 2]);
+      .select('family_id, kind, movies')
+      .in('kind', ['library', 'pool']);
     if (error) {
       debug.supabaseError = error.message;
       return { movie: null, debug };
     }
     if (!data) return { movie: null, debug };
-    const entries =
-      (data.find((r) => r.id === 1)?.movies ?? []) as LibraryEntryLike[];
-    const candidates =
-      (data.find((r) => r.id === 2)?.movies ?? []) as CandidateLike[];
+    const rows = data as MovieNightRow[];
+    const libRow = rows.find(
+      (r) => r.kind === 'library' && r.family_id === JOHNSON_FAMILY_UUID,
+    );
+    const poolRow = rows.find(
+      (r) => r.kind === 'pool' && r.family_id == null,
+    );
+    const entries = (Array.isArray(libRow?.movies)
+      ? libRow.movies
+      : []) as LibraryEntryLike[];
+    const candidates = (Array.isArray(poolRow?.movies)
+      ? poolRow.movies
+      : []) as CandidateLike[];
     debug.entryCount = entries.length;
     debug.candidateCount = candidates.length;
     const titleNorm = normalizeTitle(title);

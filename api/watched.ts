@@ -4,6 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
 const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
 
+const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
+
 export default async function handler(_req: VercelRequest, res: VercelResponse) {
   if (!supabaseUrl || !supabaseKey) {
     return res.status(500).json({ error: 'Supabase not configured' });
@@ -13,7 +15,8 @@ export default async function handler(_req: VercelRequest, res: VercelResponse) 
   const { data, error } = await supabase
     .from('movie_night')
     .select('movies')
-    .eq('id', 1)
+    .eq('family_id', JOHNSON_FAMILY_UUID)
+    .eq('kind', 'library')
     .maybeSingle();
 
   if (error) {

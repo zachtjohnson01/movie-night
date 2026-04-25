@@ -171,9 +171,16 @@ export default function Detail(props: Props) {
   // all, so reading the field returns `undefined` — not `null`. A
   // strict `=== null` check misses them entirely and the effect never
   // fires. `== null` matches both.
+  //
+  // Gated on `canWrite`: anonymous landing-page viewers and signed-in
+  // non-members can't write to the family's library, so firing the
+  // backfill from their session would issue a request the database
+  // rejects (or, with permissive RLS, succeed and let strangers
+  // mutate other families' rows).
   const backfillImdbId =
     isOmdbConfigured &&
     props.mode === 'existing' &&
+    props.canWrite &&
     props.movie.imdbId != null &&
     props.movie.poster == null
       ? props.movie.imdbId

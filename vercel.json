@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/share/f/:slug/:title",
+      "destination": "/api/share/f/:slug/:title"
+    },
+    {
       "source": "/share/:title",
       "destination": "/api/share/:title"
     },

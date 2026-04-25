@@ -16,11 +16,14 @@ import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
 import UsersAdmin from './components/UsersAdmin';
 import WeightsAdmin from './components/WeightsAdmin';
+import Landing from './components/Landing';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
 import { useSwipeBack } from './useSwipeBack';
 import { useUserRoles } from './useUserRoles';
+import { useFamilies } from './useFamilies';
+import { useFamilyMembership } from './useFamilyMembership';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
 import {
@@ -61,6 +64,37 @@ function readInitialDesign(): Design {
 export default function App() {
   const route = useRoute();
   const pool = useCandidatePool();
+  const userRoles = useUserRoles();
+  const auth = useAuth(userRoles.roles);
+  const families = useFamilies();
+
+  // The slug owning the current view. Landing/onboard/auth-callback
+  // routes don't have one; default to the Johnsons so any helpers
+  // that fall back to a slug (legacy `?m=` deep-links, the openMovie
+  // pushPath after picking from the candidate pool on the default
+  // view) keep producing correct URLs.
+  const currentSlug =
+    route.kind === 'movie' ||
+    route.kind === 'family' ||
+    route.kind === 'settings'
+      ? route.slug
+      : DEFAULT_FAMILY_SLUG;
+
+  // Resolve slug → family UUID. The default Johnsons slug short-circuits
+  // to the constant from supabase.ts so the existing single-family path
+  // doesn't need to wait on the families fetch. Other slugs come from
+  // useFamilies once it's loaded; null until then so useMovies's effect
+  // skips the query.
+  const familyId =
+    currentSlug === DEFAULT_FAMILY_SLUG
+      ? JOHNSON_FAMILY_UUID
+      : (families.families.find((f) => f.slug === currentSlug)?.id ?? null);
+
+  const membership = useFamilyMembership({
+    email: auth.email,
+    familyId,
+  });
+
   const {
     movies,
     status,
@@ -70,16 +104,11 @@ export default function App() {
     reorderWishlist,
     reload: reloadMovies,
   } = useMovies({
-    // Hardcoded to the Johnsons until PR 4 resolves a slug to a
-    // family_id via membership lookup. App still renders single-family
-    // for now.
-    familyId: JOHNSON_FAMILY_UUID,
+    familyId,
     candidates: pool.candidates,
     onUpdateCandidate: pool.updateCandidate,
     onAppendCandidates: pool.appendCandidates,
   });
-  const userRoles = useUserRoles();
-  const auth = useAuth(userRoles.roles);
   const [tab, setTab] = useState<Tab>('watched');
   const [modal, setModal] = useState<ModalScreen | null>(null);
   const [showBulkLink, setShowBulkLink] = useState(false);
@@ -94,14 +123,11 @@ export default function App() {
   const [viewAsNonOwner, setViewAsNonOwner] = useState(false);
   const effectiveIsOwner = auth.isOwner && !viewAsNonOwner;
 
-  // The slug owning the current view. PR 1 only knows the default
-  // family; later PRs derive this from membership + the route.
-  const currentSlug =
-    route.kind === 'movie' ||
-    route.kind === 'family' ||
-    route.kind === 'settings'
-      ? route.slug
-      : DEFAULT_FAMILY_SLUG;
+  // PR 4 swap: write access is now membership-driven (signed in AND a
+  // member of the current family) rather than being driven by the
+  // global user_roles allowlist. PR 5 folds this into the auth object
+  // proper; for now it lives alongside.
+  const canWrite = membership.canWrite;
 
   useEffect(() => {
     try {
@@ -168,10 +194,20 @@ export default function App() {
   // load), bounce the active tab back to Watched so they're not
   // stranded on a tab whose button no longer exists.
   useEffect(() => {
-    if (tab === 'recs' && !auth.canWrite) {
+    if (tab === 'recs' && !canWrite) {
       setTab('watched');
     }
-  }, [tab, auth.canWrite]);
+  }, [tab, canWrite]);
+
+  // Modals are tied to a specific family view. If the route flips to
+  // landing (browser back from /family/<slug>, or replacePath after
+  // OAuth callback), drop any open modal so it doesn't reappear when
+  // the user navigates back into a family.
+  useEffect(() => {
+    if (route.kind === 'landing' && modal !== null) {
+      setModal(null);
+    }
+  }, [route, modal]);
 
   const selected = useMemo(() => {
     if (route.kind !== 'movie') return null;
@@ -202,13 +238,13 @@ export default function App() {
   }
 
   function openAdd() {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     const template = emptyMovie(tab === 'watched');
     setModal({ name: 'new', template });
   }
 
   function openPick(c: Candidate) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     setModal({
       name: 'candidate',
       template: candidateToTemplate(c),
@@ -217,7 +253,7 @@ export default function App() {
   }
 
   async function handleUpdate(originalTitle: string, updated: Movie) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     // If the title is changing, replace the URL BEFORE kicking off the
     // updateMovie write. React 18 auto-batches: the route update from
     // replacePath and the setMovies inside updateMovie (which runs
@@ -238,35 +274,35 @@ export default function App() {
   }
 
   async function handleCreate(created: Movie) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     await addMovie(created);
     setTab(created.watched ? 'watched' : 'wishlist');
     setModal(null);
   }
 
   async function handleAddCandidateToWishlist(template: Movie) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     await addMovie({ ...template, watched: false, dateWatched: null });
     setTab('wishlist');
     setModal(null);
   }
 
   async function handleMarkCandidateWatchedTonight(template: Movie) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     await addMovie({ ...template, watched: true, dateWatched: todayIso() });
     setTab('watched');
     setModal(null);
   }
 
   async function handleMarkCandidateWatchedUndated(template: Movie) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     await addMovie({ ...template, watched: true, dateWatched: null });
     setTab('watched');
     setModal(null);
   }
 
   async function handleDelete(movie: Movie) {
-    if (!auth.canWrite) return;
+    if (!canWrite) return;
     await deleteMovie(movie.title);
     closeMovie();
   }
@@ -283,13 +319,17 @@ export default function App() {
 
   const isModern = design === 'modern';
 
+  if (route.kind === 'landing') {
+    return <Landing auth={auth} />;
+  }
+
   if (modal?.name === 'new') {
     const DetailComponent = isModern ? ModernDetail : Detail;
     return (
       <DetailComponent
         mode="new"
         movie={modal.template}
-        canWrite={auth.canWrite}
+        canWrite={canWrite}
         onBack={() => setModal(null)}
         onCreate={handleCreate}
       />
@@ -332,7 +372,7 @@ export default function App() {
         <ModernDetail
           mode="candidate"
           movie={modal.template}
-          canWrite={auth.canWrite}
+          canWrite={canWrite}
           library={movies}
           onBack={() => setModal(null)}
           onAddToWishlist={handleAddCandidateToWishlist}
@@ -348,13 +388,13 @@ export default function App() {
     // Live state from the pool so the downvote reflects what any user has
     // done — including the current user in an earlier session.
     const live = pool.candidates.find((c) => c.title === modal.candidateTitle);
-    const canDownvote = auth.canWrite && pool.status === 'synced' && !!live;
+    const canDownvote = canWrite && pool.status === 'synced' && !!live;
     const candidateTitle = modal.candidateTitle;
     return (
       <Detail
         mode="candidate"
         movie={modal.template}
-        canWrite={auth.canWrite}
+        canWrite={canWrite}
         library={movies}
         onBack={() => setModal(null)}
         onAddToWishlist={handleAddCandidateToWishlist}
@@ -380,7 +420,7 @@ export default function App() {
       <DetailComponent
         mode="existing"
         movie={selected}
-        canWrite={auth.canWrite}
+        canWrite={canWrite}
         isOwner={effectiveIsOwner}
         library={movies}
         onBack={closeMovie}
@@ -419,7 +459,7 @@ export default function App() {
             {tab === 'watched' && (
               <ModernWatchedList
                 movies={movies}
-                canWrite={auth.canWrite}
+                canWrite={canWrite}
                 onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
               />
@@ -427,12 +467,12 @@ export default function App() {
             {tab === 'wishlist' && (
               <ModernWishlist
                 movies={movies}
-                canWrite={auth.canWrite}
+                canWrite={canWrite}
                 onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
               />
             )}
-            {tab === 'recs' && auth.canWrite && (
+            {tab === 'recs' && canWrite && (
               <ModernRecommendations
                 movies={movies}
                 pool={pool}
@@ -446,7 +486,7 @@ export default function App() {
             {tab === 'watched' && (
               <WatchedList
                 movies={movies}
-                canWrite={auth.canWrite}
+                canWrite={canWrite}
                 isOwner={effectiveIsOwner}
                 onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
@@ -457,7 +497,7 @@ export default function App() {
             {tab === 'wishlist' && (
               <Wishlist
                 movies={movies}
-                canWrite={auth.canWrite}
+                canWrite={canWrite}
                 isOwner={effectiveIsOwner}
                 onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
@@ -465,7 +505,7 @@ export default function App() {
                 onReorder={reorderWishlist}
               />
             )}
-            {tab === 'recs' && auth.canWrite && (
+            {tab === 'recs' && canWrite && (
               <Recommendations
                 movies={movies}
                 pool={pool}
@@ -478,9 +518,9 @@ export default function App() {
         )}
       </main>
       {isModern ? (
-        <ModernTabBar tab={tab} onChange={setTab} canSeeRecs={auth.canWrite} />
+        <ModernTabBar tab={tab} onChange={setTab} canSeeRecs={canWrite} />
       ) : (
-        <TabBar tab={tab} onChange={setTab} canSeeRecs={auth.canWrite} />
+        <TabBar tab={tab} onChange={setTab} canSeeRecs={canWrite} />
       )}
       {showBulkLink && (
         <BulkLinkSheet
