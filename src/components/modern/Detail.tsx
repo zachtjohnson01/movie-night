@@ -7,7 +7,7 @@ import {
   getDisplayTitle,
   todayIso,
 } from '../../format';
-import { commonSenseUrl } from '../../omdb';
+import { commonSenseUrl, imdbUrl, rottenTomatoesUrl } from '../../omdb';
 import { CheckIcon, ShareIcon, useShareAction } from '../ShareButton';
 import {
   AMBER,
@@ -365,8 +365,16 @@ function ModernView({
               {movie.commonSenseAge || '—'}
             </div>
           </a>
-          <ChipStat label="Rotten T." value={movie.rottenTomatoes || '—'} />
-          <ChipStat label="IMDb" value={movie.imdb || '—'} />
+          <ChipStat
+            label="Rotten T."
+            value={movie.rottenTomatoes || '—'}
+            href={rottenTomatoesUrl(movie)}
+          />
+          <ChipStat
+            label="IMDb"
+            value={movie.imdb || '—'}
+            href={imdbUrl(movie)}
+          />
         </div>
       </div>
 
@@ -872,16 +880,26 @@ function ModernCrossoverSection({
   );
 }
 
-function ChipStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div
-      style={{
-        padding: '10px 14px',
-        borderRadius: 12,
-        background: BG_3,
-        border: `1px solid ${BORDER}`,
-      }}
-    >
+function ChipStat({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href?: string;
+}) {
+  const containerStyle = {
+    padding: '10px 14px',
+    borderRadius: 12,
+    background: BG_3,
+    border: `1px solid ${BORDER}`,
+    textDecoration: 'none',
+    color: 'inherit',
+    display: 'block',
+  } as const;
+  const inner = (
+    <>
       <div
         style={{
           fontFamily: SANS,
@@ -906,6 +924,19 @@ function ChipStat({ label, value }: { label: string; value: string }) {
       >
         {value}
       </div>
-    </div>
+    </>
   );
+  if (href) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={containerStyle}
+      >
+        {inner}
+      </a>
+    );
+  }
+  return <div style={containerStyle}>{inner}</div>;
 }
