@@ -14,10 +14,12 @@ import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
+import UsersAdmin from './components/UsersAdmin';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
 import { useSwipeBack } from './useSwipeBack';
+import { useUserRoles } from './useUserRoles';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
 
@@ -29,7 +31,8 @@ type Screen =
   // downvote toggle writes back to the right entry. The template itself
   // is a Movie shape for the existing Detail component to consume.
   | { name: 'candidate'; template: Movie; candidateTitle: string }
-  | { name: 'pool' };
+  | { name: 'pool' }
+  | { name: 'users' };
 
 type Design = 'classic' | 'modern';
 
@@ -94,7 +97,8 @@ export default function App() {
     onUpdateCandidate: pool.updateCandidate,
     onAppendCandidates: pool.appendCandidates,
   });
-  const auth = useAuth();
+  const userRoles = useUserRoles();
+  const auth = useAuth(userRoles.roles);
   const [tab, setTab] = useState<Tab>('watched');
   const [screen, setScreen] = useState<Screen>({ name: 'list' });
   const [showBulkLink, setShowBulkLink] = useState(false);
@@ -166,10 +170,13 @@ export default function App() {
   }, [screen, pendingDeepLink]);
 
   // Admin screens are owner-only. If the user signs out, isn't the owner,
-  // or toggles "view as non-owner" while on the pool admin screen, bounce
-  // them back to the list.
+  // or toggles "view as non-owner" while on the pool admin or users
+  // screen, bounce them back to the list.
   useEffect(() => {
-    if (screen.name === 'pool' && !effectiveIsOwner) {
+    if (
+      (screen.name === 'pool' || screen.name === 'users') &&
+      !effectiveIsOwner
+    ) {
       setScreen({ name: 'list' });
     }
   }, [screen, effectiveIsOwner]);
@@ -301,6 +308,16 @@ export default function App() {
     );
   }
 
+  if (screen.name === 'users' && effectiveIsOwner) {
+    return (
+      <UsersAdmin
+        api={userRoles}
+        currentEmail={auth.email}
+        onBack={() => setScreen({ name: 'list' })}
+      />
+    );
+  }
+
   if (screen.name === 'candidate') {
     if (isModern) {
       return (
@@ -375,6 +392,8 @@ export default function App() {
         onToggleDesign={toggleDesign}
         canManagePool={effectiveIsOwner}
         onOpenPool={() => setScreen({ name: 'pool' })}
+        canManageUsers={effectiveIsOwner}
+        onOpenUsers={() => setScreen({ name: 'users' })}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">
