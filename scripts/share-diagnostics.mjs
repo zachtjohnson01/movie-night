@@ -41,15 +41,45 @@ function assert(label, cond, detail) {
   cond ? pass(label) : fail(label, detail);
 }
 
+function isVercelAuthPage(text) {
+  return /Authentication Required|vercel\.com\/sso-api/i.test(text);
+}
+
 async function fetchJson(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
+  const ct = res.headers.get('content-type') ?? '';
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} on ${url}: ${body.slice(0, 200)}`);
+  }
+  if (!ct.includes('json')) {
+    const body = await res.text();
+    if (isVercelAuthPage(body)) {
+      throw new Error(
+        `${url} returned the Vercel deployment-protection auth page. ` +
+          `Disable preview protection in Vercel Settings → Deployment Protection, ` +
+          `or use a Protection Bypass token. Got content-type=${ct}.`,
+      );
+    }
+    throw new Error(
+      `${url} returned non-JSON (content-type=${ct}): ${body.slice(0, 200)}`,
+    );
+  }
   return await res.json();
 }
 async function fetchText(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} on ${url}`);
-  return await res.text();
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} on ${url}: ${body.slice(0, 200)}`);
+  }
+  const body = await res.text();
+  if (isVercelAuthPage(body)) {
+    throw new Error(
+      `${url} returned the Vercel deployment-protection auth page.`,
+    );
+  }
+  return body;
 }
 
 async function section(label, fn) {

@@ -6,25 +6,20 @@ name: Share preview diagnostics
 #   - /share/<title> og:image / og:title injection
 #   - /api/poster/<title>.jpg proxy + image bytes
 #   - schema-split movie lookup (row 1 + row 2 join)
-#
-# On PRs: runs against the Vercel preview deploy.
-# On push to main: runs against production.
 
 on:
-  pull_request:
+  # PRs would ideally run against the Vercel preview deploy, but
+  # Vercel's previews are auth-protected by default on Hobby/Pro plans
+  # (the preview URL returns Vercel's auth page instead of our
+  # function output) — useless without a Protection Bypass token.
+  # Run on push to main against production instead. Catches regressions
+  # post-merge but reliably executes our real code paths.
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 permissions:
-  # `issues: read` is needed by the github-script step to list PR
-  # comments — the PR-comments endpoint lives under the issues
-  # permission scope, even though the resource is a pull request.
-  # Without this, listComments() throws "Resource not accessible by
-  # integration" and the workflow fails in ~15s before doing real work.
-  issues: read
-  pull-requests: read
-  deployments: read
-  statuses: read
+  contents: read
 
 jobs:
   diagnostics:
@@ -36,56 +31,8 @@ jobs:
         with:
           node-version: '22'
 
-      # Vercel posts a preview-deploy comment on every PR (and updates
-      # it as the build moves through Building → Ready). Parse the
-      # preview URL out of that comment instead of relying on GitHub
-      # `deployment_status` events — modern Vercel uses checks +
-      # comments and the older wait-for-vercel-preview action times
-      # out waiting for events that are never posted.
-      - name: Wait for Vercel preview comment
-        if: github.event_name == 'pull_request'
-        id: preview
-        uses: actions/github-script@v7
-        with:
-          result-encoding: string
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            const issue_number = context.issue.number;
-            const startMs = Date.now();
-            const timeoutMs = 6 * 60 * 1000;
-            while (Date.now() - startMs < timeoutMs) {
-              const { data: comments } = await github.rest.issues.listComments({
-                owner, repo, issue_number, per_page: 100,
-              });
-              const vercelComment = comments.find(
-                (c) => c.user?.login === 'vercel[bot]' && /Ready/.test(c.body),
-              );
-              if (vercelComment) {
-                const match = vercelComment.body.match(
-                  /\[Preview\]\((https:\/\/[^)]+\.vercel\.app)\)/,
-                );
-                if (match) {
-                  core.info(`Found Vercel preview: ${match[1]}`);
-                  return match[1];
-                }
-              }
-              core.info('Vercel preview comment not yet ready; retrying in 10s');
-              await new Promise((r) => setTimeout(r, 10000));
-            }
-            core.setFailed('Vercel preview URL not found in PR comments after 6 min');
-
-      - name: Resolve base URL
-        id: base
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "url=${{ steps.preview.outputs.result }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "url=https://familymovienight.watch" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Run share diagnostics
+      - name: Run share diagnostics against production
         run: node scripts/share-diagnostics.mjs
         env:
-          BASE_URL: ${{ steps.base.outputs.url }}
+          BASE_URL: https://familymovienight.watch
           TEST_TITLE: Bolt
