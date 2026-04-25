@@ -110,13 +110,13 @@ export function buildShareData(
   const parts: string[] = [titleBase];
   if (m.rottenTomatoes) parts.push(`RT ${m.rottenTomatoes}`);
   if (m.imdb) parts.push(`IMDb ${m.imdb}`);
-  if (m.commonSenseAge) parts.push(m.commonSenseAge);
+  if (m.commonSenseAge) parts.push(`CSM ${m.commonSenseAge}`);
   const prefix = m.watched
     ? 'We watched this for family movie night!'
     : 'Next family movie night?';
   return {
     title: titleBase,
-    text: `${prefix}\n\n${parts.join(' — ')}`,
+    text: `${prefix}\n\n${parts.join(' • ')}`,
     // `?v=<commit>` cache-busts iMessage's per-URL link preview cache:
     // each deploy emits a different URL, so a previously-cached negative
     // unfurl can't poison subsequent shares of the same movie.
