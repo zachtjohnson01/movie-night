@@ -1,14 +1,15 @@
 export type Movie = {
   title: string;
   /**
-   * Optional user override for how the movie is rendered in the UI.
+   * Optional override for how the movie is rendered in the UI.
    * OMDB returns IMDb's primary-language title, which is often the
    * original language (e.g., "Leiutajateküla Lotte" for the Estonian
    * animated film whose English release is "Lotte from Gadgetville").
-   * When `displayTitle` is set, it's used everywhere a human-readable
-   * name is shown: list rows, Detail header, RT/CSM search URLs.
-   * `title` stays as the OMDB canonical so `imdbId` linking and
-   * refresh keep working against the canonical IMDb title.
+   * When set, it's used everywhere a human-readable name is shown:
+   * list rows, Detail header, RT/CSM search URLs. `title` stays as the
+   * OMDB canonical so `imdbId` linking and refresh keep working against
+   * the canonical IMDb title. Source of truth lives on Candidate
+   * (managed in the Manage pool edit sheet); surfaced here at merge time.
    */
   displayTitle: string | null;
   commonSenseAge: string | null;
@@ -102,7 +103,6 @@ export type Movie = {
 export type LibraryEntry = {
   title: string;          // primary join key → Candidate.title
   imdbId: string | null;  // secondary join key (preferred when set)
-  displayTitle: string | null;
   commonSenseAge: string | null;
   commonSenseScore: string | null;
   watched: boolean;
@@ -121,6 +121,14 @@ export type LibraryEntry = {
  */
 export type Candidate = {
   title: string;
+  /**
+   * Pool-level human-readable name. OMDB returns IMDb's primary-language
+   * title (often non-English, e.g. "Leiutajateküla Lotte"). When set,
+   * displayTitle is what the UI renders everywhere a name is shown.
+   * `title` stays as the OMDB canonical so `imdbId` linking and refresh
+   * keep working. Optional for backward compat with existing pool rows.
+   */
+  displayTitle?: string | null;
   year: number | null;
   imdbId: string | null;
   imdb: string | null;
