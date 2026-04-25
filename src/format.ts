@@ -117,7 +117,10 @@ export function buildShareData(
   return {
     title: titleBase,
     text: `${prefix}\n\n${parts.join(' — ')}`,
-    url: `${origin}/share/${encodeURIComponent(m.title)}`,
+    // `?v=<commit>` cache-busts iMessage's per-URL link preview cache:
+    // each deploy emits a different URL, so a previously-cached negative
+    // unfurl can't poison subsequent shares of the same movie.
+    url: `${origin}/share/${encodeURIComponent(m.title)}?v=${__BUILD_COMMIT__}`,
   };
 }
 
