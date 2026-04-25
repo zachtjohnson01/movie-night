@@ -71,8 +71,8 @@ src/
 ## Deploy pipeline
 
 - GitHub: `zachtjohnson01/movie-night`
-- **Dev branch (Claude Code constraint): `claude/movie-night-tracker-pwa-Xmv7v`** — every Claude session must develop on this branch. Reset it to `origin/main` at the start of each new feature if you're stacking PRs.
-- Push → open PR → user merges → Vercel auto-deploys in ~60s
+- **Branch model: one worktree per task, off `origin/main`, torn down after merge.** Don't share a long-lived dev branch — the user runs multiple parallel `claude` CLI sessions and a shared branch causes them to clobber each other's edits and silently auto-stash work. See rule #2 below for the canonical loop.
+- Push → open PR → auto-merge squashes when checks are green → Vercel auto-deploys in ~60s
 - PWA service worker may serve a stale `index.html` on first open after a deploy. Force-quit the PWA to pick up new code.
 
 ## Environment variables (set in Vercel dashboard)
@@ -114,40 +114,12 @@ The user manages env vars via the Vercel web dashboard, not via CLI. Don't sugge
 ## Working on this repo — conventions
 
 1. **Read `src/types.ts` first** if making any data-shape change. Everything else follows from it.
-2. **Develop on branch `claude/movie-night-tracker-pwa-Xmv7v`.** Reset to `origin/main` when starting fresh work.
+2. **Use a worktree per task — this is the canonical loop.** Call `EnterWorktree({name: "<feature>"})` as the first action for any non-trivial change, then `git fetch origin && git reset --hard origin/main` inside it. A plain `git checkout -b ...` runs in the shared working tree, where sibling Claude sessions will switch your branch and auto-stash your edits without warning. After merge, `ExitWorktree({action: "remove"})` to tear down. Skip only for read-only investigation, a single trivial edit, or pure docs in `.claude/`. Memory entries `feedback_standard_workflow.md`, `feedback_use_worktree.md`, and `parallel_claude_sessions.md` have the full rationale and recovery steps if edits seem to vanish.
 3. **Don't create files unless necessary** — prefer editing existing files. Keep the tree small.
 4. **Don't add emojis to source files** unless the user explicitly asks.
 5. **Run `npm run build` before every commit.** The stop hook enforces commit+push, but doesn't check build health. A broken build = broken deploy.
 6. **PR titles < 70 chars.** Details go in the body.
 7. **The user is on an iPhone almost always.** Any instructions you give them must work from mobile Safari + GitHub mobile + the Vercel/Supabase web dashboards. Never suggest CLI tools they'd have to install on a laptop.
 8. **The Vercel Coding Agent Plugin is installed.** New sessions have access to Vercel MCP tools for read operations (list projects/deploys, view logs, browse docs). Env var mutation and deploy creation still need to happen in the web dashboard.
-9. **Before every `git push` on a follow-up commit, call `mcp__github__pull_request_read` on the last PR you opened.** If `state === 'closed'` or `merged === true`, the branch is stale — do NOT push. Instead: `git fetch origin main && git reset --hard origin/main`, cherry-pick your commit(s), then push and open a new PR. This has caused repeated recovery cycles; treat the check as mandatory, not optional.
-10. **If debugging share-link previews / iMessage unfurls, read `docs/debugging-share-previews.md` first.** Diagnostic endpoints (`/api/version`, `/share/<title>?debug=1`, `/share/<title>?debug=html`, `/api/poster/<title>?debug=1`), Apple `LPMetadataProvider` quirks, Vercel bundling gotchas, and the recommended diagnostic workflow are all documented there. Use the doc to skip several PR cycles of guess-and-check.
-11. **After every `gh pr create`, immediately enable auto-merge:** `gh pr merge <num> --auto --squash`. The repo has a ruleset on `main` that requires the Vercel check, so auto-merge will wait for green and squash. Then poll `gh pr checks <num>` once or twice to confirm checks are passing — if a check goes red, surface it to the user; auto-merge will not fire on a red PR.
-
-## Git workflow gotcha: the orphaned-commit trap (read this, seriously)
-
-**Symptom:** I open a PR, do a little more work (maybe in response to a follow-up question), push another commit to the same feature branch, and the commit silently never reaches `main` because the user merged the original PR in between.
-
-**Root cause:** Zach merges PRs fast — often within a minute of me opening one. Between any two of my turns, a PR I opened may already be closed. Pushing to a branch whose PR has been closed creates a dangling commit: it lives on `origin/<branch>` but isn't attached to any open PR, so it never lands.
-
-**This has happened at least three times so far in this project.** Each time costs a recovery cycle (reset → cherry-pick → force-push → new PR). The user has explicitly asked me to stop repeating it.
-
-### Rules to prevent it
-
-1. **Before pushing any follow-up commit to a branch that had a PR, verify the PR is still open.** Call `mcp__github__pull_request_read` with `method: 'get'` on the last PR number you opened. If `state === 'closed'` or `merged === true`, the branch is now stale and you must reset before adding more work.
-
-2. **Before starting new work after a turn boundary, always `git fetch origin main && git log --oneline origin/main -3`** and check whether the head of `main` has moved past where you expect. If it has, a PR was merged and you need to reset the feature branch to `origin/main` before committing anything else.
-
-3. **If you discover you've already made the mistake:**
-   ```bash
-   git fetch origin main
-   git reset --hard origin/main
-   git cherry-pick <dangling-sha>
-   # (build, verify)
-   git push --force-with-lease
-   # open a new PR
-   ```
-   You'll usually only have one dangling commit to cherry-pick, but handle any chain correctly.
-
-4. **Default assumption between turns: the latest PR has probably been merged.** Treat the feature branch as stale unless you can prove otherwise via a fresh `git fetch` or `pull_request_read` call.
+9. **If debugging share-link previews / iMessage unfurls, read `docs/debugging-share-previews.md` first.** Diagnostic endpoints (`/api/version`, `/share/<title>?debug=1`, `/share/<title>?debug=html`, `/api/poster/<title>?debug=1`), Apple `LPMetadataProvider` quirks, Vercel bundling gotchas, and the recommended diagnostic workflow are all documented there. Use the doc to skip several PR cycles of guess-and-check.
+10. **After every `gh pr create`, immediately enable auto-merge:** `gh pr merge <num> --auto --squash`. The repo has a ruleset on `main` that requires the Vercel check, so auto-merge will wait for green and squash. If main moves while your checks are running and the PR goes `BEHIND`, rebase + force-push without asking — see `feedback_pr_behind_rebase.md`. Then poll until merged via `Monitor` (see `feedback_watch_pr_until_done.md`); auto-merge won't fire on a red PR.
