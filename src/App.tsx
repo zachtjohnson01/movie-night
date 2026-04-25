@@ -30,6 +30,7 @@ import {
   replacePath,
   useRoute,
 } from './router';
+import { JOHNSON_FAMILY_UUID } from './supabase';
 
 // Modal-ish flows that don't deserve their own URL: creating a new
 // movie, picking from the candidate pool, the owner's pool admin
@@ -69,6 +70,10 @@ export default function App() {
     reorderWishlist,
     reload: reloadMovies,
   } = useMovies({
+    // Hardcoded to the Johnsons until PR 4 resolves a slug to a
+    // family_id via membership lookup. App still renders single-family
+    // for now.
+    familyId: JOHNSON_FAMILY_UUID,
     candidates: pool.candidates,
     onUpdateCandidate: pool.updateCandidate,
     onAppendCandidates: pool.appendCandidates,
