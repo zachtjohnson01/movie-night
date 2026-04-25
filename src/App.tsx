@@ -14,11 +14,13 @@ import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
+import UsersAdmin from './components/UsersAdmin';
 import WeightsAdmin from './components/WeightsAdmin';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
 import { useSwipeBack } from './useSwipeBack';
+import { useUserRoles } from './useUserRoles';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
 import {
@@ -37,6 +39,7 @@ type ModalScreen =
   | { name: 'new'; template: Movie }
   | { name: 'candidate'; template: Movie; candidateTitle: string }
   | { name: 'pool' }
+  | { name: 'users' }
   | { name: 'weights' };
 
 type Design = 'classic' | 'modern';
@@ -70,7 +73,8 @@ export default function App() {
     onUpdateCandidate: pool.updateCandidate,
     onAppendCandidates: pool.appendCandidates,
   });
-  const auth = useAuth();
+  const userRoles = useUserRoles();
+  const auth = useAuth(userRoles.roles);
   const [tab, setTab] = useState<Tab>('watched');
   const [modal, setModal] = useState<ModalScreen | null>(null);
   const [showBulkLink, setShowBulkLink] = useState(false);
@@ -133,10 +137,14 @@ export default function App() {
     }
   }, [movies, route]);
 
-  // Pool admin is owner-only. If the user signs out, isn't the owner,
-  // or toggles "view as non-owner" while it's open, drop the modal.
+  // Pool admin and users admin are owner-only. If the user signs out,
+  // isn't the owner, or toggles "view as non-owner" while either is
+  // open, drop the modal.
   useEffect(() => {
-    if (modal?.name === 'pool' && !effectiveIsOwner) {
+    if (
+      (modal?.name === 'pool' || modal?.name === 'users') &&
+      !effectiveIsOwner
+    ) {
       setModal(null);
     }
   }, [modal, effectiveIsOwner]);
@@ -303,6 +311,16 @@ export default function App() {
     );
   }
 
+  if (modal?.name === 'users' && effectiveIsOwner) {
+    return (
+      <UsersAdmin
+        api={userRoles}
+        currentEmail={auth.email}
+        onBack={() => setModal(null)}
+      />
+    );
+  }
+
   if (modal?.name === 'candidate') {
     if (isModern) {
       return (
@@ -384,6 +402,8 @@ export default function App() {
         onToggleDesign={toggleDesign}
         canManagePool={effectiveIsOwner}
         onOpenPool={() => setModal({ name: 'pool' })}
+        canManageUsers={effectiveIsOwner}
+        onOpenUsers={() => setModal({ name: 'users' })}
         canManageWeights={effectiveIsOwner}
         onOpenWeights={() => setModal({ name: 'weights' })}
       />

@@ -1,20 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import type { UserRole, UserRoleEntry } from './useUserRoles';
 
-// Only these two emails can add, edit, delete, or mark movies as watched.
-// Everyone else gets a read-only view. Enforced in Supabase RLS as well;
-// the client check is purely UI hygiene.
-const ALLOWED_EMAILS = [
-  'zachtjohnson01@gmail.com',
-  'alexandrabjohnson01@gmail.com',
-];
-
-// Zach is the sole owner of the Anthropic credit card, so features that
-// spend money (the "Enhance with Claude" bulk actions) are gated to his
-// account only. Alexandra can still write to the movie list, she just
-// can't kick off anything that hits the paid API.
-const OWNER_EMAIL = 'zachtjohnson01@gmail.com';
+// Bootstrap fallback: if the user_roles row is missing, errored, or has
+// somehow been wiped, this email is still treated as admin so we can
+// never lock ourselves out of the Manage Users UI.
+const BOOTSTRAP_ADMIN = 'zachtjohnson01@gmail.com';
 
 export type AuthStatus =
   | 'loading'
@@ -27,16 +19,24 @@ export type AuthApi = {
   email: string | null;
   name: string | null;
   avatarUrl: string | null;
+  role: UserRole | null;
   canWrite: boolean;
   isOwner: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
-function deriveStatus(session: Session | null): AuthStatus {
-  if (!session) return 'signed-out';
-  const email = session.user.email?.toLowerCase() ?? '';
-  return ALLOWED_EMAILS.includes(email) ? 'signed-in' : 'unauthorized';
+function lookupRole(
+  email: string | null | undefined,
+  roles: UserRoleEntry[],
+): UserRole | null {
+  if (!email) return null;
+  const lower = email.toLowerCase();
+  const hit = roles.find((r) => r.email === lower);
+  if (hit) return hit.role;
+  // Bootstrap safety net — see BOOTSTRAP_ADMIN comment above.
+  if (lower === BOOTSTRAP_ADMIN) return 'admin';
+  return null;
 }
 
 function extractProfile(session: Session | null): {
@@ -55,9 +55,9 @@ function extractProfile(session: Session | null): {
   };
 }
 
-export function useAuth(): AuthApi {
-  const [status, setStatus] = useState<AuthStatus>(
-    supabase ? 'loading' : 'signed-out',
+export function useAuth(roles: UserRoleEntry[]): AuthApi {
+  const [hasSession, setHasSession] = useState<boolean | null>(
+    supabase ? null : false,
   );
   const [email, setEmail] = useState<string | null>(null);
   const [name, setName] = useState<string | null>(null);
@@ -66,8 +66,8 @@ export function useAuth(): AuthApi {
   useEffect(() => {
     if (!supabase) return;
 
-    supabase.auth.getSession().then(({ data }) => {
-      setStatus(deriveStatus(data.session));
+    void supabase.auth.getSession().then(({ data }) => {
+      setHasSession(Boolean(data.session));
       const profile = extractProfile(data.session);
       setEmail(profile.email);
       setName(profile.name);
@@ -75,7 +75,7 @@ export function useAuth(): AuthApi {
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      setStatus(deriveStatus(session));
+      setHasSession(Boolean(session));
       const profile = extractProfile(session);
       setEmail(profile.email);
       setName(profile.name);
@@ -102,16 +102,21 @@ export function useAuth(): AuthApi {
     await supabase.auth.signOut();
   }, []);
 
+  const role = lookupRole(email, roles);
+  let status: AuthStatus;
+  if (hasSession === null) status = 'loading';
+  else if (!hasSession) status = 'signed-out';
+  else if (role) status = 'signed-in';
+  else status = 'unauthorized';
+
   return {
     status,
     email,
     name,
     avatarUrl,
+    role,
     canWrite: status === 'signed-in',
-    isOwner:
-      status === 'signed-in' && email?.toLowerCase() === OWNER_EMAIL
-        ? true
-        : false,
+    isOwner: status === 'signed-in' && role === 'admin',
     signIn,
     signOut,
   };

@@ -45,3 +45,9 @@ export const REMOVAL_REASONS_ROW_ID = 3;
  * in sync automatically — changing a weight in the DB propagates to both.
  */
 export const SCORING_WEIGHTS_ROW_ID = 4;
+/**
+ * Row id=5 stores the user role list as `{ email, role }[]`. The admin
+ * UI mutates this row to grant or revoke access; useAuth reads it on
+ * every auth-state change so the allowlist is no longer hardcoded.
+ */
+export const USER_ROLES_ROW_ID = 5;

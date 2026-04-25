@@ -15,6 +15,8 @@ type Props = {
   onToggleDesign: () => void;
   canManagePool: boolean;
   onOpenPool: () => void;
+  canManageUsers: boolean;
+  onOpenUsers: () => void;
   canManageWeights: boolean;
   onOpenWeights: () => void;
 };
@@ -42,6 +44,8 @@ export default function AuthBanner({
   onToggleDesign,
   canManagePool,
   onOpenPool,
+  canManageUsers,
+  onOpenUsers,
   canManageWeights,
   onOpenWeights,
 }: Props) {
@@ -99,6 +103,8 @@ export default function AuthBanner({
       onToggleDesign={onToggleDesign}
       canManagePool={canManagePool}
       onOpenPool={onOpenPool}
+      canManageUsers={canManageUsers}
+      onOpenUsers={onOpenUsers}
       canManageWeights={canManageWeights}
       onOpenWeights={onOpenWeights}
     />
@@ -119,6 +125,8 @@ function SignedInBanner({
   onToggleDesign,
   canManagePool,
   onOpenPool,
+  canManageUsers,
+  onOpenUsers,
   canManageWeights,
   onOpenWeights,
 }: SignedInProps) {
@@ -218,6 +226,14 @@ function SignedInBanner({
               <div>Manage pool</div>
               <div className="text-[11px] text-ink-500 font-normal">
                 Browse, expand, edit candidates
+              </div>
+            </MenuItem>
+          )}
+          {canManageUsers && (
+            <MenuItem onClick={() => runAndClose(onOpenUsers)}>
+              <div>Manage users</div>
+              <div className="text-[11px] text-ink-500 font-normal">
+                Grant admin or editor access
               </div>
             </MenuItem>
           )}
