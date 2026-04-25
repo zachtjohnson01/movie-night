@@ -21,33 +21,20 @@ export const supabase: SupabaseClient | null = isSupabaseConfigured
     })
   : null;
 
-// The entire app state lives in a single row of a single table so there
-// are no schemas to migrate and no conflict resolution beyond
-// last-write-wins — which is fine for a two-person family movie list.
 export const MOVIE_NIGHT_TABLE = 'movie_night';
-export const MOVIE_NIGHT_ROW_ID = 1;
+
 /**
- * Row id=2 in the same `movie_night` table holds the deterministic
- * recommendation pool (a `Candidate[]` JSONB blob). Reusing the same
- * table keeps the no-schema-migrations property intact.
+ * Stable UUID for the bootstrap "Johnsons" family — written by the
+ * 20260425000000_multi_family migration. Hardcoded here so the app can
+ * scope its library queries to the right family before per-slug
+ * resolution lands in PR 4.
  */
-export const CANDIDATE_POOL_ROW_ID = 2;
+export const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
+
 /**
- * Row id=3 stores the removal-reason vocabulary as a `string[]` inside
- * the same `movies` JSONB column. Typing a new reason on a candidate's
- * Remove-from-pool section appends to this list so it becomes a reusable
- * checkbox the next time an admin removes a candidate.
+ * The `kind` discriminator on `movie_night`. Library rows are
+ * per-family; pool / reasons / weights / users stay global with
+ * `family_id IS NULL`. Enforced by the migration's check constraint
+ * and partial unique indexes.
  */
-export const REMOVAL_REASONS_ROW_ID = 3;
-/**
- * Row id=4 stores the scoring weights as a `ScoringWeights` JSON object.
- * Persisting them here lets the For You display and the ranking model stay
- * in sync automatically — changing a weight in the DB propagates to both.
- */
-export const SCORING_WEIGHTS_ROW_ID = 4;
-/**
- * Row id=5 stores the user role list as `{ email, role }[]`. The admin
- * UI mutates this row to grant or revoke access; useAuth reads it on
- * every auth-state change so the allowlist is no longer hardcoded.
- */
-export const USER_ROLES_ROW_ID = 5;
+export type MovieNightKind = 'library' | 'pool' | 'reasons' | 'weights' | 'users';

@@ -6,7 +6,6 @@ import {
   isSupabaseConfigured,
   supabase,
   MOVIE_NIGHT_TABLE,
-  MOVIE_NIGHT_ROW_ID,
 } from './supabase';
 
 const SEED: Movie[] = (seed as unknown[])
@@ -165,20 +164,22 @@ function toCandidate(m: Movie, existing: Candidate): Candidate {
 }
 
 /**
- * Keeps the library (user overlay data) in sync with row id=1 in Supabase,
- * and merges with pool Candidates (row id=2) at render time to produce Movie[].
+ * Keeps the library (user overlay data) in sync with the per-family
+ * `(family_id, kind='library')` row in Supabase, and merges with the
+ * global pool Candidates (`family_id IS NULL, kind='pool'`) at render
+ * time to produce Movie[].
  *
- * On first load with old flat Movie[] format in row id=1, transparently migrates:
- * splits into LibraryEntry[] (row id=1) and seeds pool (row id=2) with any
- * library movies not already present as Candidates.
- *
- * In local mode (no Supabase), falls back to movies.json SEED as Movie[] directly.
+ * In local mode (no Supabase) — or when `familyId` is null because the
+ * caller doesn't yet have a family scope — falls back to the bundled
+ * movies.json SEED as Movie[] directly.
  */
 export function useMovies({
+  familyId,
   candidates,
   onUpdateCandidate,
   onAppendCandidates,
 }: {
+  familyId: string | null;
   candidates: Candidate[];
   onUpdateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
   onAppendCandidates: (next: Candidate[]) => Promise<void>;
@@ -200,16 +201,17 @@ export function useMovies({
   onAppendCandidatesRef.current = onAppendCandidates;
 
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase || !familyId) return;
     let cancelled = false;
     setStatus('loading');
 
     async function load() {
-      if (!supabase) return;
+      if (!supabase || !familyId) return;
       const { data, error } = await supabase
         .from(MOVIE_NIGHT_TABLE)
         .select('movies')
-        .eq('id', MOVIE_NIGHT_ROW_ID)
+        .eq('family_id', familyId)
+        .eq('kind', 'library')
         .maybeSingle();
 
       if (cancelled) return;
@@ -223,27 +225,20 @@ export function useMovies({
       const stored = (data?.movies ?? null) as unknown[] | null;
 
       if (!stored || stored.length === 0) {
-        if (!stored) {
-          // Row missing entirely — create it with empty LibraryEntry[].
-          const { error: seedError } = await supabase
-            .from(MOVIE_NIGHT_TABLE)
-            .upsert({ id: MOVIE_NIGHT_ROW_ID, movies: [] });
-          if (cancelled) return;
-          if (seedError) {
-            console.error('[useMovies] seed failed', seedError);
-            setStatus('error');
-            return;
-          }
-        }
+        // Empty library row — happens for a freshly-created family. The
+        // row itself is created by the create_family RPC (PR 5), so we
+        // don't need to seed it here.
         setEntries([]);
         setStatus('synced');
         return;
       }
 
       if (isOldMovieFormat(stored)) {
-        // Migration: split flat Movie[] into LibraryEntry[] + new Candidates.
-        // Coerce legacy director/writer strings into arrays as we go so the
-        // pool rows written below already use the new shape.
+        // Legacy migration: split flat Movie[] into LibraryEntry[] + new
+        // Candidates. Predates multi-family; only triggers for the
+        // Johnsons' library if it was somehow rolled back to the old
+        // format. Coerces legacy director/writer strings into arrays as
+        // we go so the pool rows written below already use the new shape.
         const old = (stored as unknown[]).map(coerceCreatorLists) as Movie[];
         const newEntries = migrateToEntries(old);
         const newCandidates = buildNewCandidates(
@@ -253,7 +248,8 @@ export function useMovies({
         const { error: writeError } = await supabase
           .from(MOVIE_NIGHT_TABLE)
           .update({ movies: newEntries })
-          .eq('id', MOVIE_NIGHT_ROW_ID);
+          .eq('family_id', familyId)
+          .eq('kind', 'library');
         if (cancelled) return;
         if (writeError) {
           console.error('[useMovies] migration write failed', writeError);
@@ -276,18 +272,27 @@ export function useMovies({
 
     load();
 
+    // Realtime filters only support a single column comparison, so we
+    // narrow on family_id (high selectivity) and validate kind in the
+    // callback. Channel name is per-family so concurrent multi-family
+    // viewers don't cross-stream.
     const channel = supabase
-      .channel('movie_night_updates')
+      .channel(`library_updates_${familyId}`)
       .on(
         'postgres_changes',
         {
           event: 'UPDATE',
           schema: 'public',
           table: MOVIE_NIGHT_TABLE,
-          filter: `id=eq.${MOVIE_NIGHT_ROW_ID}`,
+          filter: `family_id=eq.${familyId}`,
         },
         (payload) => {
-          const next = (payload.new as { movies: LibraryEntry[] }).movies;
+          const row = payload.new as {
+            kind?: string;
+            movies?: LibraryEntry[];
+          } | null;
+          if (!row || row.kind !== 'library') return;
+          const next = row.movies;
           if (Array.isArray(next)) {
             setEntries(next);
             latestRef.current = next;
@@ -300,7 +305,7 @@ export function useMovies({
       cancelled = true;
       if (supabase) void supabase.removeChannel(channel);
     };
-  }, [reloadTick]);
+  }, [reloadTick, familyId]);
 
   const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
@@ -314,18 +319,19 @@ export function useMovies({
   }, [entries, candidates]);
 
   const writeRemote = useCallback(async (next: LibraryEntry[]) => {
-    if (!supabase) return;
+    if (!supabase || !familyId) return;
     const { error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
       .update({ movies: next })
-      .eq('id', MOVIE_NIGHT_ROW_ID);
+      .eq('family_id', familyId)
+      .eq('kind', 'library');
     if (error) {
       console.error('[useMovies] write failed', error);
       setStatus('error');
     } else {
       setStatus('synced');
     }
-  }, []);
+  }, [familyId]);
 
   const updateMovie = useCallback(
     async (originalTitle: string, updated: Movie) => {

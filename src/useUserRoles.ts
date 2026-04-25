@@ -3,7 +3,6 @@ import {
   isSupabaseConfigured,
   supabase,
   MOVIE_NIGHT_TABLE,
-  USER_ROLES_ROW_ID,
 } from './supabase';
 
 export type UserRole = 'admin' | 'editor';
@@ -53,10 +52,15 @@ function coerceRoles(stored: unknown): UserRoleEntry[] {
 }
 
 /**
- * Reads, subscribes to, and writes the user-role list at row id=5.
+ * Reads, subscribes to, and writes the user-role list — stored as the
+ * single global `(family_id IS NULL, kind='users')` row in `movie_night`.
  *
  * Local mode (no Supabase): returns SEED_ROLES so a dev environment still
  * has a working admin without a backend.
+ *
+ * NOTE: This screen predates the multi-family rollout. PRs 5/6 will
+ * replace it with `family_members`-driven per-family roles, at which
+ * point the global `users` row can be dropped from the schema.
  */
 export function useUserRoles(): UserRolesApi {
   const [roles, setRoles] = useState<UserRoleEntry[]>(
@@ -78,7 +82,8 @@ export function useUserRoles(): UserRolesApi {
       const { data, error } = await supabase
         .from(MOVIE_NIGHT_TABLE)
         .select('movies')
-        .eq('id', USER_ROLES_ROW_ID)
+        .is('family_id', null)
+        .eq('kind', 'users')
         .maybeSingle();
 
       if (cancelled) return;
@@ -93,11 +98,14 @@ export function useUserRoles(): UserRolesApi {
       const parsed = coerceRoles(stored);
 
       if (parsed.length === 0) {
-        // Row missing or empty — seed it so future reads are stable and so
-        // zach is an admin from the very first session.
+        // Row exists post-migration but the array is empty — write the
+        // seed roles in. (The migration backfilled this row from the
+        // pre-multi-family schema, so it's never missing.)
         const { error: seedError } = await supabase
           .from(MOVIE_NIGHT_TABLE)
-          .upsert({ id: USER_ROLES_ROW_ID, movies: SEED_ROLES });
+          .update({ movies: SEED_ROLES })
+          .is('family_id', null)
+          .eq('kind', 'users');
         if (cancelled) return;
         if (seedError) {
           console.error('[useUserRoles] seed failed', seedError);
@@ -121,6 +129,9 @@ export function useUserRoles(): UserRolesApi {
 
     void load();
 
+    // Realtime filter narrows on `kind` (single column supported); the
+    // family_id check in the callback guards against any future
+    // per-family role rows we don't want this hook listening for.
     const channel = supabase
       .channel('user_roles_updates')
       .on(
@@ -129,10 +140,15 @@ export function useUserRoles(): UserRolesApi {
           event: 'UPDATE',
           schema: 'public',
           table: MOVIE_NIGHT_TABLE,
-          filter: `id=eq.${USER_ROLES_ROW_ID}`,
+          filter: 'kind=eq.users',
         },
         (payload) => {
-          const next = coerceRoles((payload.new as { movies?: unknown }).movies);
+          const row = payload.new as {
+            family_id?: string | null;
+            movies?: unknown;
+          } | null;
+          if (!row || row.family_id != null) return;
+          const next = coerceRoles(row.movies);
           setRoles(next);
           latestRef.current = next;
         },
@@ -150,7 +166,8 @@ export function useUserRoles(): UserRolesApi {
     const { error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
       .update({ movies: next })
-      .eq('id', USER_ROLES_ROW_ID);
+      .is('family_id', null)
+      .eq('kind', 'users');
     if (error) {
       console.error('[useUserRoles] write failed', error);
       setStatus('error');

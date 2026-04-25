@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Candidate } from './types';
 import {
-  CANDIDATE_POOL_ROW_ID,
   MOVIE_NIGHT_TABLE,
-  REMOVAL_REASONS_ROW_ID,
-  SCORING_WEIGHTS_ROW_ID,
   isSupabaseConfigured,
   supabase,
 } from './supabase';
@@ -34,11 +31,14 @@ export type CandidatePoolApi = {
 };
 
 /**
- * Loads and subscribes to the candidate pool (row id=2 in `movie_night`).
- * Mirrors the shape of `useMovies` so it slots into the same mental model.
- * Returns `status === 'empty'` when Supabase is configured but the pool
- * row doesn't exist or is empty — the For You screen uses that to show
- * the "Seed pool" button instead of blank content.
+ * Loads and subscribes to the global candidate pool, removal-reasons
+ * vocabulary, and scoring weights — all stored on `movie_night` rows
+ * with `family_id IS NULL` and the matching `kind`. These three rows
+ * stay global across every family by design (single shared pool, single
+ * shared weights, single shared vocabulary). Returns `status === 'empty'`
+ * when Supabase is configured but the pool row is empty — the For You
+ * screen uses that to show the "Seed pool" button instead of blank
+ * content.
  */
 export function useCandidatePool(): CandidatePoolApi {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -66,17 +66,20 @@ export function useCandidatePool(): CandidatePoolApi {
         supabase
           .from(MOVIE_NIGHT_TABLE)
           .select('movies')
-          .eq('id', CANDIDATE_POOL_ROW_ID)
+          .is('family_id', null)
+          .eq('kind', 'pool')
           .maybeSingle(),
         supabase
           .from(MOVIE_NIGHT_TABLE)
           .select('movies')
-          .eq('id', REMOVAL_REASONS_ROW_ID)
+          .is('family_id', null)
+          .eq('kind', 'reasons')
           .maybeSingle(),
         supabase
           .from(MOVIE_NIGHT_TABLE)
           .select('movies')
-          .eq('id', SCORING_WEIGHTS_ROW_ID)
+          .is('family_id', null)
+          .eq('kind', 'weights')
           .maybeSingle(),
       ]);
 
@@ -128,6 +131,10 @@ export function useCandidatePool(): CandidatePoolApi {
 
     load();
 
+    // Realtime filters only support a single-column comparison, so we
+    // narrow on `kind` (each global kind has at most one row, enforced
+    // by the partial unique index on family_id IS NULL) and ignore any
+    // accidental per-family rows in the callback for safety.
     const channel = supabase
       .channel('candidate_pool_updates')
       .on(
@@ -136,10 +143,15 @@ export function useCandidatePool(): CandidatePoolApi {
           event: '*',
           schema: 'public',
           table: MOVIE_NIGHT_TABLE,
-          filter: `id=eq.${CANDIDATE_POOL_ROW_ID}`,
+          filter: 'kind=eq.pool',
         },
         (payload) => {
-          const next = (payload.new as { movies?: unknown[] } | null)?.movies;
+          const row = payload.new as {
+            family_id?: string | null;
+            movies?: unknown[];
+          } | null;
+          if (!row || row.family_id != null) return;
+          const next = row.movies;
           if (Array.isArray(next)) {
             const coerced = next.map(
               (c) => coerceCreatorLists(c as object) as Candidate,
@@ -155,10 +167,15 @@ export function useCandidatePool(): CandidatePoolApi {
           event: '*',
           schema: 'public',
           table: MOVIE_NIGHT_TABLE,
-          filter: `id=eq.${REMOVAL_REASONS_ROW_ID}`,
+          filter: 'kind=eq.reasons',
         },
         (payload) => {
-          const next = (payload.new as { movies?: string[] } | null)?.movies;
+          const row = payload.new as {
+            family_id?: string | null;
+            movies?: string[];
+          } | null;
+          if (!row || row.family_id != null) return;
+          const next = row.movies;
           if (Array.isArray(next)) setReasons(next);
         },
       )
@@ -168,10 +185,15 @@ export function useCandidatePool(): CandidatePoolApi {
           event: '*',
           schema: 'public',
           table: MOVIE_NIGHT_TABLE,
-          filter: `id=eq.${SCORING_WEIGHTS_ROW_ID}`,
+          filter: 'kind=eq.weights',
         },
         (payload) => {
-          const next = (payload.new as { movies?: unknown } | null)?.movies;
+          const row = payload.new as {
+            family_id?: string | null;
+            movies?: unknown;
+          } | null;
+          if (!row || row.family_id != null) return;
+          const next = row.movies;
           if (next && typeof next === 'object' && !Array.isArray(next)) {
             setWeights(
               normalizeWeights({
@@ -207,12 +229,14 @@ export function useCandidatePool(): CandidatePoolApi {
     setCandidates(merged);
     setStatus('synced');
 
-    // upsert handles the first-ever write (when row id=2 doesn't exist yet)
-    // and subsequent updates in the same call. The existing permissive
-    // INSERT + UPDATE RLS policies on `movie_night` cover both paths.
+    // The global pool row is created by the migration and stays around
+    // forever, so plain UPDATE-by-(family_id IS NULL, kind) is enough —
+    // no need for upsert any more.
     const { error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
-      .upsert({ id: CANDIDATE_POOL_ROW_ID, movies: merged });
+      .update({ movies: merged })
+      .is('family_id', null)
+      .eq('kind', 'pool');
     if (error) {
       console.error('[useCandidatePool] append failed', error);
       setStatus('error');
@@ -225,7 +249,9 @@ export function useCandidatePool(): CandidatePoolApi {
     setStatus(next.length === 0 ? 'empty' : 'synced');
     const { error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
-      .upsert({ id: CANDIDATE_POOL_ROW_ID, movies: next });
+      .update({ movies: next })
+      .is('family_id', null)
+      .eq('kind', 'pool');
     if (error) {
       console.error('[useCandidatePool] write failed', error);
       setStatus('error');
@@ -268,7 +294,9 @@ export function useCandidatePool(): CandidatePoolApi {
     setReasons(nextReasons);
     const { error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
-      .upsert({ id: REMOVAL_REASONS_ROW_ID, movies: nextReasons });
+      .update({ movies: nextReasons })
+      .is('family_id', null)
+      .eq('kind', 'reasons');
     if (error) console.error('[useCandidatePool] reason write failed', error);
   }, []);
 
@@ -315,7 +343,9 @@ export function useCandidatePool(): CandidatePoolApi {
     setWeights(next);
     const { error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
-      .upsert({ id: SCORING_WEIGHTS_ROW_ID, movies: next });
+      .update({ movies: next })
+      .is('family_id', null)
+      .eq('kind', 'weights');
     if (error) {
       console.error('[useCandidatePool] weights write failed', error);
       setWeights(previous);
