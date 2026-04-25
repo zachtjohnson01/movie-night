@@ -16,6 +16,12 @@ on:
     branches: [main]
 
 permissions:
+  # `issues: read` is needed by the github-script step to list PR
+  # comments — the PR-comments endpoint lives under the issues
+  # permission scope, even though the resource is a pull request.
+  # Without this, listComments() throws "Resource not accessible by
+  # integration" and the workflow fails in ~15s before doing real work.
+  issues: read
   pull-requests: read
   deployments: read
   statuses: read
