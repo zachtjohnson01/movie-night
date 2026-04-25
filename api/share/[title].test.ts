@@ -1,18 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-vi.mock('../_lib/share-core', async () => {
-  const actual =
-    await vi.importActual<typeof import('../_lib/share-core')>(
-      '../_lib/share-core',
-    );
-  return {
-    ...actual,
-    lookupMovie: vi.fn(),
-  };
-});
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(),
+}));
 
-import { lookupMovie } from '../_lib/share-core';
+import { createClient } from '@supabase/supabase-js';
 import handler from './[title]';
 
 const TEMPLATE = `<!doctype html>
@@ -21,6 +14,21 @@ const TEMPLATE = `<!doctype html>
 <meta property="og:title" content="Family Movie Night" />
 <meta property="og:image" content="https://x/og-image.svg" />
 </head><body></body></html>`;
+
+const BOLT_ENTRY = {
+  title: 'Bolt',
+  imdbId: 'tt0397892',
+  displayTitle: null,
+  commonSenseAge: '5+',
+};
+const BOLT_CANDIDATE = {
+  title: 'Bolt',
+  imdbId: 'tt0397892',
+  year: 2008,
+  poster: 'https://m.media-amazon.com/images/M/abc._SX300.jpg',
+  rottenTomatoes: '90%',
+  imdb: '6.8',
+};
 
 type FakeRes = VercelResponse & {
   _status: number;
@@ -60,32 +68,31 @@ function makeRes(): FakeRes {
   return res as FakeRes;
 }
 
-const BOLT_RESULT = {
-  movie: {
-    title: 'Bolt',
-    displayTitle: null,
-    year: 2008,
-    rottenTomatoes: '90%',
-    imdb: '6.8',
-    commonSenseAge: '5+',
-    poster: 'https://m.media-amazon.com/images/M/abc._SX300.jpg',
-  },
-  debug: {
-    entryCount: 1,
-    candidateCount: 1,
-    entryMatch: 'exact' as const,
-    candidateMatch: 'imdbId' as const,
-  },
-};
+function stubSupabase(rows: { id: number; movies: unknown[] }[]) {
+  vi.mocked(createClient).mockReturnValue({
+    from: vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        in: vi.fn().mockResolvedValue({ data: rows, error: null }),
+      }),
+    }),
+  } as never);
+}
+
+function stubTemplateFetch() {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    text: async () => TEMPLATE,
+  }) as typeof fetch;
+}
 
 describe('share handler', () => {
   beforeEach(() => {
-    vi.mocked(lookupMovie).mockReset();
-    vi.mocked(lookupMovie).mockResolvedValue(BOLT_RESULT);
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      text: async () => TEMPLATE,
-    }) as typeof fetch;
+    vi.mocked(createClient).mockReset();
+    stubSupabase([
+      { id: 1, movies: [BOLT_ENTRY] },
+      { id: 2, movies: [BOLT_CANDIDATE] },
+    ]);
+    stubTemplateFetch();
   });
 
   afterEach(() => {
@@ -105,6 +112,15 @@ describe('share handler', () => {
     );
   });
 
+  it('strips the static og:image and apple-touch-icon from the template', async () => {
+    const req = makeReq({ title: 'Bolt' });
+    const res = makeRes();
+    await handler(req, res);
+    const body = String(res._body);
+    expect(body).not.toContain('https://x/og-image.svg');
+    expect(body).not.toContain('apple-touch-icon');
+  });
+
   it('returns JSON for ?debug=1 with resolved movie and counts', async () => {
     const req = makeReq({ title: 'Bolt', debug: '1' });
     const res = makeRes();
@@ -115,7 +131,11 @@ describe('share handler', () => {
     const body = res._body as Record<string, unknown>;
     expect(body.requestedTitle).toBe('Bolt');
     expect(body.entryMatch).toBe('exact');
+    expect(body.candidateMatch).toBe('imdbId');
     expect((body.resolved as { title: string }).title).toBe('Bolt');
+    expect((body.resolved as { poster: string }).poster).toBe(
+      BOLT_CANDIDATE.poster,
+    );
   });
 
   it('returns text/plain HTML for ?debug=html so iOS Safari can view-source', async () => {
@@ -127,28 +147,29 @@ describe('share handler', () => {
     expect(String(res._body)).toContain('<meta property="og:image"');
   });
 
-  it('decodes percent-encoded titles', async () => {
+  it('decodes percent-encoded titles before looking them up', async () => {
+    stubSupabase([
+      { id: 1, movies: [{ ...BOLT_ENTRY, title: 'Bolt: The Movie' }] },
+      { id: 2, movies: [{ ...BOLT_CANDIDATE, title: 'Bolt: The Movie' }] },
+    ]);
     const req = makeReq({ title: 'Bolt%3A%20The%20Movie' });
     const res = makeRes();
     await handler(req, res);
-    expect(vi.mocked(lookupMovie)).toHaveBeenCalledWith('Bolt: The Movie');
+    expect(res._status).toBe(200);
+    expect(res._headers['x-share-resolved']).toBe('1');
   });
 
-  it('sets x-share-resolved=0 when no movie is found', async () => {
-    vi.mocked(lookupMovie).mockResolvedValue({
-      movie: null,
-      debug: {
-        entryCount: 0,
-        candidateCount: 0,
-        entryMatch: 'none',
-        candidateMatch: 'none',
-      },
-    });
+  it('sets x-share-resolved=0 and falls back to og-image.svg when no movie is found', async () => {
+    stubSupabase([
+      { id: 1, movies: [] },
+      { id: 2, movies: [] },
+    ]);
     const req = makeReq({ title: 'Missing' });
     const res = makeRes();
     await handler(req, res);
     expect(res._status).toBe(200);
     expect(res._headers['x-share-resolved']).toBe('0');
+    expect(String(res._body)).toContain('og-image.svg');
   });
 
   it('returns 502 if the index.html template fetch fails', async () => {
@@ -165,7 +186,7 @@ describe('share handler', () => {
   });
 
   it('returns 500 with the commit SHA in body when the handler crashes', async () => {
-    vi.mocked(lookupMovie).mockRejectedValue(new Error('boom'));
+    global.fetch = vi.fn().mockRejectedValue(new Error('boom')) as typeof fetch;
     const req = makeReq({ title: 'Bolt' });
     const res = makeRes();
     await handler(req, res);
@@ -174,5 +195,38 @@ describe('share handler', () => {
     expect(String(res._body)).toContain('boom');
     expect(String(res._body)).toContain('share handler crashed');
     expect(res._headers['cache-control']).toBe('no-store');
+  });
+
+  it('emits exactly one og:image tag (no static-tag duplicates)', async () => {
+    const req = makeReq({ title: 'Bolt' });
+    const res = makeRes();
+    await handler(req, res);
+    const matches = String(res._body).match(/<meta property="og:image"/g);
+    expect(matches?.length).toBe(1);
+  });
+
+  it('declares 600x888 og:image dimensions when poster is set', async () => {
+    const req = makeReq({ title: 'Bolt' });
+    const res = makeRes();
+    await handler(req, res);
+    const body = String(res._body);
+    expect(body).toContain('og:image:width" content="600"');
+    expect(body).toContain('og:image:height" content="888"');
+  });
+
+  it('emits og:title with the movie title and year', async () => {
+    const req = makeReq({ title: 'Bolt' });
+    const res = makeRes();
+    await handler(req, res);
+    expect(String(res._body)).toContain('og:title" content="Bolt (2008)"');
+  });
+
+  it('includes a meta-refresh tag pointing at the SPA deep-link URL', async () => {
+    const req = makeReq({ title: 'Bolt' });
+    const res = makeRes();
+    await handler(req, res);
+    expect(String(res._body)).toContain(
+      '<meta http-equiv="refresh" content="0; url=/?m=Bolt"',
+    );
   });
 });
