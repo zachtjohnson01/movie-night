@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import type { Candidate } from '../types';
+import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
+import { expandPool, extractUnique } from '../recommendations';
 import {
   commonSenseUrl,
   dedupKey,
@@ -20,9 +21,12 @@ import WeightsEditor from './WeightsEditor';
 
 type Props = {
   pool: CandidatePoolApi;
+  movies: Movie[];
   onBack: () => void;
   isOwner: boolean;
 };
+
+const EXPAND_BATCH = 100;
 
 type FilterKey = 'eligible' | 'missingLink' | 'duplicate' | 'tvShow' | 'removed';
 
@@ -52,10 +56,58 @@ const FILTER_LABEL: Record<FilterKey, string> = {
  * selected problem (missing OMDB link, duplicate title, confirmed TV
  * show, already removed) or to the clean "eligible" subset.
  */
-export default function PoolAdmin({ pool, onBack, isOwner }: Props) {
+export default function PoolAdmin({ pool, movies, onBack, isOwner }: Props) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<Candidate | null>(null);
   const [active, setActive] = useState<Set<FilterKey>>(new Set());
+  const [expanding, setExpanding] = useState(false);
+  const [expandError, setExpandError] = useState<string | null>(null);
+
+  const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
+  const libraryDirectors = useMemo(
+    () => extractUnique(movies.flatMap((m) => m.directors ?? [])),
+    [movies],
+  );
+  const libraryWriters = useMemo(
+    () => extractUnique(movies.flatMap((m) => m.writers ?? [])),
+    [movies],
+  );
+  const libraryStudios = useMemo(
+    () => extractUnique(movies.map((m) => m.production)),
+    [movies],
+  );
+
+  const runExpansion = useCallback(async () => {
+    if (expanding) return;
+    setExpandError(null);
+    setExpanding(true);
+    try {
+      const fresh = await expandPool(
+        pool.candidates.map((c) => c.title),
+        libraryTitles,
+        EXPAND_BATCH,
+        {
+          directors: libraryDirectors,
+          writers: libraryWriters,
+          studios: libraryStudios,
+        },
+      );
+      if (fresh.length > 0) {
+        await pool.appendCandidates(fresh);
+      }
+    } catch (e) {
+      setExpandError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExpanding(false);
+    }
+  }, [
+    expanding,
+    pool,
+    libraryTitles,
+    libraryDirectors,
+    libraryWriters,
+    libraryStudios,
+  ]);
 
   // Set of dedup keys that appear at least twice — used both for the
   // "Duplicates" filter chip and for the Eligible complement.
@@ -253,6 +305,36 @@ export default function PoolAdmin({ pool, onBack, isOwner }: Props) {
           })}
         </div>
       </header>
+
+      <div className="px-5 pt-4 pb-1 flex flex-col gap-1.5">
+        <button
+          type="button"
+          disabled={expanding}
+          onClick={() => void runExpansion()}
+          className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+            expanding
+              ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
+              : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
+          }`}
+        >
+          {expanding ? (
+            <>
+              <span
+                aria-hidden
+                className="inline-block w-3 h-3 rounded-full border-2 border-amber-glow border-t-transparent animate-spin"
+              />
+              Adding {EXPAND_BATCH} more…
+            </>
+          ) : (
+            <>Expand pool +{EXPAND_BATCH}</>
+          )}
+        </button>
+        {expandError && (
+          <p className="text-center text-xs text-crimson-bright">
+            {expandError}
+          </p>
+        )}
+      </div>
 
       {isOwner && (
         <WeightsEditor weights={pool.weights} onSave={pool.updateWeights} />
