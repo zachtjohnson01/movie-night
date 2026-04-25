@@ -6,20 +6,31 @@ name: Share preview diagnostics
 #   - /share/<title> og:image / og:title injection
 #   - /api/poster/<title>.jpg proxy + image bytes
 #   - schema-split movie lookup (row 1 + row 2 join)
+#
+# Triggers:
+#   - pull_request: tests the Vercel preview deploy. Requires
+#     Vercel Protection Bypass for Automation to be configured —
+#     set VERCEL_AUTOMATION_BYPASS_SECRET in the Vercel project's
+#     env vars (Production + Preview), then add the same value as
+#     a GitHub Actions secret named VERCEL_BYPASS_SECRET. Without
+#     the secret, preview requests get Vercel's auth-required HTML
+#     and the script fails with a clear error pointing here.
+#   - push to main: tests production directly (no bypass needed).
+#   - workflow_dispatch: manual trigger against production.
 
 on:
-  # PRs would ideally run against the Vercel preview deploy, but
-  # Vercel's previews are auth-protected by default on Hobby/Pro plans
-  # (the preview URL returns Vercel's auth page instead of our
-  # function output) — useless without a Protection Bypass token.
-  # Run on push to main against production instead. Catches regressions
-  # post-merge but reliably executes our real code paths.
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch: {}
 
 permissions:
   contents: read
+  # `issues: read` is needed by the github-script step to list PR
+  # comments — the PR-comments endpoint lives under the issues
+  # permission scope, even though the resource is a pull request.
+  issues: read
+  pull-requests: read
 
 jobs:
   diagnostics:
@@ -31,8 +42,57 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Run share diagnostics against production
+      # On PR: parse the preview URL out of Vercel's PR comment.
+      # Vercel posts the comment within ~15s of the build starting
+      # and updates it to "Ready" once the preview is deployed.
+      - name: Wait for Vercel preview comment
+        if: github.event_name == 'pull_request'
+        id: preview
+        uses: actions/github-script@v7
+        with:
+          result-encoding: string
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const issue_number = context.issue.number;
+            const startMs = Date.now();
+            const timeoutMs = 6 * 60 * 1000;
+            while (Date.now() - startMs < timeoutMs) {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner, repo, issue_number, per_page: 100,
+              });
+              const vercelComment = comments.find(
+                (c) => c.user?.login === 'vercel[bot]' && /Ready/.test(c.body),
+              );
+              if (vercelComment) {
+                const match = vercelComment.body.match(
+                  /\[Preview\]\((https:\/\/[^)]+\.vercel\.app)\)/,
+                );
+                if (match) {
+                  core.info(`Found Vercel preview: ${match[1]}`);
+                  return match[1];
+                }
+              }
+              core.info('Vercel preview comment not yet ready; retrying in 10s');
+              await new Promise((r) => setTimeout(r, 10000));
+            }
+            core.setFailed('Vercel preview URL not found in PR comments after 6 min');
+
+      - name: Resolve base URL
+        id: base
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "url=${{ steps.preview.outputs.result }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=https://familymovienight.watch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run share diagnostics
         run: node scripts/share-diagnostics.mjs
         env:
-          BASE_URL: https://familymovienight.watch
+          BASE_URL: ${{ steps.base.outputs.url }}
           TEST_TITLE: Bolt
+          # Only sent on PR runs (preview deploys). Production doesn't
+          # need a bypass token. Empty value on main runs is fine —
+          # the script only adds the header when this is non-empty.
+          VERCEL_BYPASS_SECRET: ${{ secrets.VERCEL_BYPASS_SECRET }}

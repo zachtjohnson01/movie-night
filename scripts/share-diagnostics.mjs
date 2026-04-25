@@ -25,6 +25,15 @@ if (!BASE) {
 const TITLE = process.env.TEST_TITLE ?? 'Bolt';
 const TITLE_ENC = encodeURIComponent(TITLE);
 
+// Vercel Protection Bypass for Automation. When set, included as a
+// header on every fetch so the preview deploy lets us through to the
+// real function instead of the auth-required HTML page. See:
+// https://vercel.com/docs/security/deployment-protection/methods-to-bypass-deployment-protection/protection-bypass-automation
+const BYPASS = process.env.VERCEL_BYPASS_SECRET || '';
+const FETCH_HEADERS = BYPASS
+  ? { 'x-vercel-protection-bypass': BYPASS }
+  : {};
+
 let passed = 0;
 let failed = 0;
 
@@ -46,7 +55,7 @@ function isVercelAuthPage(text) {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: FETCH_HEADERS });
   const ct = res.headers.get('content-type') ?? '';
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -68,7 +77,7 @@ async function fetchJson(url) {
   return await res.json();
 }
 async function fetchText(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: FETCH_HEADERS });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`HTTP ${res.status} on ${url}: ${body.slice(0, 200)}`);
@@ -195,7 +204,9 @@ await section(`GET /api/poster/${TITLE}?debug=1`, async () => {
 });
 
 await section(`GET /api/poster/${TITLE}.jpg`, async () => {
-  const res = await fetch(`${BASE}/api/poster/${TITLE_ENC}.jpg`);
+  const res = await fetch(`${BASE}/api/poster/${TITLE_ENC}.jpg`, {
+    headers: FETCH_HEADERS,
+  });
   assert('200 status', res.status === 200, `got ${res.status}`);
 
   const ct = res.headers.get('content-type') ?? '';
