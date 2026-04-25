@@ -9,7 +9,12 @@ import {
   MOVIE_NIGHT_ROW_ID,
 } from './supabase';
 
-const SEED: Movie[] = (seed as unknown[]).map(coerceCreatorLists) as Movie[];
+const SEED: Movie[] = (seed as unknown[])
+  .map(coerceCreatorLists)
+  .map((m) => {
+    const movie = m as Movie;
+    return { ...movie, favorite: movie.favorite ?? false };
+  }) as Movie[];
 
 export type SyncStatus = 'local' | 'loading' | 'synced' | 'error';
 
@@ -44,6 +49,7 @@ function migrateToEntries(movies: Movie[]): LibraryEntry[] {
     dateWatched: m.dateWatched,
     notes: m.notes,
     wishlistOrder: m.wishlistOrder,
+    favorite: m.favorite ?? false,
   }));
 }
 
@@ -110,6 +116,7 @@ function mergeEntry(
     dateWatched: entry.dateWatched,
     notes: entry.notes,
     wishlistOrder: entry.wishlistOrder,
+    favorite: entry.favorite ?? false,
     year: candidate?.year ?? null,
     poster: candidate?.poster ?? null,
     omdbRefreshedAt: candidate?.omdbRefreshedAt ?? null,
@@ -136,6 +143,7 @@ function toEntry(m: Movie): LibraryEntry {
     dateWatched: m.dateWatched,
     notes: m.notes,
     wishlistOrder: m.wishlistOrder,
+    favorite: m.favorite,
   };
 }
 

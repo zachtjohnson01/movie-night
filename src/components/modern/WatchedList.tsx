@@ -32,13 +32,6 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
   { key: 'year-asc',     label: 'Released: oldest first' },
 ];
 
-const RECENT_LABEL: Record<SortKey, string> = {
-  'watched-desc': 'Recently watched',
-  'watched-asc':  'First watches',
-  'year-desc':    'Latest releases',
-  'year-asc':     'Classic picks',
-};
-
 type Props = {
   movies: Movie[];
   canWrite: boolean;
@@ -77,8 +70,15 @@ export default function ModernWatchedList({
     [movies, sortKey],
   );
   const earliest = useMemo(() => earliestWatched(watched), [watched]);
-  const recent = useMemo(() => watched.slice(0, 8), [watched]);
-  const older = useMemo(() => watched.slice(8), [watched]);
+  const favorites = useMemo(
+    () =>
+      sortWatched(
+        watched.filter((m) => m.favorite),
+        'desc',
+        'dateWatched',
+      ),
+    [watched],
+  );
 
   const sortControl = (
     <div style={{ position: 'relative', display: 'inline-block' }}>
@@ -275,73 +275,88 @@ export default function ModernWatchedList({
         <EmptyState />
       ) : (
         <>
-          {/* Recently watched */}
+          {/* Favorites */}
           <Section
-            title={RECENT_LABEL[sortKey]}
-            action={`${recent.length} this season`}
+            title="Favorites"
+            action={favorites.length > 0 ? `${favorites.length} pinned` : undefined}
           >
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 14,
-                padding: '0 20px',
-                overflowX: 'auto',
-                scrollbarWidth: 'none',
-                WebkitOverflowScrolling: 'touch',
-              }}
-            >
-              {recent.map((m) => (
-                <button
-                  key={m.title}
-                  type="button"
-                  onClick={() => onSelect(m)}
-                  style={{
-                    flexShrink: 0,
-                    width: 108,
-                    background: 'transparent',
-                    border: 'none',
-                    padding: 0,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    color: INK,
-                  }}
-                >
-                  <ModernPoster movie={m} size={108} />
-                  <div
+            {favorites.length === 0 ? (
+              <div
+                style={{
+                  padding: '4px 20px 4px',
+                  fontFamily: SANS,
+                  fontSize: 12,
+                  color: INK_3,
+                  fontStyle: 'italic',
+                  lineHeight: 1.5,
+                }}
+              >
+                Tap the star on a movie to pin your favorites here.
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 14,
+                  padding: '0 20px',
+                  overflowX: 'auto',
+                  scrollbarWidth: 'none',
+                  WebkitOverflowScrolling: 'touch',
+                }}
+              >
+                {favorites.map((m) => (
+                  <button
+                    key={m.title}
+                    type="button"
+                    onClick={() => onSelect(m)}
                     style={{
-                      fontFamily: SANS,
-                      fontSize: 12,
+                      flexShrink: 0,
+                      width: 108,
+                      background: 'transparent',
+                      border: 'none',
+                      padding: 0,
+                      textAlign: 'left',
+                      cursor: 'pointer',
                       color: INK,
-                      fontWeight: 600,
-                      marginTop: 8,
-                      lineHeight: 1.25,
-                      letterSpacing: -0.1,
                     }}
                   >
-                    {getDisplayTitle(m)}
-                  </div>
-                  {m.dateWatched && (
+                    <ModernPoster movie={m} size={108} />
                     <div
                       style={{
                         fontFamily: SANS,
-                        fontSize: 11,
-                        color: INK_3,
-                        marginTop: 2,
+                        fontSize: 12,
+                        color: INK,
+                        fontWeight: 600,
+                        marginTop: 8,
+                        lineHeight: 1.25,
+                        letterSpacing: -0.1,
                       }}
                     >
-                      {formatDate(m.dateWatched)}
+                      {getDisplayTitle(m)}
                     </div>
-                  )}
-                </button>
-              ))}
-            </div>
+                    {m.dateWatched && (
+                      <div
+                        style={{
+                          fontFamily: SANS,
+                          fontSize: 11,
+                          color: INK_3,
+                          marginTop: 2,
+                        }}
+                      >
+                        {formatDate(m.dateWatched)}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </Section>
 
           {/* The full reel */}
           <Section title="The full reel" action={sortControl}>
             <div>
-              {older.map((m) => (
+              {watched.map((m) => (
                 <ListRow
                   key={m.title}
                   movie={m}
@@ -498,6 +513,18 @@ function ListRow({
           )}
         </div>
       </div>
+      {m.favorite && (
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill={AMBER}
+          aria-label="Favorite"
+          style={{ flexShrink: 0 }}
+        >
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+        </svg>
+      )}
       {m.commonSenseAge && (
         <span
           className={`shrink-0 rounded-lg border px-2.5 py-1 text-xs font-bold tabular-nums ${ageBadgeClass(

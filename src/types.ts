@@ -84,6 +84,14 @@ export type Movie = {
    * movies ignore this field entirely (Watched sorts by dateWatched).
    */
   wishlistOrder: number | null;
+  /**
+   * User-set favorite flag. Surfaces as a "Favorites" carousel on the
+   * modern Watched view and a small star indicator on full-reel rows.
+   * Defaults to false; legacy rows missing the field coerce to false at
+   * the merge boundary. The Detail star UI only exposes the toggle for
+   * watched movies — favoriting an unseen wishlist item isn't a flow.
+   */
+  favorite: boolean;
 };
 
 /**
@@ -101,6 +109,7 @@ export type LibraryEntry = {
   dateWatched: string | null;
   notes: string | null;
   wishlistOrder: number | null;
+  favorite: boolean;
 };
 
 /**

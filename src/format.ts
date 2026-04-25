@@ -234,6 +234,7 @@ export function emptyMovie(watched: boolean): Movie {
     directors: null,
     writers: null,
     wishlistOrder: null,
+    favorite: false,
   };
 }
 
@@ -258,6 +259,7 @@ export function candidateToTemplate(c: Candidate): Movie {
     directors: c.directors ?? null,
     writers: c.writers ?? null,
     wishlistOrder: null,
+    favorite: false,
   };
 }
 

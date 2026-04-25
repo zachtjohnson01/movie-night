@@ -150,6 +150,9 @@ function ModernView({
   async function markWatchedTonight() {
     await onUpdate({ ...movie, watched: true, dateWatched: todayIso() });
   }
+  async function toggleFavorite() {
+    await onUpdate({ ...movie, favorite: !movie.favorite });
+  }
   async function saveNotes() {
     await onUpdate({ ...movie, notes: notes || null });
   }
@@ -228,40 +231,84 @@ function ModernView({
             />
           </svg>
         </button>
-        <button
-          type="button"
-          onClick={share.onClick}
-          aria-label={share.copied ? 'Link copied' : 'Share'}
+        <div
           style={{
             position: 'absolute',
             top: 'calc(env(safe-area-inset-top) + 12px)',
             right: 16,
             zIndex: 2,
-            width: 38,
-            height: 38,
-            minWidth: 44,
-            minHeight: 44,
-            borderRadius: 999,
-            background: 'rgba(0,0,0,0.4)',
-            backdropFilter: 'blur(14px)',
-            WebkitBackdropFilter: 'blur(14px)',
-            border: 'none',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: '#fff',
+            gap: 8,
           }}
         >
-          {share.copied ? (
-            <CheckIcon className="w-5 h-5" />
-          ) : (
-            <ShareIcon className="w-5 h-5" />
+          {canWrite && movie.watched && (
+            <button
+              type="button"
+              onClick={() => void toggleFavorite()}
+              aria-label={movie.favorite ? 'Unfavorite' : 'Favorite'}
+              aria-pressed={movie.favorite}
+              style={{
+                width: 38,
+                height: 38,
+                minWidth: 44,
+                minHeight: 44,
+                borderRadius: 999,
+                background: 'rgba(0,0,0,0.4)',
+                backdropFilter: 'blur(14px)',
+                WebkitBackdropFilter: 'blur(14px)',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#fff',
+              }}
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill={movie.favorite ? AMBER : 'none'}
+                stroke={movie.favorite ? AMBER : '#fff'}
+                strokeWidth="2"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              >
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+              </svg>
+            </button>
           )}
-          <span className="sr-only" aria-live="polite">
-            {share.copied ? 'Link copied' : ''}
-          </span>
-        </button>
+          <button
+            type="button"
+            onClick={share.onClick}
+            aria-label={share.copied ? 'Link copied' : 'Share'}
+            style={{
+              width: 38,
+              height: 38,
+              minWidth: 44,
+              minHeight: 44,
+              borderRadius: 999,
+              background: 'rgba(0,0,0,0.4)',
+              backdropFilter: 'blur(14px)',
+              WebkitBackdropFilter: 'blur(14px)',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              color: '#fff',
+            }}
+          >
+            {share.copied ? (
+              <CheckIcon className="w-5 h-5" />
+            ) : (
+              <ShareIcon className="w-5 h-5" />
+            )}
+            <span className="sr-only" aria-live="polite">
+              {share.copied ? 'Link copied' : ''}
+            </span>
+          </button>
+        </div>
         <div
           style={{
             position: 'absolute',
