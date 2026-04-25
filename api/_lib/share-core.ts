@@ -211,11 +211,23 @@ export function buildShareHtml(params: {
     .replace(/\s*<meta\s+name="twitter:[^"]+"[^>]*\/?\s*>/gi, '')
     .replace(/\s*<link\s+rel="apple-touch-icon"[^>]*\/?\s*>/gi, '');
 
+  // Apple's LPMetadataProvider rejects og:image below ~600x315 and
+  // silently falls back to apple-touch-icon / Safari placeholder.
+  // Declaring dimensions matching what /api/poster returns (600px
+  // wide, ~888px tall after the SX300→SX600 upscale, 2:3 poster
+  // aspect ratio) tells the unfurler the image is large enough.
   const tagLines: string[] = [
     `<meta property="og:type" content="video.movie" />`,
     `<meta property="og:title" content="${escapeHtml(titleTxt)}" />`,
     `<meta property="og:description" content="${escapeHtml(desc)}" />`,
     `<meta property="og:image" content="${escapeHtml(img)}" />`,
+    ...(movie?.poster
+      ? [
+          `<meta property="og:image:width" content="600" />`,
+          `<meta property="og:image:height" content="888" />`,
+          `<meta property="og:image:type" content="image/jpeg" />`,
+        ]
+      : []),
     `<meta property="og:url" content="${escapeHtml(canonical)}" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:title" content="${escapeHtml(titleTxt)}" />`,
