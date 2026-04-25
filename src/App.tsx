@@ -174,6 +174,16 @@ export default function App() {
     }
   }, [screen, effectiveIsOwner]);
 
+  // The For You tab is hidden from non-signed-in users. If they were on
+  // it and lose write access (sign out, or never had it on first load),
+  // bounce the active tab back to Watched so they're not stranded on a
+  // tab whose button no longer exists.
+  useEffect(() => {
+    if (tab === 'recs' && !auth.canWrite) {
+      setTab('watched');
+    }
+  }, [tab, auth.canWrite]);
+
   const selected = useMemo(() => {
     if (screen.name !== 'detail') return null;
     return movies.find((m) => m.title === screen.title) ?? null;
@@ -386,7 +396,7 @@ export default function App() {
                 onAdd={openAdd}
               />
             )}
-            {tab === 'recs' && (
+            {tab === 'recs' && auth.canWrite && (
               <ModernRecommendations
                 movies={movies}
                 pool={pool}
@@ -419,7 +429,7 @@ export default function App() {
                 onReorder={reorderWishlist}
               />
             )}
-            {tab === 'recs' && (
+            {tab === 'recs' && auth.canWrite && (
               <Recommendations
                 movies={movies}
                 pool={pool}
@@ -432,9 +442,9 @@ export default function App() {
         )}
       </main>
       {isModern ? (
-        <ModernTabBar tab={tab} onChange={setTab} />
+        <ModernTabBar tab={tab} onChange={setTab} canSeeRecs={auth.canWrite} />
       ) : (
-        <TabBar tab={tab} onChange={setTab} />
+        <TabBar tab={tab} onChange={setTab} canSeeRecs={auth.canWrite} />
       )}
       {showBulkLink && (
         <BulkLinkSheet
