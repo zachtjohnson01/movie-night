@@ -68,12 +68,17 @@ export default defineConfig({
         // worker to treat the new SW as a completely fresh install
         // instead of trying to reuse old cache entries. Effectively a
         // one-shot cache bust for anyone stuck on an old bundle.
-        cacheId: 'movie-night-v2',
+        cacheId: 'movie-night-v3',
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: true,
         globPatterns: ['**/*.{js,css,html,svg,png,ico,json,webmanifest}'],
         navigateFallback: '/index.html',
+        // Without a denylist, the SW intercepts /api/* and /share/*
+        // navigations on warm caches and serves index.html instead of
+        // letting Vercel's function/rewrite handle them. That broke
+        // share-link unfurls for installed users on repeat opens.
+        navigateFallbackDenylist: [/^\/api\//, /^\/share\//],
         runtimeCaching: [
           {
             // OMDB posters are hosted on Amazon's CDN. Cache them

@@ -89,7 +89,11 @@ export function useAuth(): AuthApi {
     if (!supabase) return;
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      // Land on a dedicated callback route so App.tsx can pick up the
+      // session and route the user appropriately (back to where they
+      // started, on to onboarding, etc.) without conflating with normal
+      // landing-page navigation.
+      options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
   }, []);
 
