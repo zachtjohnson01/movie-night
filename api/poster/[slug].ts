@@ -29,12 +29,20 @@ type CandidateLike = {
   poster?: string | null;
 };
 
-function normalizeTitle(s: string | null | undefined): string {
+export function normalizeTitle(s: string | null | undefined): string {
   if (!s) return '';
   return s.normalize('NFC').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-async function lookupPosterUrl(
+// Apple's LPMetadataProvider needs at least 600px-wide images to render a
+// rich preview card (300px gets rejected). OMDB returns posters at `_SX300`;
+// upscale to `_SX600` via Amazon's CDN size operator. Same image, larger render.
+// Already-`_SX600`-or-larger URLs stay; non-matching URLs pass through unchanged.
+export function rewritePosterSize(url: string): string {
+  return url.replace(/_SX\d+/, '_SX600');
+}
+
+export async function lookupPosterUrl(
   title: string,
 ): Promise<{ poster: string | null; entryMatch: string }> {
   if (!title || !supabaseUrl || !supabaseKey) {
@@ -131,12 +139,7 @@ export default async function handler(
         .send(`poster not found for "${title}" (match=${entryMatch})`);
     }
 
-    // Apple's LPMetadataProvider needs at least 600px-wide images to
-    // render a rich preview card (300px gets rejected and falls back
-    // to apple-touch-icon / Safari placeholder). OMDB returns
-    // posters at `_SX300`; upscale to `_SX600` via Amazon's CDN
-    // size operator. Same image, larger render.
-    const posterUrl = posterRawUrl.replace(/_SX\d+/, '_SX600');
+    const posterUrl = rewritePosterSize(posterRawUrl);
 
     const upstream = await fetch(posterUrl, {
       headers: {

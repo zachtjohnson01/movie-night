@@ -192,7 +192,7 @@ export default async function handler(
         typeof (m as Record<string, unknown>).title === 'string',
     )
     .slice(0, MAX_BATCH)
-    .map((m) => ({
+    .map((m: Record<string, unknown>) => ({
       title: String(m.title).trim(),
       year: typeof m.year === 'number' ? m.year : null,
       imdbId: typeof m.imdbId === 'string' ? m.imdbId : null,
