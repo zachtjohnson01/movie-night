@@ -17,6 +17,8 @@ type Props = {
   onOpenPool: () => void;
   canManageUsers: boolean;
   onOpenUsers: () => void;
+  canManageWeights: boolean;
+  onOpenWeights: () => void;
 };
 
 /**
@@ -44,6 +46,8 @@ export default function AuthBanner({
   onOpenPool,
   canManageUsers,
   onOpenUsers,
+  canManageWeights,
+  onOpenWeights,
 }: Props) {
   if (status === 'loading') return null;
 
@@ -101,6 +105,8 @@ export default function AuthBanner({
       onOpenPool={onOpenPool}
       canManageUsers={canManageUsers}
       onOpenUsers={onOpenUsers}
+      canManageWeights={canManageWeights}
+      onOpenWeights={onOpenWeights}
     />
   );
 }
@@ -121,6 +127,8 @@ function SignedInBanner({
   onOpenPool,
   canManageUsers,
   onOpenUsers,
+  canManageWeights,
+  onOpenWeights,
 }: SignedInProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -226,6 +234,14 @@ function SignedInBanner({
               <div>Manage users</div>
               <div className="text-[11px] text-ink-500 font-normal">
                 Grant admin or editor access
+              </div>
+            </MenuItem>
+          )}
+          {canManageWeights && (
+            <MenuItem onClick={() => runAndClose(onOpenWeights)}>
+              <div>Scoring weights</div>
+              <div className="text-[11px] text-ink-500 font-normal">
+                Tune the For You ranking
               </div>
             </MenuItem>
           )}
