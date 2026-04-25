@@ -477,7 +477,7 @@ function RecCard({
               minWidth: 0,
             }}
           >
-            {rec.title}
+            {rec.displayTitle ?? rec.title}
           </div>
           {rec.year && (
             <div
@@ -572,12 +572,17 @@ function RecCard({
 }
 
 function CandidatePoster({ rec }: { rec: Candidate }) {
-  /* Candidate has a poster URL but no displayTitle — synthesize a Movie-shaped
-   * object so ModernPoster's fallback placeholder picks up the same
-   * title-hashed palette used everywhere else in the modern UI. */
+  /* Synthesize a Movie-shaped object so ModernPoster's fallback placeholder
+   * picks up the same title-hashed palette used everywhere else in the
+   * modern UI. Uses Candidate.displayTitle when set so foreign-title
+   * candidates render under the human-readable name. */
   return (
     <ModernPoster
-      movie={{ title: rec.title, displayTitle: null, poster: rec.poster }}
+      movie={{
+        title: rec.title,
+        displayTitle: rec.displayTitle ?? null,
+        poster: rec.poster,
+      }}
       size={68}
     />
   );

@@ -42,7 +42,6 @@ function migrateToEntries(movies: Movie[]): LibraryEntry[] {
   return movies.map((m) => ({
     title: m.title,
     imdbId: m.imdbId,
-    displayTitle: m.displayTitle,
     commonSenseAge: m.commonSenseAge,
     commonSenseScore: m.commonSenseScore,
     watched: m.watched,
@@ -69,6 +68,7 @@ function buildNewCandidates(
     .map(
       (m): Candidate => ({
         title: m.title,
+        displayTitle: m.displayTitle ?? null,
         year: m.year,
         imdbId: m.imdbId,
         imdb: m.imdb,
@@ -109,7 +109,7 @@ function mergeEntry(
   return {
     title: entry.title,
     imdbId: entry.imdbId,
-    displayTitle: entry.displayTitle,
+    displayTitle: candidate?.displayTitle ?? null,
     commonSenseAge: entry.commonSenseAge,
     commonSenseScore: entry.commonSenseScore,
     watched: entry.watched,
@@ -136,7 +136,6 @@ function toEntry(m: Movie): LibraryEntry {
   return {
     title: m.title,
     imdbId: m.imdbId,
-    displayTitle: m.displayTitle,
     commonSenseAge: m.commonSenseAge,
     commonSenseScore: m.commonSenseScore,
     watched: m.watched,
@@ -151,6 +150,7 @@ function toCandidate(m: Movie, existing: Candidate): Candidate {
   return {
     ...existing,
     title: m.title,
+    displayTitle: m.displayTitle ?? null,
     imdbId: m.imdbId,
     year: m.year,
     poster: m.poster,
@@ -365,6 +365,7 @@ export function useMovies({
         await onAppendCandidatesRef.current([
           {
             title: movie.title,
+            displayTitle: movie.displayTitle ?? null,
             year: movie.year,
             imdbId: movie.imdbId,
             imdb: movie.imdb,

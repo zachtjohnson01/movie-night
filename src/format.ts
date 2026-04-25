@@ -241,7 +241,7 @@ export function emptyMovie(watched: boolean): Movie {
 export function candidateToTemplate(c: Candidate): Movie {
   return {
     title: c.title,
-    displayTitle: null,
+    displayTitle: c.displayTitle ?? null,
     commonSenseAge: c.commonSenseAge,
     commonSenseScore: null,
     rottenTomatoes: c.rottenTomatoes,

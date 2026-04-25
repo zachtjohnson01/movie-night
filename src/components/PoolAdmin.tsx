@@ -433,7 +433,7 @@ function PoolRow({
           ) : (
             <div className="w-[52px] h-[78px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
               <span className="text-lg font-bold text-ink-600 select-none">
-                {c.title.charAt(0).toUpperCase()}
+                {(c.displayTitle ?? c.title).charAt(0).toUpperCase()}
               </span>
             </div>
           )}
@@ -445,7 +445,7 @@ function PoolRow({
                   removed ? 'text-ink-300 line-through' : 'text-ink-100'
                 }`}
               >
-                {c.title}
+                {c.displayTitle ?? c.title}
               </div>
               {c.year && (
                 <div className="text-[11px] font-mono text-ink-500 shrink-0 tabular-nums">
@@ -539,6 +539,9 @@ function EditSheet({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(candidate.title);
+  const [displayTitleInput, setDisplayTitleInput] = useState(
+    candidate.displayTitle ?? '',
+  );
   const [yearStr, setYearStr] = useState(
     candidate.year != null ? String(candidate.year) : '',
   );
@@ -583,6 +586,7 @@ function EditSheet({
     try {
       const patch = await getMovieById(result.imdbId);
       setTitle(patch.title);
+      setDisplayTitleInput('');
       setYearStr(patch.year != null ? String(patch.year) : '');
       setImdbIdInput(patch.imdbId);
       setRtIdInput('');
@@ -614,6 +618,7 @@ function EditSheet({
     await onSave({
       ...candidate,
       title: title.trim() || candidate.title,
+      displayTitle: displayTitleInput.trim() || null,
       year: Number.isFinite(parsedYear) ? parsedYear : null,
       commonSenseAge: age.trim() || null,
       studio: studio.trim() || null,
@@ -678,7 +683,7 @@ function EditSheet({
           <MoviePoster
             movie={{
               title,
-              displayTitle: null,
+              displayTitle: displayTitleInput.trim() || null,
               poster,
             }}
             size="detail"
@@ -701,7 +706,7 @@ function EditSheet({
             value={age || null}
             href={commonSenseUrl({
               title,
-              displayTitle: null,
+              displayTitle: displayTitleInput.trim() || null,
             })}
             accent="age"
           />
@@ -710,7 +715,7 @@ function EditSheet({
             value={rt}
             href={rottenTomatoesUrl({
               title,
-              displayTitle: null,
+              displayTitle: displayTitleInput.trim() || null,
               rottenTomatoesId: rtIdInput.trim() || null,
             })}
           />
@@ -719,7 +724,7 @@ function EditSheet({
             value={imdb}
             href={imdbUrl({
               title,
-              displayTitle: null,
+              displayTitle: displayTitleInput.trim() || null,
               imdbId: imdbIdInput.trim() || null,
             })}
           />
@@ -738,6 +743,19 @@ function EditSheet({
             {pickError && (
               <p className="text-[11px] text-crimson-bright">{pickError}</p>
             )}
+          </Field>
+          <Field label="Display title">
+            <input
+              type="text"
+              value={displayTitleInput}
+              onChange={(e) => setDisplayTitleInput(e.target.value)}
+              autoCorrect="off"
+              placeholder="e.g. Lotte from Gadgetville"
+              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+            />
+            <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+              Human-readable override. Used everywhere the movie name is rendered when set.
+            </p>
           </Field>
           <Field label="Year">
             <input
@@ -806,6 +824,42 @@ function EditSheet({
               className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
             />
           </Field>
+          {rt == null && (
+            <Field label="RT score (manual fallback)">
+              <input
+                type="text"
+                value={rt ?? ''}
+                onChange={(e) =>
+                  setRt(e.target.value.trim() === '' ? null : e.target.value)
+                }
+                autoCorrect="off"
+                autoCapitalize="none"
+                placeholder="e.g. 84%"
+                className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+              />
+              <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+                Shown when OMDB has no critics score (e.g. foreign films). OMDB will replace this if it ever returns a value.
+              </p>
+            </Field>
+          )}
+          {imdb == null && (
+            <Field label="IMDb score (manual fallback)">
+              <input
+                type="text"
+                value={imdb ?? ''}
+                onChange={(e) =>
+                  setImdb(e.target.value.trim() === '' ? null : e.target.value)
+                }
+                autoCorrect="off"
+                autoCapitalize="none"
+                placeholder="e.g. 7.4"
+                className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+              />
+              <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+                Shown when OMDB has no rating. OMDB will replace this if it ever returns a value.
+              </p>
+            </Field>
+          )}
         </div>
 
         <div className="mt-4 pt-4 border-t border-ink-800 text-[11px] text-ink-500 leading-relaxed space-y-0.5">
