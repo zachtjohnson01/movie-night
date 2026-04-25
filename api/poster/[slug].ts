@@ -123,13 +123,20 @@ export default async function handler(
       return res.status(400).send('missing title');
     }
 
-    const { poster: posterUrl, entryMatch } = await lookupPosterUrl(title);
-    if (!posterUrl) {
+    const { poster: posterRawUrl, entryMatch } = await lookupPosterUrl(title);
+    if (!posterRawUrl) {
       res.setHeader('access-control-allow-origin', '*');
       return res
         .status(404)
         .send(`poster not found for "${title}" (match=${entryMatch})`);
     }
+
+    // Apple's LPMetadataProvider needs at least 600px-wide images to
+    // render a rich preview card (300px gets rejected and falls back
+    // to apple-touch-icon / Safari placeholder). OMDB returns
+    // posters at `_SX300`; upscale to `_SX600` via Amazon's CDN
+    // size operator. Same image, larger render.
+    const posterUrl = posterRawUrl.replace(/_SX\d+/, '_SX600');
 
     const upstream = await fetch(posterUrl, {
       headers: {
