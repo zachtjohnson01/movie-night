@@ -122,6 +122,7 @@ The user manages env vars via the Vercel web dashboard, not via CLI. Don't sugge
 7. **The user is on an iPhone almost always.** Any instructions you give them must work from mobile Safari + GitHub mobile + the Vercel/Supabase web dashboards. Never suggest CLI tools they'd have to install on a laptop.
 8. **The Vercel Coding Agent Plugin is installed.** New sessions have access to Vercel MCP tools for read operations (list projects/deploys, view logs, browse docs). Env var mutation and deploy creation still need to happen in the web dashboard.
 9. **Before every `git push` on a follow-up commit, call `mcp__github__pull_request_read` on the last PR you opened.** If `state === 'closed'` or `merged === true`, the branch is stale — do NOT push. Instead: `git fetch origin main && git reset --hard origin/main`, cherry-pick your commit(s), then push and open a new PR. This has caused repeated recovery cycles; treat the check as mandatory, not optional.
+10. **If debugging share-link previews / iMessage unfurls, read `docs/debugging-share-previews.md` first.** Diagnostic endpoints (`/api/version`, `/share/<title>?debug=1`, `/share/<title>?debug=html`, `/api/poster/<title>?debug=1`), Apple `LPMetadataProvider` quirks, Vercel bundling gotchas, and the recommended diagnostic workflow are all documented there. Use the doc to skip several PR cycles of guess-and-check.
 
 ## Git workflow gotcha: the orphaned-commit trap (read this, seriously)
 
