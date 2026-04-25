@@ -14,7 +14,6 @@ import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
-import WeightsAdmin from './components/WeightsAdmin';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
@@ -30,8 +29,7 @@ type Screen =
   // downvote toggle writes back to the right entry. The template itself
   // is a Movie shape for the existing Detail component to consume.
   | { name: 'candidate'; template: Movie; candidateTitle: string }
-  | { name: 'pool' }
-  | { name: 'weights' };
+  | { name: 'pool' };
 
 type Design = 'classic' | 'modern';
 
@@ -425,11 +423,9 @@ export default function App() {
               <Recommendations
                 movies={movies}
                 pool={pool}
-                canWrite={auth.canWrite}
                 isOwner={effectiveIsOwner}
                 onSelectPick={openPick}
                 reloadMovies={reloadMovies}
-                onOpenPool={() => setScreen({ name: 'pool' })}
               />
             )}
           </>
