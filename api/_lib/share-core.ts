@@ -196,8 +196,14 @@ export function buildShareHtml(params: {
   // unfurl card silently drops the image. Routing through our
   // domain gives Apple a clean URL to fetch and we handle the
   // Amazon side server-side where lenient URL parsing is the norm.
+  //
+  // The ?v=<commit> cache-buster ensures Apple's per-URL "this image
+  // is broken" cache (built up during many failed deploys) doesn't
+  // poison fresh attempts. Each new deploy emits a different
+  // og:image URL, sidestepping any prior negative cache entry.
+  const commit = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'dev';
   const img = movie?.poster
-    ? `${origin}/api/poster/${encodeURIComponent(movie.title)}.jpg`
+    ? `${origin}/api/poster/${encodeURIComponent(movie.title)}.jpg?v=${commit}`
     : `${origin}/apple-touch-icon.png`;
 
   // Strip the static og:*, twitter:*, and apple-touch-icon link tags
