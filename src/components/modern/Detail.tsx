@@ -145,7 +145,7 @@ function ModernView({
     ? movie.dateWatched
       ? formatDateLong(movie.dateWatched)
       : 'Watched · date unknown'
-    : 'On the wishlist';
+    : 'In the queue';
 
   async function markWatchedTonight() {
     await onUpdate({ ...movie, watched: true, dateWatched: todayIso() });
@@ -159,7 +159,7 @@ function ModernView({
   async function handleDelete() {
     const prompt = movie.watched
       ? `Delete "${getDisplayTitle(movie)}"? This can't be undone.`
-      : `Remove "${getDisplayTitle(movie)}" from your wishlist?`;
+      : `Remove "${getDisplayTitle(movie)}" from your queue?`;
     if (!confirm(prompt)) return;
     await onDelete(movie);
   }
@@ -684,7 +684,7 @@ function ModernView({
               cursor: 'pointer',
             }}
           >
-            {movie.watched ? 'Delete movie' : 'Remove from wishlist'}
+            {movie.watched ? 'Delete movie' : 'Remove from queue'}
           </button>
         </div>
       )}

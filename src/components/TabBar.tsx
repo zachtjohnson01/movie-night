@@ -32,7 +32,7 @@ export default function TabBar({ tab, onChange }: Props) {
           }
         />
         <TabButton
-          label="Wishlist"
+          label="Up Next"
           active={tab === 'wishlist'}
           onClick={() => onChange('wishlist')}
           icon={

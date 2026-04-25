@@ -79,7 +79,7 @@ export default function Wishlist({
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="text-[10px] uppercase tracking-[0.22em] text-crimson-bright font-semibold">
-              Wishlist
+              Up Next
             </div>
             <h1 className="mt-1 text-[28px] font-bold leading-none tracking-tight">
               {wishlist.length}{' '}
@@ -218,8 +218,8 @@ export default function Wishlist({
           {query
             ? `Nothing matches “${query}”`
             : canWrite
-              ? 'Your wishlist is empty. Tap + to add a movie.'
-              : 'Your wishlist is empty.'}
+              ? 'Your queue is empty. Tap + to add a movie.'
+              : 'Your queue is empty.'}
         </div>
       ) : (
         <ul className="px-2 pt-1">

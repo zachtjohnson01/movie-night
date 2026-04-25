@@ -738,7 +738,7 @@ function ViewMode(props: ViewModeProps) {
             onClick={props.onAddToWishlist}
             className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
           >
-            Add to wishlist
+            Add to queue
           </button>
           <button
             type="button"
@@ -794,7 +794,7 @@ function ViewMode(props: ViewModeProps) {
             onClick={props.onDelete}
             className="w-full min-h-[48px] rounded-2xl text-rose-400 font-medium active:bg-rose-950/40"
           >
-            {movie.watched ? 'Remove from watched list' : 'Remove from wishlist'}
+            {movie.watched ? 'Remove from watched list' : 'Remove from queue'}
           </button>
         </section>
       )}
@@ -999,7 +999,7 @@ function EditForm({
                 : 'bg-ink-800 border-ink-700 text-ink-300'
             }`}
           >
-            Wishlist
+            Up Next
           </button>
           <button
             type="button"

@@ -14,7 +14,7 @@ type Props = {
 export default function TabBar({ tab, onChange }: Props) {
   const items: { id: Tab; label: string; icon: string }[] = [
     { id: 'watched', label: 'Watched', icon: '▶' },
-    { id: 'wishlist', label: 'Wishlist', icon: '✦' },
+    { id: 'wishlist', label: 'Up Next', icon: '✦' },
     { id: 'recs', label: 'For you', icon: '✨' },
   ];
   return (
