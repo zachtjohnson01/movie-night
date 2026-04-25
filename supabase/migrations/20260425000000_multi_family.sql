@@ -5,11 +5,12 @@
 -- the two existing emails as pre-bound members. Library data is
 -- per-family; pool / reasons / weights stay global (family_id NULL).
 --
--- Safe to apply in one shot: no DROPs, no DELETEs. Existing 4 rows
+-- Safe to apply in one shot: no DROPs, no DELETEs. Existing 5 rows
 -- in movie_night gain family_id (Johnsons UUID for kind='library',
--- NULL for the rest) and kind. Verified row counts before writing
--- this: id=1 has 53 entries, id=2 has 403, id=3 has 3, id=4 is the
--- weights object.
+-- NULL for the rest) and kind. id=5 is the dynamic role-grants row
+-- written by the Manage Users screen (#126); it stays global until
+-- PRs 5/6 replace it with family_members-driven roles, at which
+-- point it can be dropped.
 
 create extension if not exists citext;
 
@@ -63,12 +64,13 @@ update movie_night set kind = case id
   when 2 then 'pool'
   when 3 then 'reasons'
   when 4 then 'weights'
+  when 5 then 'users'
 end;
 
 alter table movie_night alter column kind set not null;
 alter table movie_night
   add constraint movie_night_kind_check
-  check (kind in ('library','pool','reasons','weights'));
+  check (kind in ('library','pool','reasons','weights','users'));
 
 -- One library row per family (enforced for non-null family_id).
 create unique index movie_night_family_library_uniq
