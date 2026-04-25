@@ -253,7 +253,7 @@ function ConfirmView({
   onRefresh: () => void;
   onClose: () => void;
 }) {
-  const tabLabel = scope === 'watched' ? 'Watched' : 'Wishlist';
+  const tabLabel = scope === 'watched' ? 'Watched' : 'Up Next';
 
   if (totalCount === 0) {
     return (

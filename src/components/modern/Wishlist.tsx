@@ -89,7 +89,7 @@ export default function ModernWishlist({
             fontWeight: 600,
           }}
         >
-          Wishlist
+          Up Next
         </div>
         <div
           style={{
@@ -176,8 +176,8 @@ export default function ModernWishlist({
           {query
             ? `Nothing matches “${query}”`
             : canWrite
-              ? 'Your wishlist is empty. Tap + to add a movie.'
-              : 'Your wishlist is empty.'}
+              ? 'Your queue is empty. Tap + to add a movie.'
+              : 'Your queue is empty.'}
         </div>
       ) : (
         <div

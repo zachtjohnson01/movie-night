@@ -556,7 +556,7 @@ function EmptyState() {
       >
         No movies watched yet.
         <br />
-        Pick something from the Wishlist to kick off Friday night.
+        Pick something from Up Next to kick off Friday night.
       </div>
       <div
         style={{

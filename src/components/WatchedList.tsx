@@ -430,7 +430,7 @@ function EmptyState() {
         No movies watched yet
       </div>
       <p className="mt-1 text-sm text-ink-400">
-        Pick something from the Wishlist tab to kick off Friday night.
+        Pick something from Up Next to kick off Friday night.
       </p>
     </div>
   );
