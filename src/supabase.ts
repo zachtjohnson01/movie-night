@@ -33,8 +33,8 @@ export const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
 
 /**
  * The `kind` discriminator on `movie_night`. Library rows are
- * per-family; pool / reasons / weights / users stay global with
+ * per-family; pool / reasons / weights stay global with
  * `family_id IS NULL`. Enforced by the migration's check constraint
  * and partial unique indexes.
  */
-export type MovieNightKind = 'library' | 'pool' | 'reasons' | 'weights' | 'users';
+export type MovieNightKind = 'library' | 'pool' | 'reasons' | 'weights';

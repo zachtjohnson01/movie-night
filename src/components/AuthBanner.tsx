@@ -15,8 +15,8 @@ type Props = {
   onToggleDesign: () => void;
   canManagePool: boolean;
   onOpenPool: () => void;
-  canManageUsers: boolean;
-  onOpenUsers: () => void;
+  canManageFamily: boolean;
+  onOpenFamilySettings: () => void;
   canManageWeights: boolean;
   onOpenWeights: () => void;
 };
@@ -44,8 +44,8 @@ export default function AuthBanner({
   onToggleDesign,
   canManagePool,
   onOpenPool,
-  canManageUsers,
-  onOpenUsers,
+  canManageFamily,
+  onOpenFamilySettings,
   canManageWeights,
   onOpenWeights,
 }: Props) {
@@ -83,8 +83,8 @@ export default function AuthBanner({
       onToggleDesign={onToggleDesign}
       canManagePool={canManagePool}
       onOpenPool={onOpenPool}
-      canManageUsers={canManageUsers}
-      onOpenUsers={onOpenUsers}
+      canManageFamily={canManageFamily}
+      onOpenFamilySettings={onOpenFamilySettings}
       canManageWeights={canManageWeights}
       onOpenWeights={onOpenWeights}
     />
@@ -105,8 +105,8 @@ function SignedInBanner({
   onToggleDesign,
   canManagePool,
   onOpenPool,
-  canManageUsers,
-  onOpenUsers,
+  canManageFamily,
+  onOpenFamilySettings,
   canManageWeights,
   onOpenWeights,
 }: SignedInProps) {
@@ -209,11 +209,11 @@ function SignedInBanner({
               </div>
             </MenuItem>
           )}
-          {canManageUsers && (
-            <MenuItem onClick={() => runAndClose(onOpenUsers)}>
-              <div>Manage users</div>
+          {canManageFamily && (
+            <MenuItem onClick={() => runAndClose(onOpenFamilySettings)}>
+              <div>Family settings</div>
               <div className="text-[11px] text-ink-500 font-normal">
-                Grant admin or editor access
+                Invite, remove, and manage members
               </div>
             </MenuItem>
           )}

@@ -14,15 +14,14 @@ import AuthBanner from './components/AuthBanner';
 import BulkLinkSheet from './components/BulkLinkSheet';
 import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
-import UsersAdmin from './components/UsersAdmin';
 import WeightsAdmin from './components/WeightsAdmin';
 import Landing from './components/Landing';
 import Onboarding from './components/Onboarding';
+import FamilySettings from './components/FamilySettings';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
 import { useSwipeBack } from './useSwipeBack';
-import { useUserRoles } from './useUserRoles';
 import { useFamilies } from './useFamilies';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
@@ -43,7 +42,6 @@ type ModalScreen =
   | { name: 'new'; template: Movie }
   | { name: 'candidate'; template: Movie; candidateTitle: string }
   | { name: 'pool' }
-  | { name: 'users' }
   | { name: 'weights' };
 
 type Design = 'classic' | 'modern';
@@ -64,10 +62,6 @@ function readInitialDesign(): Design {
 export default function App() {
   const route = useRoute();
   const pool = useCandidatePool();
-  // PR 5: useAuth no longer reads the user_roles allowlist — auth is
-  // membership-driven. `useUserRoles` is still here because the legacy
-  // Manage Users modal hasn't been replaced yet (that lands in PR 6).
-  const userRoles = useUserRoles();
   const auth = useAuth();
   const families = useFamilies();
 
@@ -188,14 +182,10 @@ export default function App() {
     }
   }, [movies, route]);
 
-  // Pool admin and users admin are owner-only. If the user signs out,
-  // isn't the owner, or toggles "view as non-owner" while either is
-  // open, drop the modal.
+  // Pool admin is owner-only. If the user signs out, isn't the owner,
+  // or toggles "view as non-owner" while it's open, drop the modal.
   useEffect(() => {
-    if (
-      (modal?.name === 'pool' || modal?.name === 'users') &&
-      !effectiveIsOwner
-    ) {
+    if (modal?.name === 'pool' && !effectiveIsOwner) {
       setModal(null);
     }
   }, [modal, effectiveIsOwner]);
@@ -347,6 +337,27 @@ export default function App() {
     return <Onboarding auth={auth} />;
   }
 
+  if (route.kind === 'settings') {
+    // `familyKnown` distinguishes "this slug doesn't exist" from
+    // "still loading the families list". The Johnsons short-circuit
+    // is always known. For other slugs, treat unknown as known while
+    // useFamilies is still loading so we don't bounce prematurely;
+    // once it's settled, `familyId === null` means the slug is bad.
+    const familyKnown =
+      currentSlug === DEFAULT_FAMILY_SLUG ||
+      families.status === 'loading' ||
+      familyId !== null;
+    return (
+      <FamilySettings
+        slug={currentSlug}
+        familyId={familyId}
+        membership={currentMembership}
+        auth={auth}
+        familyKnown={familyKnown}
+      />
+    );
+  }
+
   if (modal?.name === 'new') {
     const DetailComponent = isModern ? ModernDetail : Detail;
     return (
@@ -376,16 +387,6 @@ export default function App() {
       <WeightsAdmin
         weights={pool.weights}
         onSave={pool.updateWeights}
-        onBack={() => setModal(null)}
-      />
-    );
-  }
-
-  if (modal?.name === 'users' && effectiveIsOwner) {
-    return (
-      <UsersAdmin
-        api={userRoles}
-        currentEmail={auth.email}
         onBack={() => setModal(null)}
       />
     );
@@ -475,8 +476,10 @@ export default function App() {
         onToggleDesign={toggleDesign}
         canManagePool={effectiveIsOwner}
         onOpenPool={() => setModal({ name: 'pool' })}
-        canManageUsers={effectiveIsOwner}
-        onOpenUsers={() => setModal({ name: 'users' })}
+        canManageFamily={currentMembership?.role === 'admin'}
+        onOpenFamilySettings={() =>
+          pushPath(pathFromRoute({ kind: 'settings', slug: currentSlug }))
+        }
         canManageWeights={effectiveIsOwner}
         onOpenWeights={() => setModal({ name: 'weights' })}
       />
