@@ -16,6 +16,7 @@ import EnhanceAllSheet from './components/EnhanceAllSheet';
 import PoolAdmin from './components/PoolAdmin';
 import WeightsAdmin from './components/WeightsAdmin';
 import Landing from './components/Landing';
+import Families from './components/Families';
 import Onboarding from './components/Onboarding';
 import FamilySettings from './components/FamilySettings';
 import { useMovies } from './useMovies';
@@ -170,6 +171,19 @@ export default function App() {
     if (route.kind === 'landing') replacePath('/onboard');
   }, [auth.status, auth.memberships, route]);
 
+  // Signed-in users with exactly one family skip the landing page —
+  // their daily-use path is one tap shorter. Users with 2+ memberships
+  // still see the landing page (with a chooser instead of the CTA) so
+  // they can pick. The `replacePath` (vs push) avoids leaving the
+  // landing page in history, which would create a back-button trap.
+  useEffect(() => {
+    if (auth.status !== 'signed-in') return;
+    if (auth.memberships.length !== 1) return;
+    if (route.kind !== 'landing') return;
+    const slug = auth.memberships[0].familySlug;
+    replacePath(pathFromRoute({ kind: 'family', slug }));
+  }, [auth.status, auth.memberships, route]);
+
   // If the movie referenced by the URL no longer exists (deleted by
   // the other user, or the title changed and the URL didn't keep up),
   // bail back to the family view. Wait for movies to load so a cold
@@ -210,11 +224,16 @@ export default function App() {
   }, [tab, canWrite]);
 
   // Modals are tied to a specific family view. If the route flips to
-  // landing (browser back from /family/<slug>, or replacePath after
+  // any non-family-aware page (landing, families directory, onboarding,
   // OAuth callback), drop any open modal so it doesn't reappear when
   // the user navigates back into a family.
   useEffect(() => {
-    if (route.kind === 'landing' && modal !== null) {
+    if (modal === null) return;
+    const isFamilyAware =
+      route.kind === 'family' ||
+      route.kind === 'movie' ||
+      route.kind === 'settings';
+    if (!isFamilyAware) {
       setModal(null);
     }
   }, [route, modal]);
@@ -330,7 +349,11 @@ export default function App() {
   const isModern = design === 'modern';
 
   if (route.kind === 'landing') {
-    return <Landing auth={auth} />;
+    return <Landing auth={auth} pool={pool} />;
+  }
+
+  if (route.kind === 'families') {
+    return <Families auth={auth} pool={pool} />;
   }
 
   if (route.kind === 'onboard') {
@@ -482,6 +505,7 @@ export default function App() {
         }
         canManageWeights={effectiveIsOwner}
         onOpenWeights={() => setModal({ name: 'weights' })}
+        onBrowseFamilies={() => pushPath(pathFromRoute({ kind: 'families' }))}
       />
       <SyncBanner status={status} />
       <main className="flex-1 pb-tabbar">

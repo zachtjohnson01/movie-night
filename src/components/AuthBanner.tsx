@@ -19,6 +19,7 @@ type Props = {
   onOpenFamilySettings: () => void;
   canManageWeights: boolean;
   onOpenWeights: () => void;
+  onBrowseFamilies: () => void;
 };
 
 /**
@@ -48,6 +49,7 @@ export default function AuthBanner({
   onOpenFamilySettings,
   canManageWeights,
   onOpenWeights,
+  onBrowseFamilies,
 }: Props) {
   if (status === 'loading') return null;
 
@@ -87,6 +89,7 @@ export default function AuthBanner({
       onOpenFamilySettings={onOpenFamilySettings}
       canManageWeights={canManageWeights}
       onOpenWeights={onOpenWeights}
+      onBrowseFamilies={onBrowseFamilies}
     />
   );
 }
@@ -109,6 +112,7 @@ function SignedInBanner({
   onOpenFamilySettings,
   canManageWeights,
   onOpenWeights,
+  onBrowseFamilies,
 }: SignedInProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -244,6 +248,12 @@ function SignedInBanner({
           )}
           <MenuItem onClick={() => runAndClose(onToggleDesign)}>
             {isModern ? 'Switch to classic UI' : 'Switch to modern UI'}
+          </MenuItem>
+          <MenuItem onClick={() => runAndClose(onBrowseFamilies)}>
+            <div>Browse families</div>
+            <div className="text-[11px] text-ink-500 font-normal">
+              See every family on the platform
+            </div>
           </MenuItem>
           <div className="my-1 h-px bg-ink-800" />
           <MenuItem onClick={() => runAndClose(onSignOut)}>

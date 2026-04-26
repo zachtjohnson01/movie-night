@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 // component state — they're not worth a URL.
 export type Route =
   | { kind: 'landing' }
+  | { kind: 'families' }
   | { kind: 'family'; slug: string }
   | { kind: 'movie'; slug: string; title: string }
   | { kind: 'settings'; slug: string }
@@ -27,6 +28,9 @@ export function parseRoute(pathname: string, search: string): Route {
     return { kind: 'landing' };
   }
 
+  if (pathname === '/families' || pathname === '/families/') {
+    return { kind: 'families' };
+  }
   if (pathname === '/onboard') return { kind: 'onboard' };
   if (pathname === '/auth/callback') return { kind: 'auth-callback' };
 
@@ -54,6 +58,8 @@ export function pathFromRoute(route: Route): string {
   switch (route.kind) {
     case 'landing':
       return '/';
+    case 'families':
+      return '/families';
     case 'family':
       return `/family/${encodeURIComponent(route.slug)}`;
     case 'movie':
