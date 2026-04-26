@@ -23,11 +23,11 @@ type Props = {
 
 /**
  * Banner / user strip at the top of the app.
- * - signed-in (allowlisted): compact user card with avatar, name, email,
- *   and a hamburger menu (Sign out, View as non-owner for the owner,
- *   Switch classic/modern).
+ * - signed-in: compact user card with avatar, name, email, and a
+ *   hamburger menu (Sign out, View as non-owner for the global owner,
+ *   Switch classic/modern). Membership-driven write access is
+ *   computed in App.tsx; this component just renders whoever's there.
  * - signed-out: amber strip prompting Google sign-in.
- * - unauthorized: amber strip with email + Sign out.
  * - loading: null (brief).
  */
 export default function AuthBanner({
@@ -69,27 +69,7 @@ export default function AuthBanner({
     );
   }
 
-  if (status === 'unauthorized') {
-    return (
-      <div
-        className="safe-top px-5 pt-2 pb-2 flex items-center justify-center gap-3 text-[11px] text-amber-glow/90 bg-amber-glow/10 border-b border-amber-glow/20"
-        role="status"
-      >
-        <span className="truncate">
-          Signed in as {email} — read-only.
-        </span>
-        <button
-          type="button"
-          onClick={onSignOut}
-          className="px-3 py-1 rounded-lg bg-ink-800 border border-ink-700 text-ink-200 font-semibold text-xs active:bg-ink-700"
-        >
-          Sign out
-        </button>
-      </div>
-    );
-  }
-
-  // signed-in (allowlisted)
+  // signed-in
   return (
     <SignedInBanner
       email={email}

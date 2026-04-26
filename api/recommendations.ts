@@ -9,14 +9,15 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 
-// Mirrors the client list in src/useAuth.ts. Kept in sync manually — for a
-// 2-user family app the drift risk is negligible. Treat as the single source
-// of truth for *write* access; the client check is UI hygiene, this is the
-// enforcement point for anything that spends money (Anthropic credits).
-const ALLOWED_ADMIN_EMAILS = new Set([
-  'zachtjohnson01@gmail.com',
-  'alexandrabjohnson01@gmail.com',
-]);
+// Authorization is membership-driven post-PR5: any family_members row
+// belonging to the authenticated user with `is_global_owner = true`
+// passes. The column has a column-level UPDATE revoke, so a malicious
+// authenticated user can't escalate themselves into it. This is the
+// enforcement point for anything that spends Anthropic credits.
+//
+// Inlined rather than imported from api/_lib because Vercel's function
+// bundler drops _lib modules from the deploy of api/* handlers in this
+// project (see CLAUDE.md gotchas).
 
 type AuthResult =
   | { ok: true; email: string }
@@ -42,19 +43,29 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
   }
   const token = match[1];
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
+  const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+  if (userErr || !userData.user) {
     return { ok: false, status: 401, error: 'Invalid session' };
   }
-  const email = (data.user.email ?? '').toLowerCase();
-  if (!ALLOWED_ADMIN_EMAILS.has(email)) {
+  const { data: members, error: memErr } = await supabase
+    .from('family_members')
+    .select('is_global_owner')
+    .eq('user_id', userData.user.id);
+  if (memErr) {
+    console.error('[recommendations] family_members lookup failed', memErr);
+    return { ok: false, status: 500, error: 'Authorization check failed' };
+  }
+  const isGlobalOwner = (members ?? []).some(
+    (m: { is_global_owner: boolean }) => m.is_global_owner === true,
+  );
+  if (!isGlobalOwner) {
     return {
       ok: false,
       status: 403,
       error: 'Not authorized to expand the recommendation pool',
     };
   }
-  return { ok: true, email };
+  return { ok: true, email: userData.user.email ?? '' };
 }
 
 /**

@@ -6,11 +6,15 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY;
 
-// Owner-only: this endpoint powers the "Ask Claude to verify" textbox on the
-// Detail page, which is intentionally single-user. Alexandra can write to the
-// list, but kicking off ad-hoc Anthropic calls from a textbox is Zach's
-// admin tool.
-const OWNER_EMAIL = 'zachtjohnson01@gmail.com';
+// Authorization is membership-driven post-PR5: any family_members row
+// belonging to the authenticated user with `is_global_owner = true`
+// passes. This endpoint spends Anthropic credits on demand from a
+// Detail-page textbox, so it's intentionally restricted to the global
+// owner — family admins of new families do not get it.
+//
+// Inlined rather than imported from api/_lib because Vercel's function
+// bundler drops _lib modules from the deploy of api/* handlers (see
+// CLAUDE.md gotchas).
 
 type AuthResult =
   | { ok: true; email: string }
@@ -32,19 +36,29 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
   }
   const token = match[1];
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
+  const { data: userData, error: userErr } = await supabase.auth.getUser(token);
+  if (userErr || !userData.user) {
     return { ok: false, status: 401, error: 'Invalid session' };
   }
-  const email = (data.user.email ?? '').toLowerCase();
-  if (email !== OWNER_EMAIL) {
+  const { data: members, error: memErr } = await supabase
+    .from('family_members')
+    .select('is_global_owner')
+    .eq('user_id', userData.user.id);
+  if (memErr) {
+    console.error('[verify] family_members lookup failed', memErr);
+    return { ok: false, status: 500, error: 'Authorization check failed' };
+  }
+  const isGlobalOwner = (members ?? []).some(
+    (m: { is_global_owner: boolean }) => m.is_global_owner === true,
+  );
+  if (!isGlobalOwner) {
     return {
       ok: false,
       status: 403,
       error: 'Not authorized to verify movie fields',
     };
   }
-  return { ok: true, email };
+  return { ok: true, email: userData.user.email ?? '' };
 }
 
 type MovieSnapshot = {

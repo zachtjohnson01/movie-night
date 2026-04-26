@@ -83,14 +83,24 @@ export function primaryScore(m: Movie): string | null {
 
 export type ShareData = { title: string; text: string; url: string };
 
+// The bootstrap Johnsons slug. Shared with router.ts (DEFAULT_FAMILY_SLUG)
+// — duplicated here to avoid format.ts importing the router (it'd
+// pull React+useEffect into otherwise-pure utility code).
+const DEFAULT_SHARE_SLUG = 'johnson';
+
 /**
  * Build the payload passed to `navigator.share()` (or clipboard fallback).
- * `url` deep-links into the PWA via the `?m=<title>` query param so the
- * recipient lands on this movie's Detail page. `text` includes the
- * primary score and Common Sense age when available so the iOS unfurl
- * has useful context even before the image preview loads. The leading
- * question changes based on whether the movie has been watched — a
- * recommendation to watch vs. an "already seen, here's our take".
+ * `text` includes the primary score and Common Sense age when available
+ * so the iOS unfurl has useful context even before the image preview
+ * loads. The leading question changes based on whether the movie has
+ * been watched — a recommendation to watch vs. an "already seen, here's
+ * our take".
+ *
+ * `url` deep-links the recipient to the movie's Detail page. For the
+ * bootstrap Johnsons family the URL stays at the legacy
+ * `/share/<title>` shape so existing iMessage previews keep working
+ * out of their cache. For other families it's the family-prefixed
+ * `/share/f/<slug>/<title>` shape served by api/share/f/[slug]/[title].
  */
 export function buildShareData(
   m: Pick<
@@ -104,6 +114,7 @@ export function buildShareData(
     | 'watched'
   >,
   origin: string,
+  familySlug: string = DEFAULT_SHARE_SLUG,
 ): ShareData {
   const displayed = getDisplayTitle(m);
   const titleBase = m.year ? `${displayed} (${m.year})` : displayed;
@@ -114,13 +125,17 @@ export function buildShareData(
   const prefix = m.watched
     ? 'We watched this for family movie night!'
     : 'Next family movie night?';
+  // `?v=<commit>` cache-busts iMessage's per-URL link preview cache:
+  // each deploy emits a different URL, so a previously-cached negative
+  // unfurl can't poison subsequent shares of the same movie.
+  const sharePath =
+    familySlug === DEFAULT_SHARE_SLUG
+      ? `/share/${encodeURIComponent(m.title)}`
+      : `/share/f/${encodeURIComponent(familySlug)}/${encodeURIComponent(m.title)}`;
   return {
     title: titleBase,
     text: `${prefix}\n\n${parts.join(' • ')}`,
-    // `?v=<commit>` cache-busts iMessage's per-URL link preview cache:
-    // each deploy emits a different URL, so a previously-cached negative
-    // unfurl can't poison subsequent shares of the same movie.
-    url: `${origin}/share/${encodeURIComponent(m.title)}?v=${__BUILD_COMMIT__}`,
+    url: `${origin}${sharePath}?v=${__BUILD_COMMIT__}`,
   };
 }
 

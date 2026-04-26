@@ -31,6 +31,7 @@ type Props =
       mode: 'existing';
       canWrite: boolean;
       isOwner?: boolean;
+      familySlug: string;
       movie: Movie;
       library?: Movie[];
       onBack: () => void;
@@ -41,6 +42,7 @@ type Props =
   | {
       mode: 'new';
       canWrite: boolean;
+      familySlug: string;
       movie: Movie; // empty template
       onBack: () => void;
       onCreate: (created: Movie) => void | Promise<void>;
@@ -48,6 +50,7 @@ type Props =
   | {
       mode: 'candidate';
       canWrite: boolean;
+      familySlug: string;
       movie: Movie; // template from candidateToTemplate
       library?: Movie[];
       /** Live downvote state from the candidate pool, null if not in the pool. */
@@ -403,7 +406,11 @@ export default function Detail(props: Props) {
           {!editing ? (
             <div className="flex items-center gap-1">
               <ShareButton
-                data={buildShareData(movie, window.location.origin)}
+                data={buildShareData(
+                  movie,
+                  window.location.origin,
+                  props.familySlug,
+                )}
               />
               {props.canWrite && props.mode !== 'candidate' && (
                 <button
@@ -419,7 +426,11 @@ export default function Detail(props: Props) {
             <div className="flex items-center gap-1">
               {draft.title.trim() && (
                 <ShareButton
-                  data={buildShareData(draft, window.location.origin)}
+                  data={buildShareData(
+                    draft,
+                    window.location.origin,
+                    props.familySlug,
+                  )}
                 />
               )}
               <button
