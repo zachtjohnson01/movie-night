@@ -17,13 +17,13 @@ import PoolAdmin from './components/PoolAdmin';
 import UsersAdmin from './components/UsersAdmin';
 import WeightsAdmin from './components/WeightsAdmin';
 import Landing from './components/Landing';
+import Onboarding from './components/Onboarding';
 import { useMovies } from './useMovies';
 import { useCandidatePool } from './useCandidatePool';
 import { useAuth } from './useAuth';
 import { useSwipeBack } from './useSwipeBack';
 import { useUserRoles } from './useUserRoles';
 import { useFamilies } from './useFamilies';
-import { useFamilyMembership } from './useFamilyMembership';
 import { candidateToTemplate, emptyMovie, todayIso } from './format';
 import type { Candidate, Movie } from './types';
 import {
@@ -64,8 +64,11 @@ function readInitialDesign(): Design {
 export default function App() {
   const route = useRoute();
   const pool = useCandidatePool();
+  // PR 5: useAuth no longer reads the user_roles allowlist — auth is
+  // membership-driven. `useUserRoles` is still here because the legacy
+  // Manage Users modal hasn't been replaced yet (that lands in PR 6).
   const userRoles = useUserRoles();
-  const auth = useAuth(userRoles.roles);
+  const auth = useAuth();
   const families = useFamilies();
 
   // The slug owning the current view. Landing/onboard/auth-callback
@@ -90,10 +93,13 @@ export default function App() {
       ? JOHNSON_FAMILY_UUID
       : (families.families.find((f) => f.slug === currentSlug)?.id ?? null);
 
-  const membership = useFamilyMembership({
-    email: auth.email,
-    familyId,
-  });
+  // Membership for the *current* family view. Used to gate write
+  // access (FAB, edit/delete, lazy poster backfill). The user might
+  // be a member of multiple families — we only care about this one.
+  const currentMembership =
+    familyId && auth.status === 'signed-in'
+      ? auth.memberships.find((m) => m.familyId === familyId) ?? null
+      : null;
 
   const {
     movies,
@@ -121,13 +127,12 @@ export default function App() {
   // non-owner allowlisted user. Not persisted — resets on reload so the
   // owner can't forget they toggled it and think a feature broke.
   const [viewAsNonOwner, setViewAsNonOwner] = useState(false);
-  const effectiveIsOwner = auth.isOwner && !viewAsNonOwner;
+  const effectiveIsOwner = auth.isGlobalOwner && !viewAsNonOwner;
 
-  // PR 4 swap: write access is now membership-driven (signed in AND a
-  // member of the current family) rather than being driven by the
-  // global user_roles allowlist. PR 5 folds this into the auth object
-  // proper; for now it lives alongside.
-  const canWrite = membership.canWrite;
+  // Write access derives from the current-family membership row.
+  // Anonymous viewers, signed-in non-members, and signed-in users on a
+  // family that doesn't exist all collapse to read-only.
+  const canWrite = currentMembership !== null;
 
   useEffect(() => {
     try {
@@ -148,13 +153,28 @@ export default function App() {
 
   // Supabase processes the OAuth code via `detectSessionInUrl: true`
   // before React mounts, so by the time we land on /auth/callback the
-  // session is already attached. Bounce the user to the landing route
-  // so the URL reflects the actual app state.
+  // session is already attached. Wait for memberships to resolve, then
+  // bounce: brand-new signed-in users (no memberships) go to onboarding
+  // so they can create a family; everyone else lands at the directory.
   useEffect(() => {
-    if (route.kind === 'auth-callback') {
+    if (route.kind !== 'auth-callback') return;
+    if (auth.status === 'loading') return;
+    if (auth.status === 'signed-in' && auth.memberships.length === 0) {
+      replacePath('/onboard');
+    } else {
       replacePath('/');
     }
-  }, [route]);
+  }, [route, auth.status, auth.memberships]);
+
+  // Push first-time signed-in users (no memberships) to onboarding.
+  // Only triggers from the landing page so a deep-link to a family
+  // page or a movie detail still resolves — the public read-only view
+  // works without membership and shouldn't be hijacked.
+  useEffect(() => {
+    if (auth.status !== 'signed-in') return;
+    if (auth.memberships.length > 0) return;
+    if (route.kind === 'landing') replacePath('/onboard');
+  }, [auth.status, auth.memberships, route]);
 
   // If the movie referenced by the URL no longer exists (deleted by
   // the other user, or the title changed and the URL didn't keep up),
@@ -323,6 +343,10 @@ export default function App() {
     return <Landing auth={auth} />;
   }
 
+  if (route.kind === 'onboard') {
+    return <Onboarding auth={auth} />;
+  }
+
   if (modal?.name === 'new') {
     const DetailComponent = isModern ? ModernDetail : Detail;
     return (
@@ -330,6 +354,7 @@ export default function App() {
         mode="new"
         movie={modal.template}
         canWrite={canWrite}
+        familySlug={currentSlug}
         onBack={() => setModal(null)}
         onCreate={handleCreate}
       />
@@ -373,6 +398,7 @@ export default function App() {
           mode="candidate"
           movie={modal.template}
           canWrite={canWrite}
+          familySlug={currentSlug}
           library={movies}
           onBack={() => setModal(null)}
           onAddToWishlist={handleAddCandidateToWishlist}
@@ -395,6 +421,7 @@ export default function App() {
         mode="candidate"
         movie={modal.template}
         canWrite={canWrite}
+        familySlug={currentSlug}
         library={movies}
         onBack={() => setModal(null)}
         onAddToWishlist={handleAddCandidateToWishlist}
@@ -422,6 +449,7 @@ export default function App() {
         movie={selected}
         canWrite={canWrite}
         isOwner={effectiveIsOwner}
+        familySlug={currentSlug}
         library={movies}
         onBack={closeMovie}
         onUpdate={(updated) => handleUpdate(selected.title, updated)}
@@ -440,7 +468,7 @@ export default function App() {
         avatarUrl={auth.avatarUrl}
         onSignIn={auth.signIn}
         onSignOut={handleSignOut}
-        isOwner={auth.isOwner}
+        isOwner={auth.isGlobalOwner}
         viewAsNonOwner={viewAsNonOwner}
         onToggleViewAsNonOwner={toggleViewAsNonOwner}
         design={design}

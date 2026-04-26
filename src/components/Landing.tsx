@@ -9,12 +9,9 @@ type Props = {
 /**
  * Public landing page. Lists every family on the platform with a
  * clickable card linking to that family's read-only view. Header
- * doubles as the sign-in CTA; signed-in users see their email +
- * a sign-out button.
- *
- * Sign-up flow (creating a brand-new family) lands in PR 5; for now
- * the only families are the bootstrap "Johnsons" plus whatever the
- * dashboard has seeded.
+ * doubles as the sign-in CTA; signed-in users see a sign-out button.
+ * First-time sign-ups (no memberships) get bounced from here to
+ * `/onboard` by App.tsx so they can create a family.
  */
 export default function Landing({ auth }: Props) {
   const { families, status } = useFamilies();
@@ -71,7 +68,7 @@ export default function Landing({ auth }: Props) {
 
 function AuthControls({ auth }: { auth: AuthApi }) {
   if (auth.status === 'loading') return null;
-  if (auth.status === 'signed-in' || auth.status === 'unauthorized') {
+  if (auth.status === 'signed-in') {
     return (
       <button
         type="button"

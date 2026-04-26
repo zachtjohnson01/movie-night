@@ -41,6 +41,7 @@ type Props =
       mode: 'existing';
       canWrite: boolean;
       isOwner?: boolean;
+      familySlug: string;
       movie: Movie;
       library?: Movie[];
       onBack: () => void;
@@ -51,6 +52,7 @@ type Props =
   | {
       mode: 'new';
       canWrite: boolean;
+      familySlug: string;
       movie: Movie;
       onBack: () => void;
       onCreate: (created: Movie) => void | Promise<void>;
@@ -58,6 +60,7 @@ type Props =
   | {
       mode: 'candidate';
       canWrite: boolean;
+      familySlug: string;
       movie: Movie;
       library?: Movie[];
       onBack: () => void;
@@ -80,6 +83,7 @@ export default function ModernDetail(props: Props) {
         mode="existing"
         canWrite={props.canWrite}
         isOwner={props.isOwner}
+        familySlug={props.familySlug}
         movie={props.movie}
         library={props.library}
         onBack={() => setShowClassic(false)}
@@ -94,6 +98,7 @@ export default function ModernDetail(props: Props) {
     <ModernView
       movie={props.movie}
       canWrite={props.canWrite}
+      familySlug={props.familySlug}
       library={props.library}
       onBack={props.onBack}
       onUpdate={props.onUpdate}
@@ -107,6 +112,7 @@ export default function ModernDetail(props: Props) {
 function ModernView({
   movie,
   canWrite,
+  familySlug,
   library,
   onBack,
   onUpdate,
@@ -116,6 +122,7 @@ function ModernView({
 }: {
   movie: Movie;
   canWrite: boolean;
+  familySlug: string;
   library?: Movie[];
   onBack: () => void;
   onUpdate: (updated: Movie) => void | Promise<void>;
@@ -128,7 +135,11 @@ function ModernView({
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
   const share = useShareAction(
-    buildShareData(movie, typeof window !== 'undefined' ? window.location.origin : ''),
+    buildShareData(
+      movie,
+      typeof window !== 'undefined' ? window.location.origin : '',
+      familySlug,
+    ),
   );
 
   // Detail screens are deep-link destinations — scroll to top on mount so
