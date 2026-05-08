@@ -109,7 +109,12 @@ function mergeEntry(
     title: entry.title,
     imdbId: entry.imdbId,
     displayTitle: candidate?.displayTitle ?? null,
-    commonSenseAge: entry.commonSenseAge,
+    // commonSenseAge lives on Candidate (editable in Manage pool) but
+    // can also be set per-family on LibraryEntry. Prefer the per-family
+    // override when present so a family can correct the pool value
+    // without affecting other families; fall back to the pool so a
+    // freshly-added entry with no override still shows the badge.
+    commonSenseAge: entry.commonSenseAge ?? candidate?.commonSenseAge ?? null,
     commonSenseScore: entry.commonSenseScore,
     watched: entry.watched,
     dateWatched: entry.dateWatched,
