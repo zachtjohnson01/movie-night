@@ -149,7 +149,7 @@ export function useAuth(): AuthApi {
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, session) => {
         if (cancelled) return;
         const profile = extractProfile(session);
         setHasSession(Boolean(session));
@@ -158,6 +158,12 @@ export function useAuth(): AuthApi {
         setName(profile.name);
         setAvatarUrl(profile.avatarUrl);
         if (profile.userId) {
+          // TOKEN_REFRESHED / USER_UPDATED don't change identity or
+          // memberships, so skip the loading flicker. Otherwise the For
+          // You tab disappears (and the active tab gets bounced back to
+          // Watched) for a frame whenever the page is restored from the
+          // background and the access token gets refreshed.
+          if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
           setMembershipsResolved(false);
           await refreshMemberships(profile.userId);
         } else {
