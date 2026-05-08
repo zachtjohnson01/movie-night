@@ -122,10 +122,6 @@ function TopBar({ auth }: { auth: AuthApi }) {
 }
 
 function AuthButton({ auth }: { auth: AuthApi }) {
-  if (auth.status === 'loading') {
-    // Reserve space so the layout doesn't jump when auth resolves.
-    return <div className="w-[90px] h-11" aria-hidden="true" />;
-  }
   if (auth.status === 'signed-in') {
     return (
       <button
@@ -137,6 +133,9 @@ function AuthButton({ auth }: { auth: AuthApi }) {
       </button>
     );
   }
+  // Treat loading the same as signed-out — match the optimistic CTA
+  // below so the header doesn't render an invisible placeholder while
+  // getSession() resolves.
   return (
     <button
       type="button"
@@ -293,12 +292,12 @@ function ChooserBlock({ auth }: { auth: AuthApi }) {
 }
 
 function PrimaryCta({ auth }: { auth: AuthApi }) {
-  if (auth.status === 'loading') {
-    return (
-      <div className="w-full h-14 rounded-xl bg-ink-800/70 border border-ink-700 animate-pulse" />
-    );
-  }
-  if (auth.status === 'signed-out') {
+  // Treat loading as signed-out for button display: getSession() can be
+  // slow on cold Chrome / privacy-mode loads, and a giant pulsing
+  // skeleton above the fold reads as a broken input. signIn() is a no-op
+  // while supabase boots, and signed-in users get bounced off this page
+  // by the redirect effects in App.tsx before they'd see a flicker.
+  if (auth.status === 'loading' || auth.status === 'signed-out') {
     return (
       <button
         type="button"
