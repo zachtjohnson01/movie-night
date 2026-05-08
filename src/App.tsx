@@ -33,7 +33,7 @@ import {
   replacePath,
   useRoute,
 } from './router';
-import { JOHNSON_FAMILY_UUID } from './supabase';
+import { JOHNSON_FAMILY_UUID, hasStoredSupabaseSession } from './supabase';
 
 // Modal-ish flows that don't deserve their own URL: creating a new
 // movie, picking from the candidate pool, the owner's pool admin
@@ -349,6 +349,16 @@ export default function App() {
   const isModern = design === 'modern';
 
   if (route.kind === 'landing') {
+    // Suppress the marketing landing while auth is still loading IF the
+    // browser has a stored Supabase session — we're almost certainly
+    // about to redirect (to /family/<slug> for solo-family users, or
+    // /onboard for brand-new sign-ins). Rendering Landing in the
+    // meantime caused a visible flash of the pitch on every fresh tab
+    // open. Signed-out users (no stored token) skip this gate so they
+    // see the pitch immediately.
+    if (auth.status === 'loading' && hasStoredSupabaseSession()) {
+      return <div className="min-h-full bg-ink-950" />;
+    }
     return <Landing auth={auth} pool={pool} />;
   }
 
