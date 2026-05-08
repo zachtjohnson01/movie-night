@@ -133,20 +133,32 @@ export function useAuth(): AuthApi {
     if (!supabase) return;
     let cancelled = false;
 
-    void supabase.auth.getSession().then(async ({ data }) => {
-      if (cancelled) return;
-      const profile = extractProfile(data.session);
-      setHasSession(Boolean(data.session));
-      setUserId(profile.userId);
-      setEmail(profile.email);
-      setName(profile.name);
-      setAvatarUrl(profile.avatarUrl);
-      if (profile.userId) {
-        await refreshMemberships(profile.userId);
-      } else {
+    void supabase.auth
+      .getSession()
+      .then(async ({ data }) => {
+        if (cancelled) return;
+        const profile = extractProfile(data.session);
+        setHasSession(Boolean(data.session));
+        setUserId(profile.userId);
+        setEmail(profile.email);
+        setName(profile.name);
+        setAvatarUrl(profile.avatarUrl);
+        if (profile.userId) {
+          await refreshMemberships(profile.userId);
+        } else {
+          setMembershipsResolved(true);
+        }
+      })
+      .catch((e) => {
+        // getSession() reads from storage; in Chrome with cookies/IDB
+        // blocked it can throw. Without this catch, hasSession stays at
+        // null and the whole app hangs on a "loading" skeleton. Treat a
+        // failed read as signed-out so the landing page renders its CTA.
+        if (cancelled) return;
+        console.error('[useAuth] getSession failed', e);
+        setHasSession(false);
         setMembershipsResolved(true);
-      }
-    });
+      });
 
     const { data: sub } = supabase.auth.onAuthStateChange(
       async (event, session) => {
