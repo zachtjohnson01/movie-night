@@ -26,6 +26,7 @@ import {
 } from '../tmdb';
 import type { StreamingInfo } from '../types';
 import MoviePoster from './MoviePoster';
+import StreamingSection from './StreamingSection';
 import MovieSearchCombobox from './MovieSearchCombobox';
 import StatLink from './StatLink';
 import CreatorPills from './CreatorPills';
@@ -960,13 +961,18 @@ function EditSheet({
               <p className="mt-1.5 text-[11px] text-crimson-bright">
                 {streamingError}
               </p>
+            ) : hasStreamingProviders(streaming) ? (
+              <>
+                <StreamingSection streaming={streaming} className="mt-3" />
+                {streaming!.fetchedAt && (
+                  <p className="mt-1.5 text-center text-[11px] text-ink-500">
+                    Refreshed {formatRelativeTime(streaming!.fetchedAt)}
+                  </p>
+                )}
+              </>
             ) : (
               <p className="mt-1.5 text-center text-[11px] text-ink-500">
-                {hasStreamingProviders(streaming)
-                  ? `${streaming!.stream.length} stream · ${streaming!.rent.length} rent · ${streaming!.buy.length} buy${streaming!.fetchedAt ? ` · ${formatRelativeTime(streaming!.fetchedAt)}` : ''}`
-                  : streaming
-                    ? 'No US providers found'
-                    : 'Not checked yet'}
+                {streaming ? 'No US providers found' : 'Not checked yet'}
               </p>
             )}
           </div>
