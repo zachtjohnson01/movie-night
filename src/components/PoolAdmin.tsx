@@ -1,6 +1,12 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
-import { ageBadgeClass, formatRelativeTime } from '../format';
+import { ageBadgeClass, formatRelativeTime, parseNameList } from '../format';
+import {
+  verifyAll,
+  type VerifyField,
+  type VerifyInput,
+  type VerifyResult,
+} from '../verify';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
 import { expandPool, extractUnique } from '../recommendations';
@@ -42,6 +48,15 @@ const FILTER_LABEL: Record<FilterKey, string> = {
   duplicate: 'Duplicates',
   tvShow: 'TV show',
   removed: 'Removed',
+};
+
+const VERIFY_FIELD_LABEL: Record<VerifyField, string> = {
+  production: 'Studio',
+  awards: 'Awards',
+  year: 'Year',
+  commonSenseAge: 'CSM Age',
+  director: 'Director',
+  writer: 'Writer',
 };
 
 /**
@@ -572,6 +587,13 @@ function EditSheet({
   const [refreshedAt, setRefreshedAt] = useState<string | null>(
     candidate.omdbRefreshedAt ?? null,
   );
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [verifyProgress, setVerifyProgress] = useState({ done: 0, total: 0 });
+  // null = haven't run; [] = ran, nothing to change; non-empty = proposed edits
+  const [verifySuggestions, setVerifySuggestions] = useState<
+    VerifyResult[] | null
+  >(null);
   const [customReason, setCustomReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [busyReason, setBusyReason] = useState<string | null>(null);
@@ -647,6 +669,98 @@ function EditSheet({
     } finally {
       setRefreshBusy(false);
     }
+  }
+
+  // Run Claude across every verifiable field for this candidate. OMDB refresh
+  // covers ratings / poster / studio; this covers the fields OMDB can't —
+  // notably the Common Sense age, plus year / director / writer / awards.
+  // Suggestions write to local state only; the admin still taps Save to
+  // persist, same as every other field in this sheet.
+  async function handleVerifyAll() {
+    if (verifyBusy) return;
+    setVerifyBusy(true);
+    setVerifyError(null);
+    setVerifySuggestions(null);
+    const parsedYear = yearStr.trim() ? parseInt(yearStr, 10) : NaN;
+    const input: VerifyInput = {
+      title: title.trim() || candidate.title,
+      year: Number.isFinite(parsedYear) ? parsedYear : null,
+      imdbId: imdbIdInput.trim() || null,
+      production: studio.trim() || null,
+      awards,
+      commonSenseAge: age.trim() || null,
+      directors,
+      writers,
+    };
+    try {
+      const results = await verifyAll(input, (done, total) =>
+        setVerifyProgress({ done, total }),
+      );
+      // Keep only confident suggestions that actually differ from what's stored.
+      setVerifySuggestions(
+        results.filter(
+          (r) => r.field != null && r.suggestedValue != null && !r.matches,
+        ),
+      );
+    } catch (e) {
+      setVerifyError((e as Error).message || 'Failed to verify with Claude');
+    } finally {
+      setVerifyBusy(false);
+    }
+  }
+
+  function currentValueFor(field: VerifyField): string | null {
+    switch (field) {
+      case 'production':
+        return studio.trim() || null;
+      case 'awards':
+        return awards;
+      case 'year':
+        return yearStr.trim() || null;
+      case 'commonSenseAge':
+        return age.trim() || null;
+      case 'director':
+        return directors && directors.length > 0 ? directors.join(', ') : null;
+      case 'writer':
+        return writers && writers.length > 0 ? writers.join(', ') : null;
+    }
+  }
+
+  function applyVerifyField(r: VerifyResult) {
+    if (r.field == null || r.suggestedValue == null) return;
+    switch (r.field) {
+      case 'production':
+        setStudio(r.suggestedValue);
+        break;
+      case 'awards':
+        setAwards(r.suggestedValue);
+        break;
+      case 'year': {
+        const n = parseInt(r.suggestedValue, 10);
+        if (Number.isFinite(n)) setYearStr(String(n));
+        break;
+      }
+      case 'commonSenseAge':
+        setAge(r.suggestedValue);
+        break;
+      case 'director':
+        setDirectors(parseNameList(r.suggestedValue));
+        break;
+      case 'writer':
+        setWriters(parseNameList(r.suggestedValue));
+        break;
+    }
+  }
+
+  function applyVerifySuggestion(r: VerifyResult) {
+    applyVerifyField(r);
+    setVerifySuggestions((prev) => (prev ? prev.filter((x) => x !== r) : prev));
+  }
+
+  function applyAllVerifySuggestions() {
+    if (!verifySuggestions) return;
+    verifySuggestions.forEach(applyVerifyField);
+    setVerifySuggestions([]);
   }
 
   const handleSave = async () => {
@@ -794,6 +908,91 @@ function EditSheet({
             )}
           </div>
         )}
+
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => void handleVerifyAll()}
+            disabled={verifyBusy}
+            className="w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {verifyBusy
+              ? `Verifying… ${verifyProgress.done}/${verifyProgress.total}`
+              : 'Verify all data with Claude'}
+          </button>
+          {verifyError && (
+            <p className="mt-1.5 text-[11px] text-crimson-bright">
+              {verifyError}
+            </p>
+          )}
+          {verifySuggestions &&
+            verifySuggestions.length === 0 &&
+            !verifyError && (
+              <p className="mt-1.5 text-center text-[11px] text-ink-500">
+                Claude found nothing to change.
+              </p>
+            )}
+          {verifySuggestions && verifySuggestions.length > 0 && (
+            <div className="mt-2 space-y-2">
+              {verifySuggestions.map((r, idx) => {
+                const field = r.field as VerifyField;
+                return (
+                  <div
+                    key={`${field}-${idx}`}
+                    className="rounded-xl bg-ink-800/70 border border-ink-700 p-3"
+                  >
+                    <div className="text-[10px] uppercase tracking-[0.18em] font-semibold text-ink-500">
+                      {VERIFY_FIELD_LABEL[field]}
+                    </div>
+                    <div className="mt-1 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                      <span className="text-ink-500">Now</span>
+                      <span className="text-ink-300">
+                        {currentValueFor(field) ?? (
+                          <span className="italic text-ink-600">blank</span>
+                        )}
+                      </span>
+                      <span className="text-ink-500">Claude</span>
+                      <span className="text-amber-glow font-semibold">
+                        {r.suggestedValue}
+                      </span>
+                    </div>
+                    {r.explanation && (
+                      <p className="mt-1 text-[11px] text-ink-500 leading-snug">
+                        {r.explanation}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => applyVerifySuggestion(r)}
+                      className="mt-2 w-full min-h-[40px] rounded-xl bg-ink-800 border border-ink-700 text-xs font-semibold text-ink-100 active:bg-ink-700"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                );
+              })}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setVerifySuggestions(null)}
+                  className="min-h-[40px] rounded-xl bg-ink-800 border border-ink-700 text-xs font-semibold text-ink-300 active:bg-ink-700"
+                >
+                  Dismiss
+                </button>
+                <button
+                  type="button"
+                  onClick={applyAllVerifySuggestions}
+                  className="min-h-[40px] rounded-xl bg-amber-glow text-ink-950 text-xs font-bold active:opacity-80"
+                >
+                  Apply all
+                </button>
+              </div>
+              <p className="text-center text-[11px] text-ink-500">
+                Applied changes are staged — tap Save to persist.
+              </p>
+            </div>
+          )}
+        </div>
 
         <div className="flex flex-col gap-3">
           <Field label="Title">
