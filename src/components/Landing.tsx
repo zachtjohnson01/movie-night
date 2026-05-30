@@ -305,7 +305,7 @@ function PrimaryCta({ auth }: { auth: AuthApi }) {
         className="w-full min-h-[56px] rounded-xl bg-amber-glow text-ink-950 font-bold text-base active:opacity-85 flex items-center justify-center gap-2 shadow-lg shadow-amber-glow/10"
       >
         <GoogleMark />
-        <span>Sign in with Google</span>
+        <span>Sign up / Sign in with Google</span>
       </button>
     );
   }
