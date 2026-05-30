@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
-import { ageBadgeClass } from '../format';
+import { ageBadgeClass, formatRelativeTime } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
 import { expandPool, extractUnique } from '../recommendations';
@@ -567,6 +567,11 @@ function EditSheet({
   );
   const [pickBusy, setPickBusy] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [refreshBusy, setRefreshBusy] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(
+    candidate.omdbRefreshedAt ?? null,
+  );
   const [customReason, setCustomReason] = useState('');
   const [saving, setSaving] = useState(false);
   const [busyReason, setBusyReason] = useState<string | null>(null);
@@ -609,6 +614,41 @@ function EditSheet({
     }
   }
 
+  // One-off OMDB refresh for THIS candidate, reusing its existing IMDb ID
+  // instead of making the admin re-search. Mirrors the bulk bulkRefreshOmdb
+  // merge semantics: fresh OMDB values fill in, but a null from OMDB never
+  // wipes an existing value — so a manually-entered RT/IMDb fallback (the
+  // foreign / small streaming-film case, e.g. titles OMDB has no critics
+  // score for) survives a refresh that comes back empty. Title, display
+  // title, CSM age, and the RT slug are deliberately left untouched.
+  async function handleRefresh() {
+    const id = imdbIdInput.trim();
+    if (!id || refreshBusy) return;
+    setRefreshBusy(true);
+    setRefreshError(null);
+    try {
+      const patch = await getMovieById(id);
+      setYearStr(patch.year != null ? String(patch.year) : yearStr);
+      setStudio(patch.production ?? studio);
+      setRt(patch.rottenTomatoes ?? rt);
+      setImdb(patch.imdb ?? imdb);
+      setAwards(patch.awards ?? awards);
+      setPoster(patch.poster ?? poster);
+      setType(patch.type ?? type);
+      setDirectors(patch.directors ?? directors);
+      setWriters(patch.writers ?? writers);
+      setRefreshedAt(new Date().toISOString());
+    } catch (e) {
+      setRefreshError(
+        e instanceof OmdbError
+          ? e.message
+          : (e as Error).message || 'Failed to refresh from OMDB',
+      );
+    } finally {
+      setRefreshBusy(false);
+    }
+  }
+
   const handleSave = async () => {
     if (saving) return;
     setSaving(true);
@@ -631,6 +671,7 @@ function EditSheet({
       type,
       directors: directors && directors.length > 0 ? directors : null,
       writers: writers && writers.length > 0 ? writers : null,
+      omdbRefreshedAt: refreshedAt,
     });
   };
 
@@ -729,6 +770,30 @@ function EditSheet({
             })}
           />
         </div>
+
+        {imdbIdInput.trim() && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              disabled={refreshBusy}
+              className="w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {refreshBusy ? 'Refreshing…' : 'Refresh from OMDB'}
+            </button>
+            {refreshError ? (
+              <p className="mt-1.5 text-[11px] text-crimson-bright">
+                {refreshError}
+              </p>
+            ) : (
+              refreshedAt && (
+                <p className="mt-1.5 text-center text-[11px] text-ink-500">
+                  Last refreshed {formatRelativeTime(refreshedAt)}
+                </p>
+              )
+            )}
+          </div>
+        )}
 
         <div className="flex flex-col gap-3">
           <Field label="Title">
