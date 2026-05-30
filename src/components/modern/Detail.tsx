@@ -124,8 +124,6 @@ function ModernView({
   const age = ageTone(movie.commonSenseAge);
   const [notes, setNotes] = useState(movie.notes ?? '');
   const notesDirty = (movie.notes ?? '') !== notes;
-  const [editingDate, setEditingDate] = useState(false);
-  const [draftDate, setDraftDate] = useState(movie.dateWatched ?? '');
   const share = useShareAction(
     buildShareData(
       movie,
@@ -187,17 +185,6 @@ function ModernView({
 
   async function markWatchedTonight() {
     await onUpdate({ ...movie, watched: true, dateWatched: todayIso() });
-  }
-  function startEditDate() {
-    setDraftDate(movie.dateWatched ?? '');
-    setEditingDate(true);
-  }
-  async function saveDate() {
-    const next = draftDate.trim() === '' ? null : draftDate;
-    if (next !== (movie.dateWatched ?? null)) {
-      await onUpdate({ ...movie, dateWatched: next });
-    }
-    setEditingDate(false);
   }
   async function toggleFavorite() {
     await onUpdate({ ...movie, favorite: !movie.favorite });
@@ -371,42 +358,17 @@ function ModernView({
         >
           <ModernPoster movie={movie} size={110} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div
-                style={{
-                  fontFamily: SANS,
-                  fontSize: 11,
-                  color: 'rgba(255,255,255,0.75)',
-                  letterSpacing: 2,
-                  textTransform: 'uppercase',
-                  fontWeight: 600,
-                }}
-              >
-                {eyebrow}
-              </div>
-              {canWrite && movie.watched && (
-                <button
-                  type="button"
-                  onClick={startEditDate}
-                  aria-label="Edit watched date"
-                  style={{
-                    width: 44,
-                    height: 28,
-                    minWidth: 44,
-                    minHeight: 28,
-                    marginLeft: -6,
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.85)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <PencilIcon />
-                </button>
-              )}
+            <div
+              style={{
+                fontFamily: SANS,
+                fontSize: 11,
+                color: 'rgba(255,255,255,0.75)',
+                letterSpacing: 2,
+                textTransform: 'uppercase',
+                fontWeight: 600,
+              }}
+            >
+              {eyebrow}
             </div>
             <div
               style={{
@@ -438,111 +400,6 @@ function ModernView({
           </div>
         </div>
       </div>
-
-      {/* Inline watched-date editor */}
-      {canWrite && movie.watched && editingDate && (
-        <div style={{ padding: '20px 20px 0' }}>
-          <div
-            style={{
-              background: BG_3,
-              border: `1px solid ${BORDER}`,
-              borderRadius: 14,
-              padding: 16,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 12,
-            }}
-          >
-            <div
-              style={{
-                fontFamily: SANS,
-                fontSize: 11,
-                color: INK_3,
-                letterSpacing: 1.5,
-                textTransform: 'uppercase',
-                fontWeight: 600,
-              }}
-            >
-              Watched on
-            </div>
-            <input
-              type="date"
-              value={draftDate}
-              max={todayIso()}
-              onChange={(e) => setDraftDate(e.target.value)}
-              style={{
-                width: '100%',
-                borderRadius: 12,
-                background: BG,
-                border: `1px solid ${BORDER}`,
-                padding: '12px 14px',
-                color: INK,
-                fontFamily: SANS,
-                fontSize: 16,
-                outline: 'none',
-              }}
-            />
-            {draftDate && (
-              <button
-                type="button"
-                onClick={() => setDraftDate('')}
-                style={{
-                  alignSelf: 'flex-start',
-                  background: 'transparent',
-                  border: 'none',
-                  color: INK_3,
-                  fontFamily: SANS,
-                  fontSize: 13,
-                  textDecoration: 'underline',
-                  textUnderlineOffset: 2,
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                Clear date (mark as unknown)
-              </button>
-            )}
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button
-                type="button"
-                onClick={() => setEditingDate(false)}
-                style={{
-                  flex: 1,
-                  minHeight: 48,
-                  borderRadius: 12,
-                  background: BG,
-                  border: `1px solid ${BORDER}`,
-                  color: INK_2,
-                  fontFamily: SANS,
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void saveDate()}
-                style={{
-                  flex: 1,
-                  minHeight: 48,
-                  borderRadius: 12,
-                  background: AMBER,
-                  border: 'none',
-                  color: '#1a1a1a',
-                  fontFamily: SANS,
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                }}
-              >
-                Save date
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Chip stats */}
       <div style={{ padding: '24px 20px 0' }}>
@@ -603,6 +460,11 @@ function ModernView({
           />
         </div>
       </div>
+
+      {/* Watched-on (editable) */}
+      {canWrite && movie.watched && (
+        <ModernWatchedDate movie={movie} onUpdate={onUpdate} />
+      )}
 
       {/* Studio / awards block */}
       {(movie.production || movie.awards) && (
@@ -1089,6 +951,192 @@ function ModernCrossoverSection({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Editable "Watched on" card for the modern Detail view. Shows the watched
+ * date prominently with an Edit button; tapping it swaps in a native date
+ * picker (Save / Cancel + clear-to-unknown) without leaving the screen.
+ * Rendered only for watched movies the user can write to. Clearing the
+ * field stores null (renders as "Date unknown"); watched stays true.
+ */
+function ModernWatchedDate({
+  movie,
+  onUpdate,
+}: {
+  movie: Movie;
+  onUpdate: (updated: Movie) => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftDate, setDraftDate] = useState(movie.dateWatched ?? '');
+
+  function startEdit() {
+    setDraftDate(movie.dateWatched ?? '');
+    setEditing(true);
+  }
+  async function save() {
+    const next = draftDate.trim() === '' ? null : draftDate;
+    if (next !== (movie.dateWatched ?? null)) {
+      await onUpdate({ ...movie, dateWatched: next });
+    }
+    setEditing(false);
+  }
+
+  return (
+    <div style={{ padding: '18px 20px 0' }}>
+      <div
+        style={{
+          background: BG_3,
+          border: `1px solid ${BORDER}`,
+          borderRadius: 14,
+          padding: 14,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: SANS,
+            fontSize: 11,
+            color: INK_3,
+            letterSpacing: 1.5,
+            textTransform: 'uppercase',
+            fontWeight: 600,
+          }}
+        >
+          Watched on
+        </div>
+
+        {editing ? (
+          <>
+            <input
+              type="date"
+              value={draftDate}
+              max={todayIso()}
+              onChange={(e) => setDraftDate(e.target.value)}
+              style={{
+                width: '100%',
+                borderRadius: 12,
+                background: BG,
+                border: `1px solid ${BORDER}`,
+                padding: '12px 14px',
+                color: INK,
+                fontFamily: SANS,
+                fontSize: 16,
+                outline: 'none',
+              }}
+            />
+            {draftDate && (
+              <button
+                type="button"
+                onClick={() => setDraftDate('')}
+                style={{
+                  alignSelf: 'flex-start',
+                  background: 'transparent',
+                  border: 'none',
+                  color: INK_3,
+                  fontFamily: SANS,
+                  fontSize: 13,
+                  textDecoration: 'underline',
+                  textUnderlineOffset: 2,
+                  cursor: 'pointer',
+                  padding: 0,
+                }}
+              >
+                Clear date (mark as unknown)
+              </button>
+            )}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                style={{
+                  flex: 1,
+                  minHeight: 48,
+                  borderRadius: 12,
+                  background: BG,
+                  border: `1px solid ${BORDER}`,
+                  color: INK_2,
+                  fontFamily: SANS,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void save()}
+                style={{
+                  flex: 1,
+                  minHeight: 48,
+                  borderRadius: 12,
+                  background: AMBER,
+                  border: 'none',
+                  color: '#1a1a1a',
+                  fontFamily: SANS,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Save date
+              </button>
+            </div>
+          </>
+        ) : (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+            }}
+          >
+            <div
+              style={{
+                fontFamily: DISPLAY,
+                fontSize: 20,
+                color: movie.dateWatched ? INK : INK_3,
+                fontStyle: movie.dateWatched ? 'normal' : 'italic',
+                fontWeight: 500,
+                letterSpacing: -0.3,
+              }}
+            >
+              {movie.dateWatched
+                ? formatDateLong(movie.dateWatched)
+                : 'Date unknown'}
+            </div>
+            <button
+              type="button"
+              onClick={startEdit}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                minHeight: 44,
+                padding: '0 16px',
+                borderRadius: 12,
+                background: 'rgba(245,165,36,0.12)',
+                border: `1px solid ${AMBER}`,
+                color: AMBER,
+                fontFamily: SANS,
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: 'pointer',
+                flexShrink: 0,
+              }}
+            >
+              <PencilIcon />
+              Edit
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
