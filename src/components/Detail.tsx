@@ -733,18 +733,11 @@ function ViewMode(props: ViewModeProps) {
             <div className="text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
               Watched
             </div>
-            <div className="mt-1 text-lg text-ink-100 font-semibold">
-              {movie.dateWatched ? (
-                formatDate(movie.dateWatched)
-              ) : (
-                <span className="text-ink-400 italic">Date unknown</span>
-              )}
-            </div>
-            {!movie.dateWatched && canWrite && (
-              <p className="mt-2 text-xs text-ink-500">
-                Tap Edit to set the date when you remember it.
-              </p>
-            )}
+            <WatchedDateEditor
+              movie={movie}
+              canWrite={canWrite}
+              onUpdate={props.onUpdate}
+            />
 
             <label className="mt-6 block text-xs uppercase tracking-[0.2em] text-ink-500 font-semibold">
               Notes
@@ -1103,6 +1096,104 @@ function EditForm({
           placeholder="Favorite scenes, reactions, the moment she gasped…"
         />
       </Field>
+    </div>
+  );
+}
+
+/**
+ * Inline editor for the watched date, shown in the Watched section of the
+ * Detail view. Tapping the pencil swaps the read-only date for a native
+ * date picker with Save/Cancel — no need to enter full edit mode just to
+ * fix or backfill the night a movie was watched. Clearing the field stores
+ * null, which renders as "Date unknown" (watched stays true regardless).
+ */
+function WatchedDateEditor({
+  movie,
+  canWrite,
+  onUpdate,
+}: {
+  movie: Movie;
+  canWrite: boolean;
+  onUpdate: (updated: Movie) => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftDate, setDraftDate] = useState(movie.dateWatched ?? '');
+
+  function startEdit() {
+    setDraftDate(movie.dateWatched ?? '');
+    setEditing(true);
+  }
+
+  function cancel() {
+    setEditing(false);
+  }
+
+  async function save() {
+    const next = draftDate.trim() === '' ? null : draftDate;
+    if (next !== (movie.dateWatched ?? null)) {
+      await onUpdate({ ...movie, dateWatched: next });
+    }
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <div className="mt-2 space-y-3">
+        <input
+          type="date"
+          value={draftDate}
+          onChange={(e) => setDraftDate(e.target.value)}
+          max={todayIso()}
+          className={inputClass}
+        />
+        {draftDate && (
+          <button
+            type="button"
+            onClick={() => setDraftDate('')}
+            className="text-xs text-ink-400 underline-offset-2 hover:underline active:text-ink-200"
+          >
+            Clear date (mark as unknown)
+          </button>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={cancel}
+            className="min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-300 font-medium active:bg-ink-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            className="min-h-[48px] rounded-2xl bg-amber-glow text-ink-950 font-semibold active:opacity-80"
+          >
+            Save date
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 flex items-center gap-2">
+      <div className="text-lg text-ink-100 font-semibold">
+        {movie.dateWatched ? (
+          formatDate(movie.dateWatched)
+        ) : (
+          <span className="text-ink-400 italic">Date unknown</span>
+        )}
+      </div>
+      {canWrite && (
+        <button
+          type="button"
+          onClick={startEdit}
+          aria-label="Edit watched date"
+          className="min-h-[44px] min-w-[44px] -my-2 inline-flex items-center justify-center rounded-xl text-ink-400 active:bg-ink-800 active:text-ink-200"
+        >
+          <PencilIcon />
+        </button>
+      )}
     </div>
   );
 }
@@ -1556,6 +1647,24 @@ function RefreshIcon() {
       <path d="M21 3v5h-5" />
       <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
       <path d="M3 21v-5h5" />
+    </svg>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="w-5 h-5"
+      aria-hidden
+    >
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   );
 }
