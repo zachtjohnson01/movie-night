@@ -1,3 +1,36 @@
+/** A single service that carries a movie, resolved from TMDB / JustWatch. */
+export type StreamingProvider = {
+  /** TMDB provider id (stable across responses). */
+  id: number;
+  /** Display name, e.g. "Netflix", "Disney Plus". */
+  name: string;
+  /** Full logo URL (TMDB image CDN), or null if TMDB had no logo. */
+  logo: string | null;
+};
+
+/**
+ * Where a movie can be watched, cached from TMDB's JustWatch-powered
+ * watch-providers endpoint. Stored on Candidate (shared metadata) and merged
+ * onto Movie at render time, same as poster/ratings.
+ *
+ * TMDB's JustWatch agreement forbids per-provider deep links, so `link` is a
+ * single per-region JustWatch/TMDB watch page that all providers point to.
+ * Empty arrays with a recent `fetchedAt` mean "checked, nothing available" —
+ * distinct from null, which means "never checked".
+ */
+export type StreamingInfo = {
+  /** ISO-3166-1 country code the availability is for, e.g. "US". */
+  region: string;
+  /** JustWatch/TMDB watch page for this title+region. Null if TMDB had none. */
+  link: string | null;
+  /** Subscription / free / ad-supported services (watch without per-title pay). */
+  stream: StreamingProvider[];
+  rent: StreamingProvider[];
+  buy: StreamingProvider[];
+  /** ISO timestamp of the last successful TMDB fetch. Drives staleness refetch. */
+  fetchedAt: string;
+};
+
 export type Movie = {
   title: string;
   /**
@@ -93,6 +126,12 @@ export type Movie = {
    * watched movies — favoriting an unseen wishlist item isn't a flow.
    */
   favorite: boolean;
+  /**
+   * Cached streaming availability from TMDB (JustWatch). Null until first
+   * resolved; populated lazily on the Detail screen and refreshed when stale.
+   * Lives on Candidate (shared metadata) and is merged in at render time.
+   */
+  streaming: StreamingInfo | null;
 };
 
 /**
@@ -179,4 +218,9 @@ export type Candidate = {
   writers?: string[] | null;
   /** ISO timestamp of the last successful OMDB fetch for this candidate. Optional for backward compat. */
   omdbRefreshedAt?: string | null;
+  /**
+   * Cached TMDB/JustWatch streaming availability. Optional so older pool rows
+   * parse as "never checked" without a migration. Resolved lazily on Detail.
+   */
+  streaming?: StreamingInfo | null;
 };

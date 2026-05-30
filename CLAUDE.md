@@ -12,7 +12,8 @@ Mobile-first PWA Zach uses on his iPhone to track the family movie nights he wat
 - **Tailwind CSS** — custom `ink-*`, `amber-glow`, and `crimson-*` palette in `tailwind.config.js`
 - **Supabase** (`@supabase/supabase-js`) — managed Postgres + realtime for multi-user sync
 - **vite-plugin-pwa** (Workbox) — installable PWA with offline cache
-- **OMDB API** — optional, populates RT/IMDb scores and source URLs when `VITE_OMDB_API_KEY` is set
+- **OMDB API** — optional, populates RT/IMDb scores and source URLs when `VITE_OMDB_API_KEY` is set. Note: OMDB has **no** streaming/"where to watch" data.
+- **TMDB API** — optional, powers the Detail "Where to watch" section when `VITE_TMDB_API_KEY` is set. Uses TMDB's JustWatch-backed watch-providers endpoint (`src/tmdb.ts`). Per TMDB's JustWatch agreement there are no per-provider deep links — all provider tiles point to one per-region JustWatch/TMDB watch page (which hands off to the service's app via universal links on mobile, or the website on desktop). Results cache onto the movie's Candidate and refresh when stale (>7d).
 - **Vercel** — hosting + CI/CD, auto-deploys on push to `main`
 
 Node 22. Scripts: `npm run dev`, `npm run build`, `npm run preview`, `npm run typecheck`.
@@ -58,6 +59,7 @@ src/
 ├── supabase.ts                   # Supabase client config + table/row constants
 ├── useMovies.ts                  # load/subscribe/write hook (returns movies + CRUD fns)
 ├── omdb.ts                       # OMDB REST client + imdbUrl/rottenTomatoesUrl/commonSenseUrl
+├── tmdb.ts                       # TMDB (JustWatch) watch-providers client for "Where to watch"
 ├── vite-env.d.ts                 # ImportMetaEnv types for VITE_* env vars
 └── components/
     ├── WatchedList.tsx           # Watched tab: sticky header, sorted dated→undated
@@ -82,6 +84,7 @@ src/
 | `VITE_SUPABASE_URL` | `src/supabase.ts` | Yes — without it the app runs in local-only mode with a warning banner |
 | `VITE_SUPABASE_ANON_KEY` | `src/supabase.ts` | Yes — publishable key (new `sb_publishable_*` format, not the legacy `eyJ...` anon JWT) |
 | `VITE_OMDB_API_KEY` | `src/omdb.ts` | No — features that need OMDB disable themselves if missing |
+| `VITE_TMDB_API_KEY` | `src/tmdb.ts` | No — the Detail "Where to watch" streaming section disables itself if missing. TMDB v3 API key. |
 
 The user manages env vars via the Vercel web dashboard, not via CLI. Don't suggest `vercel env add`.
 

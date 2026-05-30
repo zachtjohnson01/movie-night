@@ -131,6 +131,7 @@ function mergeEntry(
     production: candidate?.studio ?? null,
     directors: candidate?.directors ?? null,
     writers: candidate?.writers ?? null,
+    streaming: candidate?.streaming ?? null,
   };
 }
 
@@ -165,6 +166,7 @@ function toCandidate(m: Movie, existing: Candidate): Candidate {
     studio: m.production,
     directors: m.directors,
     writers: m.writers,
+    streaming: m.streaming ?? null,
   };
 }
 
