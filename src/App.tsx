@@ -98,6 +98,31 @@ function writeRecsHint(slug: string, visible: boolean): void {
   }
 }
 
+// Shown when a signed-out visitor hits a family-scoped route. RLS also
+// blocks the underlying data server-side, so this is purely the UX half
+// of "no anonymous access" — a sign-in prompt instead of an empty list.
+function SignInGate({ onSignIn }: { onSignIn: () => void }) {
+  return (
+    <div className="min-h-full flex flex-col items-center justify-center gap-6 px-6 text-center">
+      <div className="space-y-2">
+        <h1 className="text-2xl font-semibold text-ink-100">
+          Family Movie Night
+        </h1>
+        <p className="mx-auto max-w-xs text-ink-300">
+          This list is private. Sign in to view it.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onSignIn}
+        className="min-h-[44px] rounded-xl bg-amber-glow px-6 py-3 font-semibold text-ink-950 active:opacity-80"
+      >
+        Sign in with Google
+      </button>
+    </div>
+  );
+}
+
 export default function App() {
   const route = useRoute();
   const pool = useCandidatePool();
@@ -409,6 +434,18 @@ export default function App() {
 
   if (route.kind === 'onboard') {
     return <Onboarding auth={auth} />;
+  }
+
+  // No anonymous access: family-scoped views require a session. Only gate
+  // once auth has resolved to signed-out (not during 'loading') so the
+  // prompt doesn't flash on a cold load for an already-signed-in user.
+  if (
+    auth.status === 'signed-out' &&
+    (route.kind === 'family' ||
+      route.kind === 'movie' ||
+      route.kind === 'settings')
+  ) {
+    return <SignInGate onSignIn={auth.signIn} />;
   }
 
   if (route.kind === 'settings') {

@@ -40,7 +40,14 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
   if (userErr || !userData.user) {
     return { ok: false, status: 401, error: 'Invalid session' };
   }
-  const { data: members, error: memErr } = await supabase
+  // Attach the validated JWT so PostgREST resolves auth.uid() to this
+  // user. The family_members SELECT policy now requires membership, so a
+  // bare anon client (no auth context) reads zero rows and every owner
+  // would look unauthorized.
+  const authed = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+  const { data: members, error: memErr } = await authed
     .from('family_members')
     .select('is_global_owner')
     .eq('user_id', userData.user.id);

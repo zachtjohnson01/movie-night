@@ -7,7 +7,14 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
  */
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Prefer the server-only service-role key so this server-rendered unfurl
+// path can still read movie data after the RLS lockdown (anonymous reads
+// are now blocked). Falls back to the anon key when the service-role key
+// isn't set yet — previews then degrade to the default OG image instead
+// of crashing. The service-role key must NEVER carry the VITE_ prefix, or
+// Vite would inline it into the client bundle.
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 
 export const env = {
   hasSupabaseUrl: Boolean(supabaseUrl),

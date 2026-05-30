@@ -16,7 +16,12 @@ import { createClient } from '@supabase/supabase-js';
  */
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Service-role key (server-only, never VITE_-prefixed) so this poster
+// proxy reads movie data after the RLS lockdown blocked anonymous reads.
+// Falls back to the anon key — poster lookup returns 404 rather than
+// crashing — until SUPABASE_SERVICE_ROLE_KEY is set in Vercel.
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 
 const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
 
