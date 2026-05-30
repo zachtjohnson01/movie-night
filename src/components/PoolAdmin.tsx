@@ -19,6 +19,12 @@ import {
   rottenTomatoesUrl,
   type OmdbSearchResult,
 } from '../omdb';
+import {
+  getStreamingByImdbId,
+  hasStreamingProviders,
+  isTmdbConfigured,
+} from '../tmdb';
+import type { StreamingInfo } from '../types';
 import MoviePoster from './MoviePoster';
 import MovieSearchCombobox from './MovieSearchCombobox';
 import StatLink from './StatLink';
@@ -351,6 +357,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
 
       <BulkOmdbSection pool={pool} />
 
+      <BulkStreamingSection pool={pool} />
+
       <ul className="pt-2">
         {visible.map(({ c, fit }, i) => (
           <PoolRow
@@ -587,6 +595,11 @@ function EditSheet({
   const [refreshedAt, setRefreshedAt] = useState<string | null>(
     candidate.omdbRefreshedAt ?? null,
   );
+  const [streaming, setStreaming] = useState<StreamingInfo | null>(
+    candidate.streaming ?? null,
+  );
+  const [streamingBusy, setStreamingBusy] = useState(false);
+  const [streamingError, setStreamingError] = useState<string | null>(null);
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyError, setVerifyError] = useState<string | null>(null);
   const [verifyProgress, setVerifyProgress] = useState({ done: 0, total: 0 });
@@ -625,6 +638,9 @@ function EditSheet({
       setType(patch.type);
       setDirectors(patch.directors);
       setWriters(patch.writers);
+      // Re-linking points at a different film; the old availability snapshot
+      // no longer applies. Clear it so it gets re-resolved.
+      setStreaming(null);
     } catch (e) {
       setPickError(
         e instanceof OmdbError
@@ -668,6 +684,26 @@ function EditSheet({
       );
     } finally {
       setRefreshBusy(false);
+    }
+  }
+
+  // One-off TMDB/JustWatch streaming refresh for THIS candidate, reusing its
+  // IMDb ID. Overwrites the cached `streaming` snapshot (providers change over
+  // time, so this is a replace, not a fill). Writes to local state only; the
+  // admin taps Save to persist, same as every other field in this sheet.
+  async function handleRefreshStreaming() {
+    const id = imdbIdInput.trim();
+    if (!id || streamingBusy) return;
+    setStreamingBusy(true);
+    setStreamingError(null);
+    try {
+      setStreaming(await getStreamingByImdbId(id));
+    } catch (e) {
+      setStreamingError(
+        (e as Error).message || 'Failed to refresh streaming from TMDB',
+      );
+    } finally {
+      setStreamingBusy(false);
     }
   }
 
@@ -786,6 +822,7 @@ function EditSheet({
       directors: directors && directors.length > 0 ? directors : null,
       writers: writers && writers.length > 0 ? writers : null,
       omdbRefreshedAt: refreshedAt,
+      streaming,
     });
   };
 
@@ -905,6 +942,32 @@ function EditSheet({
                   Last refreshed {formatRelativeTime(refreshedAt)}
                 </p>
               )
+            )}
+          </div>
+        )}
+
+        {isTmdbConfigured && imdbIdInput.trim() && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => void handleRefreshStreaming()}
+              disabled={streamingBusy}
+              className="w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {streamingBusy ? 'Refreshing…' : 'Refresh streaming (TMDB)'}
+            </button>
+            {streamingError ? (
+              <p className="mt-1.5 text-[11px] text-crimson-bright">
+                {streamingError}
+              </p>
+            ) : (
+              <p className="mt-1.5 text-center text-[11px] text-ink-500">
+                {hasStreamingProviders(streaming)
+                  ? `${streaming!.stream.length} stream · ${streaming!.rent.length} rent · ${streaming!.buy.length} buy${streaming!.fetchedAt ? ` · ${formatRelativeTime(streaming!.fetchedAt)}` : ''}`
+                  : streaming
+                    ? 'No US providers found'
+                    : 'Not checked yet'}
+              </p>
             )}
           </div>
         )}
@@ -1394,6 +1457,143 @@ function BulkOmdbSection({ pool }: { pool: CandidatePoolApi }) {
           <span className="text-ink-200 font-semibold">{result.updated}</span>{' '}
           updated ·{' '}
           <span className="text-ink-300">{result.skipped}</span> skipped ·{' '}
+          <span className="text-ink-300">{result.failed}</span> failed
+        </p>
+      )}
+      <button
+        type="button"
+        onClick={() => setPhase('idle')}
+        className="mt-4 w-full min-h-[44px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80"
+      >
+        Done
+      </button>
+    </div>
+  );
+}
+
+type BulkStreamingPhase = 'idle' | 'confirm' | 'running' | 'done' | 'cancelled';
+
+// Bulk "Where to watch" refresh, mirroring BulkOmdbSection. Resolves TMDB/
+// JustWatch availability for every linked candidate in one sweep so the admin
+// can backfill all movies at once instead of opening each Detail screen. Hides
+// itself entirely when no TMDB key is configured.
+function BulkStreamingSection({ pool }: { pool: CandidatePoolApi }) {
+  const [phase, setPhase] = useState<BulkStreamingPhase>('idle');
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [result, setResult] = useState<{
+    updated: number;
+    skipped: number;
+    failed: number;
+  } | null>(null);
+  const cancelRef = useRef({ cancelled: false });
+
+  const linkedCount = pool.candidates.filter((c) => c.imdbId != null).length;
+
+  if (!isTmdbConfigured) return null;
+
+  async function run() {
+    cancelRef.current = { cancelled: false };
+    setPhase('running');
+    setProgress({ done: 0, total: linkedCount });
+    const r = await pool.bulkRefreshStreaming(
+      (done, total) => setProgress({ done, total }),
+      cancelRef.current,
+    );
+    setResult(r);
+    setPhase(cancelRef.current.cancelled ? 'cancelled' : 'done');
+  }
+
+  if (phase === 'idle') {
+    if (linkedCount === 0) return null;
+    return (
+      <div className="px-4 pt-1 pb-2">
+        <button
+          type="button"
+          onClick={() => setPhase('confirm')}
+          className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
+        >
+          Refresh streaming (TMDB)
+          <span className="ml-1.5 text-ink-500 font-normal">
+            ({linkedCount} linked)
+          </span>
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === 'confirm') {
+    return (
+      <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
+        <h3 className="text-base font-bold text-ink-100">
+          Bulk refresh streaming
+        </h3>
+        <p className="mt-1 text-sm text-ink-400 leading-relaxed">
+          Re-fetches US &ldquo;where to watch&rdquo; data from TMDB (JustWatch)
+          for all {linkedCount} linked candidates. Updates propagate to watched
+          and wishlist movies automatically.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setPhase('idle')}
+            className="min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void run()}
+            className="min-h-[44px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80"
+          >
+            Refresh {linkedCount}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === 'running') {
+    const pct =
+      progress.total === 0 ? 0 : (progress.done / progress.total) * 100;
+    return (
+      <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
+        <h3 className="text-base font-bold text-ink-100">
+          Refreshing streaming…
+        </h3>
+        <div className="mt-2 text-sm text-ink-300">
+          <span className="font-semibold tabular-nums">{progress.done}</span>
+          {' '}of{' '}
+          <span className="tabular-nums">{progress.total}</span>
+        </div>
+        <div className="mt-3 h-2 rounded-full bg-ink-800 overflow-hidden">
+          <div
+            className="h-full bg-amber-glow transition-[width] duration-150"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            cancelRef.current.cancelled = true;
+          }}
+          className="mt-4 w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
+      <h3 className="text-base font-bold text-ink-100">
+        {phase === 'cancelled' ? 'Cancelled' : 'Done'}
+      </h3>
+      {result && (
+        <p className="mt-1 text-sm text-ink-400 leading-relaxed">
+          <span className="text-ink-200 font-semibold">{result.updated}</span>{' '}
+          with providers ·{' '}
+          <span className="text-ink-300">{result.skipped}</span> none ·{' '}
           <span className="text-ink-300">{result.failed}</span> failed
         </p>
       )}
