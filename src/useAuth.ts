@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
@@ -105,50 +105,26 @@ export function useAuth(): AuthApi {
     !supabase,
   );
 
-  // Signal cancellation across re-renders: an in-flight refresh from a
-  // stale userId shouldn't overwrite state from a fresh sign-in/out.
-  const refreshTokenRef = useRef(0);
-
-  const refreshMemberships = useCallback(async (uid: string | null) => {
-    const token = ++refreshTokenRef.current;
-    if (!uid) {
-      setMemberships([]);
-      setMembershipsResolved(true);
-      return;
-    }
-    if (supabase) {
-      try {
-        await supabase.rpc('claim_pending_memberships');
-      } catch (e) {
-        console.error('[useAuth] claim_pending_memberships failed', e);
-      }
-    }
-    const fresh = await loadMemberships(uid);
-    if (refreshTokenRef.current !== token) return;
-    setMemberships(fresh);
-    setMembershipsResolved(true);
-  }, []);
-
+  // Identity only. This effect subscribes to the session and writes the
+  // profile fields synchronously. It deliberately does NOT query the
+  // database — see the membership effect below for why.
   useEffect(() => {
     if (!supabase) return;
     let cancelled = false;
 
+    const applySession = (session: Session | null) => {
+      if (cancelled) return;
+      const profile = extractProfile(session);
+      setHasSession(Boolean(session));
+      setUserId(profile.userId);
+      setEmail(profile.email);
+      setName(profile.name);
+      setAvatarUrl(profile.avatarUrl);
+    };
+
     void supabase.auth
       .getSession()
-      .then(async ({ data }) => {
-        if (cancelled) return;
-        const profile = extractProfile(data.session);
-        setHasSession(Boolean(data.session));
-        setUserId(profile.userId);
-        setEmail(profile.email);
-        setName(profile.name);
-        setAvatarUrl(profile.avatarUrl);
-        if (profile.userId) {
-          await refreshMemberships(profile.userId);
-        } else {
-          setMembershipsResolved(true);
-        }
-      })
+      .then(({ data }) => applySession(data.session))
       .catch((e) => {
         // getSession() reads from storage; in Chrome with cookies/IDB
         // blocked it can throw. Without this catch, hasSession stays at
@@ -157,42 +133,63 @@ export function useAuth(): AuthApi {
         if (cancelled) return;
         console.error('[useAuth] getSession failed', e);
         setHasSession(false);
-        setMembershipsResolved(true);
+        setUserId(null);
       });
 
-    const { data: sub } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (cancelled) return;
-        const profile = extractProfile(session);
-        setHasSession(Boolean(session));
-        setUserId(profile.userId);
-        setEmail(profile.email);
-        setName(profile.name);
-        setAvatarUrl(profile.avatarUrl);
-        if (profile.userId) {
-          // TOKEN_REFRESHED / USER_UPDATED don't change identity or
-          // memberships, so skip the loading flicker. Otherwise the For
-          // You tab disappears (and the active tab gets bounced back to
-          // Watched) for a frame whenever the page is restored from the
-          // background and the access token gets refreshed.
-          if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') return;
-          setMembershipsResolved(false);
-          await refreshMemberships(profile.userId);
-        } else {
-          // Bump the token so any in-flight refresh from a prior session
-          // can't overwrite the post-signout empty state.
-          refreshTokenRef.current += 1;
-          setMemberships([]);
-          setMembershipsResolved(true);
-        }
-      },
-    );
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Keep this callback synchronous and free of Supabase queries.
+      // supabase-js runs it while holding the auth lock (Web Locks API);
+      // awaiting any client call here re-acquires that non-reentrant lock
+      // and deadlocks the client. That deadlock is what left the app
+      // stuck on `status: 'loading'` (no For You tab, no top nav) after a
+      // cold load or whenever iOS Safari re-fired SIGNED_IN on the tab
+      // regaining visibility. Membership loading is driven by the effect
+      // below instead.
+      applySession(session);
+    });
 
     return () => {
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, [refreshMemberships]);
+  }, []);
+
+  // Memberships, keyed on the signed-in user. Running the queries in an
+  // effect (rather than inside onAuthStateChange) keeps them out of the
+  // auth lock, so the client can't deadlock. Keying on `userId` also
+  // means a focus-triggered SIGNED_IN re-emit for the SAME user is a
+  // no-op (deps unchanged) — no reload, no loading flicker, no bounced
+  // tab — which is what made the For You tab vanish on app switch.
+  useEffect(() => {
+    if (!supabase) return;
+    // Session resolved to signed-out: clear memberships and settle.
+    if (hasSession === false) {
+      setMemberships([]);
+      setMembershipsResolved(true);
+      return;
+    }
+    // Session not resolved yet, or signed in but id not attached. Stay in
+    // the loading state until a userId arrives.
+    if (!userId) return;
+
+    let cancelled = false;
+    setMembershipsResolved(false);
+    void (async () => {
+      try {
+        await supabase!.rpc('claim_pending_memberships');
+      } catch (e) {
+        console.error('[useAuth] claim_pending_memberships failed', e);
+      }
+      const fresh = await loadMemberships(userId);
+      if (cancelled) return;
+      setMemberships(fresh);
+      setMembershipsResolved(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId, hasSession]);
 
   const signIn = useCallback(async () => {
     if (!supabase) return;
