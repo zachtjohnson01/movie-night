@@ -91,6 +91,13 @@ type WmSource = {
   ios_url?: string | null;
 };
 
+// Title details response; we only consume the `sources` array appended via
+// append_to_response=sources. The details endpoint (unlike /sources/) accepts
+// a raw IMDb ID as the title id.
+type WmDetails = {
+  sources?: WmSource[];
+};
+
 function makeProvider(
   s: WmSource,
   logos: Map<number, string | null>,
@@ -118,18 +125,26 @@ function dedupe(providers: StreamingProvider[]): StreamingProvider[] {
 
 /**
  * Resolve where a movie can be watched in {@link STREAMING_REGION} via Watchmode.
- * Watchmode accepts an IMDb ID directly as the title id. Always returns a
- * {@link StreamingInfo} (empty arrays when nothing's available, so "checked,
- * found nothing" caches and doesn't refetch). Throws {@link StreamingError}
- * only on config/network failures.
+ *
+ * Looked up via the title *details* endpoint with `append_to_response=sources`.
+ * That endpoint accepts a raw IMDb ID (e.g. `tt0086190`) directly, whereas the
+ * standalone `/sources/` endpoint only takes a numeric Watchmode ID — so this
+ * avoids a per-title ID-conversion round trip (and the silent 404s that came
+ * from passing an IMDb ID to `/sources/`).
+ *
+ * Always returns a {@link StreamingInfo} (empty arrays when nothing's available,
+ * so "checked, found nothing" caches and doesn't refetch). Throws
+ * {@link StreamingError} only on config/network failures.
  */
 export async function getStreamingByImdbId(imdbId: string): Promise<StreamingInfo> {
-  const [logos, sources] = await Promise.all([
+  const [logos, details] = await Promise.all([
     loadCatalog(),
-    wmGet<WmSource[]>(`/title/${imdbId}/sources/`, { regions: STREAMING_REGION }),
+    wmGet<WmDetails>(`/title/${imdbId}/details/`, {
+      append_to_response: 'sources',
+    }),
   ]);
   const now = new Date().toISOString();
-  const us = sources.filter((s) => s.region === STREAMING_REGION);
+  const us = (details.sources ?? []).filter((s) => s.region === STREAMING_REGION);
 
   const stream = dedupe(
     us
