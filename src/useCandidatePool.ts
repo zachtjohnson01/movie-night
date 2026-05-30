@@ -7,6 +7,7 @@ import {
 } from './supabase';
 import { DEFAULT_WEIGHTS, type ScoringWeights } from './scoring';
 import { getMovieById } from './omdb';
+import { getStreamingByImdbId, hasStreamingProviders } from './tmdb';
 import { coerceCreatorLists } from './format';
 
 export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';
@@ -25,6 +26,10 @@ export type CandidatePoolApi = {
   updateWeights: (next: ScoringWeights) => Promise<void>;
   reload: () => void;
   bulkRefreshOmdb: (
+    onProgress: (done: number, total: number) => void,
+    cancelSignal?: { cancelled: boolean },
+  ) => Promise<{ updated: number; skipped: number; failed: number }>;
+  bulkRefreshStreaming: (
     onProgress: (done: number, total: number) => void,
     cancelSignal?: { cancelled: boolean },
   ) => Promise<{ updated: number; skipped: number; failed: number }>;
@@ -408,6 +413,48 @@ export function useCandidatePool(): CandidatePoolApi {
     [writePool],
   );
 
+  // Bulk TMDB/JustWatch streaming refresh across every linked candidate.
+  // Mirrors bulkRefreshOmdb: throttled sequential fetches, optimistic write
+  // on cancel, returns a tally. Unlike OMDB this always overwrites the cached
+  // `streaming` blob (it's a point-in-time snapshot, not a fill — providers
+  // come and go). "updated" counts candidates that came back with at least one
+  // provider; titles with no US availability count as skipped, failures as
+  // failed. Updates propagate to library movies via the merge in useMovies.
+  const bulkRefreshStreaming = useCallback(
+    async (
+      onProgress: (done: number, total: number) => void,
+      cancelSignal?: { cancelled: boolean },
+    ): Promise<{ updated: number; skipped: number; failed: number }> => {
+      const linked = latestRef.current.filter((c) => c.imdbId != null);
+      const total = linked.length;
+      let updated = 0, skipped = 0, failed = 0;
+      const next = [...latestRef.current];
+
+      for (let i = 0; i < linked.length; i++) {
+        if (cancelSignal?.cancelled) {
+          onProgress(i, total);
+          await writePool(next);
+          return { updated, skipped, failed };
+        }
+        onProgress(i, total);
+        const c = linked[i];
+        try {
+          const info = await getStreamingByImdbId(c.imdbId!);
+          const idx = next.findIndex((x) => x.title === c.title);
+          if (idx === -1) { skipped++; continue; }
+          next[idx] = { ...next[idx], streaming: info };
+          if (hasStreamingProviders(info)) updated++; else skipped++;
+        } catch { failed++; }
+        await new Promise((r) => setTimeout(r, 150));
+      }
+
+      onProgress(total, total);
+      await writePool(next);
+      return { updated, skipped, failed };
+    },
+    [writePool],
+  );
+
   return {
     candidates,
     status,
@@ -422,6 +469,7 @@ export function useCandidatePool(): CandidatePoolApi {
     updateWeights,
     reload,
     bulkRefreshOmdb,
+    bulkRefreshStreaming,
   };
 }
 
