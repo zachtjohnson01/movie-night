@@ -47,16 +47,23 @@ type ModalScreen =
 
 type Design = 'classic' | 'modern';
 
-const DESIGN_STORAGE_KEY = 'mn_design';
+// Bumped from 'mn_design' when modern became the default: the old key has a
+// stale 'classic' value persisted for every returning user (the design effect
+// writes on mount), which would otherwise pin them to classic forever. A fresh
+// key lets the new modern default reach existing users; an explicit switch back
+// to classic persists under this key.
+const DESIGN_STORAGE_KEY = 'mn_design_v2';
 
 function readInitialDesign(): Design {
-  if (typeof window === 'undefined') return 'classic';
+  // Modern is the default; only an explicit prior opt-out to classic (stored
+  // in localStorage) keeps the classic skin.
+  if (typeof window === 'undefined') return 'modern';
   try {
-    return window.localStorage.getItem(DESIGN_STORAGE_KEY) === 'modern'
-      ? 'modern'
-      : 'classic';
+    return window.localStorage.getItem(DESIGN_STORAGE_KEY) === 'classic'
+      ? 'classic'
+      : 'modern';
   } catch {
-    return 'classic';
+    return 'modern';
   }
 }
 
