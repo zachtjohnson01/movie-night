@@ -107,7 +107,15 @@ function mergeEntry(
 ): Movie {
   return {
     title: entry.title,
-    imdbId: entry.imdbId,
+    // Prefer the entry's own imdbId, but fall back to the matched Candidate's.
+    // Seed / older library entries were stored with imdbId: null even though
+    // their Candidate is linked (matched by title in findCandidate). Surfacing
+    // the Candidate's id here makes the merged Movie reflect the real link, so
+    // imdbId-gated features work on Watched / Up Next the same as on For You:
+    // the "Where to watch" streaming auto-fetch, the Linked badge, OMDB refresh,
+    // and the poster backfill. Without this, those movies looked unlinked and
+    // never resolved streaming on their detail page.
+    imdbId: entry.imdbId ?? candidate?.imdbId ?? null,
     displayTitle: candidate?.displayTitle ?? null,
     // commonSenseAge lives on Candidate (editable in Manage pool) but
     // can also be set per-family on LibraryEntry. Prefer the per-family
