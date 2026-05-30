@@ -7,7 +7,7 @@ import {
 } from './supabase';
 import { DEFAULT_WEIGHTS, type ScoringWeights } from './scoring';
 import { getMovieById } from './omdb';
-import { getStreamingByImdbId, hasStreamingProviders } from './tmdb';
+import { getStreamingByImdbId, hasStreamingProviders } from './watchmode';
 import { coerceCreatorLists } from './format';
 
 export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';

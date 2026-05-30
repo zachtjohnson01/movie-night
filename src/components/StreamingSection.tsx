@@ -1,22 +1,23 @@
 import type { StreamingInfo, StreamingProvider } from '../types';
-import { hasStreamingProviders } from '../tmdb';
+import { appSearchUrl, hasStreamingProviders } from '../watchmode';
 
 /**
  * "Where to watch" card: provider logo tiles grouped into Stream / Rent / Buy,
- * sourced from TMDB's JustWatch-backed availability. Shared by the movie Detail
- * screen and the pool admin edit sheet so the display stays identical everywhere.
+ * sourced from Watchmode. Shared by the movie Detail screen and the pool admin
+ * edit sheet so the display stays identical everywhere.
  *
- * Per TMDB's JustWatch agreement there are no per-provider deep links, so every
- * tile points at the single per-region JustWatch/TMDB watch page (which hands
- * off to the service's app via universal links on mobile, or the website on
- * desktop). JustWatch attribution is shown as required. Renders nothing when
- * there's no availability data.
+ * Each tile links via the provider's per-title deep link (Watchmode `web_url`),
+ * which universal-links into the service's app on mobile / opens the website on
+ * desktop. When a provider has no deep link, it falls back to an in-app search
+ * for `searchTitle`, then the region-level link. Renders nothing without data.
  */
 export default function StreamingSection({
   streaming,
+  searchTitle,
   className = 'mt-5',
 }: {
   streaming: StreamingInfo | null;
+  searchTitle?: string;
   className?: string;
 }) {
   if (!streaming || !hasStreamingProviders(streaming)) return null;
@@ -35,7 +36,7 @@ export default function StreamingSection({
         <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
           Where to watch{streaming.region ? ` · ${streaming.region}` : ''}
         </div>
-        <span className="text-[10px] text-ink-600">via JustWatch</span>
+        <span className="text-[10px] text-ink-600">via Watchmode</span>
       </div>
       {groups.map((g) => (
         <div key={g.label}>
@@ -44,7 +45,12 @@ export default function StreamingSection({
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {g.providers.map((p) => (
-              <ProviderTile key={p.id} provider={p} link={streaming.link} />
+              <ProviderTile
+                key={p.id}
+                provider={p}
+                fallbackLink={streaming.link}
+                searchTitle={searchTitle}
+              />
             ))}
           </div>
         </div>
@@ -55,11 +61,20 @@ export default function StreamingSection({
 
 function ProviderTile({
   provider,
-  link,
+  fallbackLink,
+  searchTitle,
 }: {
   provider: StreamingProvider;
-  link: string | null;
+  fallbackLink: string | null;
+  searchTitle?: string;
 }) {
+  // Prefer the real per-title deep link; else an in-app search for the title;
+  // else the region-level link. Disabled-looking tile if we have nothing.
+  const link =
+    provider.link ||
+    (searchTitle ? appSearchUrl(provider.name, searchTitle) : null) ||
+    fallbackLink;
+
   const cls =
     'min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-ink-800 border border-ink-700 pl-1.5 pr-3 active:bg-ink-700';
   const inner = (

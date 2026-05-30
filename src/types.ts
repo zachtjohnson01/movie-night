@@ -1,34 +1,45 @@
-/** A single service that carries a movie, resolved from TMDB / JustWatch. */
+/** A single service that carries a movie, resolved from Watchmode. */
 export type StreamingProvider = {
-  /** TMDB provider id (stable across responses). */
+  /** Watchmode source id (stable across responses). */
   id: number;
   /** Display name, e.g. "Netflix", "Disney Plus". */
   name: string;
-  /** Full logo URL (TMDB image CDN), or null if TMDB had no logo. */
+  /** Full logo URL, or null if none. */
   logo: string | null;
+  /**
+   * Per-title deep link into this service — Watchmode's `web_url`, which
+   * universal-links straight to the movie's page in the app on mobile (or the
+   * website on desktop). Null if the source had no link; the UI then falls back
+   * to an in-app search link, then the region-level `link`.
+   */
+  link?: string | null;
 };
 
 /**
- * Where a movie can be watched, cached from TMDB's JustWatch-powered
- * watch-providers endpoint. Stored on Candidate (shared metadata) and merged
- * onto Movie at render time, same as poster/ratings.
+ * Where a movie can be watched, cached from Watchmode. Stored on Candidate
+ * (shared metadata) and merged onto Movie at render time, same as poster/ratings.
  *
- * TMDB's JustWatch agreement forbids per-provider deep links, so `link` is a
- * single per-region JustWatch/TMDB watch page that all providers point to.
- * Empty arrays with a recent `fetchedAt` mean "checked, nothing available" —
- * distinct from null, which means "never checked".
+ * Unlike the previous TMDB/JustWatch source, providers carry their own per-title
+ * deep links. Empty arrays with a recent `fetchedAt` mean "checked, nothing
+ * available" — distinct from null, which means "never checked".
  */
 export type StreamingInfo = {
   /** ISO-3166-1 country code the availability is for, e.g. "US". */
   region: string;
-  /** JustWatch/TMDB watch page for this title+region. Null if TMDB had none. */
+  /** Region-level fallback link (rarely used now that providers carry links). */
   link: string | null;
   /** Subscription / free / ad-supported services (watch without per-title pay). */
   stream: StreamingProvider[];
   rent: StreamingProvider[];
   buy: StreamingProvider[];
-  /** ISO timestamp of the last successful TMDB fetch. Drives staleness refetch. */
+  /** ISO timestamp of the last successful fetch. Drives staleness refetch. */
   fetchedAt: string;
+  /**
+   * Which API produced this blob. Used to auto-invalidate caches written by the
+   * old TMDB source so they refetch from Watchmode on next open. Optional for
+   * backward compat with pre-existing (TMDB) cached rows, which read as stale.
+   */
+  source?: string;
 };
 
 export type Movie = {
