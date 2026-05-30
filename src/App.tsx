@@ -60,6 +60,37 @@ function readInitialDesign(): Design {
   }
 }
 
+// The For You tab is only shown to members (canWrite). On a cold load
+// auth.status starts at 'loading', so canWrite is false and the tab bar
+// renders 2 columns — then auth resolves and the tab pops in, reflowing
+// the bar. To avoid that flash we cache the last-known visibility per
+// family slug and render it optimistically until auth settles. Returning
+// members get 3 tabs immediately; signed-out viewers stay at 2.
+const RECS_HINT_KEY = 'mn_recs_visible';
+
+function recsHintKey(slug: string): string {
+  return `${RECS_HINT_KEY}:${slug}`;
+}
+
+function readRecsHint(slug: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(recsHintKey(slug)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeRecsHint(slug: string, visible: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(recsHintKey(slug), visible ? '1' : '0');
+  } catch {
+    // localStorage unavailable (private mode, etc.) — the tab just falls
+    // back to popping in once on the next cold load. No-op.
+  }
+}
+
 export default function App() {
   const route = useRoute();
   const pool = useCandidatePool();
@@ -128,6 +159,19 @@ export default function App() {
   // Anonymous viewers, signed-in non-members, and signed-in users on a
   // family that doesn't exist all collapse to read-only.
   const canWrite = currentMembership !== null;
+
+  // Tab-bar visibility for the For You tab. While auth is still loading we
+  // can't yet know if this user is a member, so fall back to the cached
+  // hint for the current slug to avoid the cold-load flash where the tab
+  // pops in. Once auth settles, use the real canWrite and refresh the
+  // cache for next time.
+  const authResolved = auth.status !== 'loading';
+  const canSeeRecs = authResolved ? canWrite : readRecsHint(currentSlug);
+
+  useEffect(() => {
+    if (!authResolved) return;
+    writeRecsHint(currentSlug, canWrite);
+  }, [authResolved, canWrite, currentSlug]);
 
   useEffect(() => {
     try {
@@ -573,9 +617,9 @@ export default function App() {
         )}
       </main>
       {isModern ? (
-        <ModernTabBar tab={tab} onChange={setTab} canSeeRecs={canWrite} />
+        <ModernTabBar tab={tab} onChange={setTab} canSeeRecs={canSeeRecs} />
       ) : (
-        <TabBar tab={tab} onChange={setTab} canSeeRecs={canWrite} />
+        <TabBar tab={tab} onChange={setTab} canSeeRecs={canSeeRecs} />
       )}
       {showBulkLink && (
         <BulkLinkSheet
