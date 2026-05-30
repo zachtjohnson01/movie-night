@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Movie } from '../types';
 import {
   getStreamingByImdbId,
+  isStreamingConfigured,
   isStreamingStale,
-  isTmdbConfigured,
-} from '../tmdb';
+} from '../watchmode';
 import StreamingSection from './StreamingSection';
 import {
   buildShareData,
@@ -242,7 +242,7 @@ export default function Detail(props: Props) {
   // poster backfill above. Failures are swallowed — streaming is a nice-to-have
   // and shouldn't surface an error banner over the OMDB controls.
   const streamingImdbId =
-    isTmdbConfigured &&
+    isStreamingConfigured &&
     props.mode === 'existing' &&
     props.canWrite &&
     props.movie.imdbId != null &&
@@ -646,7 +646,10 @@ function ViewMode(props: ViewModeProps) {
 
       <StudioAwardsBlock movie={movie} />
 
-      <StreamingSection streaming={movie.streaming} />
+      <StreamingSection
+        streaming={movie.streaming}
+        searchTitle={getDisplayTitle(movie)}
+      />
 
       {variant === 'existing' && props.isOwner && canWrite && movie.imdbId && (
         <VerifyBlock movie={movie} onUpdate={props.onUpdate} />

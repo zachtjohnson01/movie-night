@@ -22,8 +22,8 @@ import {
 import {
   getStreamingByImdbId,
   hasStreamingProviders,
-  isTmdbConfigured,
-} from '../tmdb';
+  isStreamingConfigured,
+} from '../watchmode';
 import type { StreamingInfo } from '../types';
 import MoviePoster from './MoviePoster';
 import StreamingSection from './StreamingSection';
@@ -688,10 +688,10 @@ function EditSheet({
     }
   }
 
-  // One-off TMDB/JustWatch streaming refresh for THIS candidate, reusing its
-  // IMDb ID. Overwrites the cached `streaming` snapshot (providers change over
-  // time, so this is a replace, not a fill). Writes to local state only; the
-  // admin taps Save to persist, same as every other field in this sheet.
+  // One-off Watchmode streaming refresh for THIS candidate, reusing its IMDb
+  // ID. Overwrites the cached `streaming` snapshot (providers change over time,
+  // so this is a replace, not a fill). Writes to local state only; the admin
+  // taps Save to persist, same as every other field in this sheet.
   async function handleRefreshStreaming() {
     const id = imdbIdInput.trim();
     if (!id || streamingBusy) return;
@@ -701,7 +701,7 @@ function EditSheet({
       setStreaming(await getStreamingByImdbId(id));
     } catch (e) {
       setStreamingError(
-        (e as Error).message || 'Failed to refresh streaming from TMDB',
+        (e as Error).message || 'Failed to refresh streaming from Watchmode',
       );
     } finally {
       setStreamingBusy(false);
@@ -947,7 +947,7 @@ function EditSheet({
           </div>
         )}
 
-        {isTmdbConfigured && imdbIdInput.trim() && (
+        {isStreamingConfigured && imdbIdInput.trim() && (
           <div className="mb-4">
             <button
               type="button"
@@ -955,7 +955,7 @@ function EditSheet({
               disabled={streamingBusy}
               className="w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-60 flex items-center justify-center gap-2"
             >
-              {streamingBusy ? 'Refreshing…' : 'Refresh streaming (TMDB)'}
+              {streamingBusy ? 'Refreshing…' : 'Refresh streaming'}
             </button>
             {streamingError ? (
               <p className="mt-1.5 text-[11px] text-crimson-bright">
@@ -963,7 +963,11 @@ function EditSheet({
               </p>
             ) : hasStreamingProviders(streaming) ? (
               <>
-                <StreamingSection streaming={streaming} className="mt-3" />
+                <StreamingSection
+                  streaming={streaming}
+                  searchTitle={displayTitleInput.trim() || title}
+                  className="mt-3"
+                />
                 {streaming!.fetchedAt && (
                   <p className="mt-1.5 text-center text-[11px] text-ink-500">
                     Refreshed {formatRelativeTime(streaming!.fetchedAt)}
@@ -1479,10 +1483,10 @@ function BulkOmdbSection({ pool }: { pool: CandidatePoolApi }) {
 
 type BulkStreamingPhase = 'idle' | 'confirm' | 'running' | 'done' | 'cancelled';
 
-// Bulk "Where to watch" refresh, mirroring BulkOmdbSection. Resolves TMDB/
-// JustWatch availability for every linked candidate in one sweep so the admin
-// can backfill all movies at once instead of opening each Detail screen. Hides
-// itself entirely when no TMDB key is configured.
+// Bulk "Where to watch" refresh, mirroring BulkOmdbSection. Resolves Watchmode
+// availability for every linked candidate in one sweep so the admin can
+// backfill all movies at once instead of opening each Detail screen. Hides
+// itself entirely when no Watchmode key is configured.
 function BulkStreamingSection({ pool }: { pool: CandidatePoolApi }) {
   const [phase, setPhase] = useState<BulkStreamingPhase>('idle');
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -1495,7 +1499,7 @@ function BulkStreamingSection({ pool }: { pool: CandidatePoolApi }) {
 
   const linkedCount = pool.candidates.filter((c) => c.imdbId != null).length;
 
-  if (!isTmdbConfigured) return null;
+  if (!isStreamingConfigured) return null;
 
   async function run() {
     cancelRef.current = { cancelled: false };
@@ -1518,7 +1522,7 @@ function BulkStreamingSection({ pool }: { pool: CandidatePoolApi }) {
           onClick={() => setPhase('confirm')}
           className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
         >
-          Refresh streaming (TMDB)
+          Refresh streaming
           <span className="ml-1.5 text-ink-500 font-normal">
             ({linkedCount} linked)
           </span>
@@ -1534,9 +1538,9 @@ function BulkStreamingSection({ pool }: { pool: CandidatePoolApi }) {
           Bulk refresh streaming
         </h3>
         <p className="mt-1 text-sm text-ink-400 leading-relaxed">
-          Re-fetches US &ldquo;where to watch&rdquo; data from TMDB (JustWatch)
-          for all {linkedCount} linked candidates. Updates propagate to watched
-          and wishlist movies automatically.
+          Re-fetches US &ldquo;where to watch&rdquo; data from Watchmode for all{' '}
+          {linkedCount} linked candidates. Updates propagate to watched and
+          wishlist movies automatically.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-3">
           <button
