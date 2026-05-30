@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { Movie, StreamingProvider } from '../types';
+import type { Movie } from '../types';
 import {
   getStreamingByImdbId,
-  hasStreamingProviders,
   isStreamingStale,
   isTmdbConfigured,
 } from '../tmdb';
+import StreamingSection from './StreamingSection';
 import {
   buildShareData,
   computeCrossovers,
@@ -646,7 +646,7 @@ function ViewMode(props: ViewModeProps) {
 
       <StudioAwardsBlock movie={movie} />
 
-      <StreamingBlock streaming={movie.streaming} />
+      <StreamingSection streaming={movie.streaming} />
 
       {variant === 'existing' && props.isOwner && canWrite && movie.imdbId && (
         <VerifyBlock movie={movie} onUpdate={props.onUpdate} />
@@ -1144,76 +1144,6 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
         </div>
       )}
     </div>
-  );
-}
-
-function StreamingBlock({ streaming }: { streaming: Movie['streaming'] }) {
-  if (!streaming || !hasStreamingProviders(streaming)) return null;
-
-  const groups: Array<{ label: string; providers: StreamingProvider[] }> = [
-    { label: 'Stream', providers: streaming.stream },
-    { label: 'Rent', providers: streaming.rent },
-    { label: 'Buy', providers: streaming.buy },
-  ].filter((g) => g.providers.length > 0);
-
-  return (
-    <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-4">
-      <div className="flex items-baseline justify-between gap-2">
-        <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
-          Where to watch{streaming.region ? ` · ${streaming.region}` : ''}
-        </div>
-        <span className="text-[10px] text-ink-600">via JustWatch</span>
-      </div>
-      {groups.map((g) => (
-        <div key={g.label}>
-          <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
-            {g.label}
-          </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {g.providers.map((p) => (
-              <ProviderTile key={p.id} provider={p} link={streaming.link} />
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ProviderTile({
-  provider,
-  link,
-}: {
-  provider: StreamingProvider;
-  link: string | null;
-}) {
-  // All tiles point at TMDB's single per-region JustWatch watch page — their
-  // agreement forbids per-provider deep links. That page hands off to the
-  // service's app (via universal links) on mobile, or the website on desktop.
-  const cls =
-    'min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-ink-800 border border-ink-700 pl-1.5 pr-3 active:bg-ink-700';
-  const inner = (
-    <>
-      {provider.logo ? (
-        <img
-          src={provider.logo}
-          alt=""
-          className="w-9 h-9 rounded-lg"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-9 h-9 rounded-lg bg-ink-700 flex items-center justify-center text-[10px] font-semibold text-ink-300">
-          {provider.name.slice(0, 2)}
-        </div>
-      )}
-      <span className="text-sm text-ink-100 font-medium">{provider.name}</span>
-    </>
-  );
-  if (!link) return <div className={cls}>{inner}</div>;
-  return (
-    <a href={link} target="_blank" rel="noopener noreferrer" className={cls}>
-      {inner}
-    </a>
   );
 }
 
