@@ -46,7 +46,11 @@ The sync flow lives in `src/useMovies.ts`:
 3. Subscribe to `postgres_changes` UPDATE events on that row. When the other user writes, their new array arrives via the realtime channel and replaces local state.
 4. `updateMovie`/`addMovie`/`deleteMovie` write the whole updated array back via `.update().eq('id', 1)`.
 
-RLS is fully permissive (`using (true)`) on SELECT, UPDATE, and INSERT. Security is URL obscurity only. Fine for a family tracker, not fine if you make it public.
+**RLS is membership-scoped (since `20260530000000_lockdown_rls.sql`).** Reads of `movie_night` family library rows, `families`, and `family_members` require an authenticated session and membership of the owning family — enforced by `public.is_family_member(fam)` / `public.can_view_family(fam)`, both `SECURITY DEFINER` so they bypass RLS and can be called from inside the `family_members` SELECT policy without recursing. Global rows (`family_id IS NULL`: pool/reasons/weights) are readable by any signed-in user and writable by any authenticated user (the owner-only gate on the pool/weights screens is client-side). Library writes are scoped to family members. This is what closes the bulk-scraping hole — the publishable anon key alone can no longer pull any family's data.
+
+`can_view_family` currently equals membership; a later PR widens it to also return true on an APPROVED row in `family_access_grants` (cross-family view sharing). Server-rendered unfurl routes (`/api/share`, `/api/poster`) have no user session, so they read with the server-only `SUPABASE_SERVICE_ROLE_KEY` (never `VITE_`-prefixed) and emit only one title's preview fields. The AI endpoints (`recommendations`/`enrich`/`verify`) attach the caller's JWT to their `family_members` ownership check so `auth.uid()` resolves under the new policy.
+
+Still loose, tracked as follow-up: `family_members` and `families` write policies remain `to authenticated using (true)` — any signed-in user can still insert/update membership rows, so this isn't hardened against a malicious authenticated user yet.
 
 ## File layout
 

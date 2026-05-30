@@ -29,7 +29,12 @@ import { createClient } from '@supabase/supabase-js';
  */
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL;
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+// Service-role key (server-only, never VITE_-prefixed) so this unfurl
+// route reads movie data after the RLS lockdown blocked anonymous reads.
+// Falls back to the anon key — preview degrades to the default OG image
+// rather than crashing — until SUPABASE_SERVICE_ROLE_KEY is set in Vercel.
+const supabaseKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 
 // Same UUID as src/supabase.ts. Inlined because API routes can't pull
 // from the Vite client tree without dragging the bundler quirk back in.
