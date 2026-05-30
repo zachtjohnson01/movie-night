@@ -71,29 +71,16 @@ type Props =
     };
 
 export default function ModernDetail(props: Props) {
-  const [showClassic, setShowClassic] = useState(false);
-
+  // The new-movie add flow and the candidate view still defer to the classic
+  // Detail (the modern hero doesn't apply to an empty/template movie).
   if (props.mode === 'new' || props.mode === 'candidate') {
     return <ClassicDetail {...props} />;
   }
 
-  if (showClassic) {
-    return (
-      <ClassicDetail
-        mode="existing"
-        canWrite={props.canWrite}
-        isOwner={props.isOwner}
-        familySlug={props.familySlug}
-        movie={props.movie}
-        library={props.library}
-        onBack={() => setShowClassic(false)}
-        onUpdate={props.onUpdate}
-        onDelete={props.onDelete}
-        onSelectMovie={props.onSelectMovie}
-      />
-    );
-  }
-
+  // Existing library movies render read-only on the modern detail screen.
+  // Metadata editing (title / ratings / CSM / studio / OMDB link) lives only
+  // in the Manage pool admin now — there is intentionally no edit entry point
+  // here. User-data actions (mark watched, favorite, notes, delete) stay.
   return (
     <ModernView
       movie={props.movie}
@@ -103,7 +90,6 @@ export default function ModernDetail(props: Props) {
       onBack={props.onBack}
       onUpdate={props.onUpdate}
       onDelete={props.onDelete}
-      onEditDetails={() => setShowClassic(true)}
       onSelectMovie={props.onSelectMovie}
     />
   );
@@ -117,7 +103,6 @@ function ModernView({
   onBack,
   onUpdate,
   onDelete,
-  onEditDetails,
   onSelectMovie,
 }: {
   movie: Movie;
@@ -127,7 +112,6 @@ function ModernView({
   onBack: () => void;
   onUpdate: (updated: Movie) => void | Promise<void>;
   onDelete: (movie: Movie) => void | Promise<void>;
-  onEditDetails: () => void;
   onSelectMovie?: (title: string) => void;
 }) {
   const { c1, c2, accent } = posterFor(movie.title);
@@ -655,24 +639,6 @@ function ModernView({
                 ? `Watched ${formatDate(movie.dateWatched)}`
                 : 'Already watched'
               : 'Mark watched tonight'}
-          </button>
-          <button
-            type="button"
-            onClick={onEditDetails}
-            aria-label="Edit details"
-            style={{
-              minHeight: 52,
-              minWidth: 52,
-              width: 52,
-              borderRadius: 14,
-              background: BG_3,
-              color: INK,
-              border: `1px solid ${BORDER}`,
-              fontSize: 20,
-              cursor: 'pointer',
-            }}
-          >
-            ⋯
           </button>
         </div>
       )}
