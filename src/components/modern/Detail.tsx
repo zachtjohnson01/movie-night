@@ -1,4 +1,4 @@
-import { useLayoutEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Movie } from '../../types';
 import {
   buildShareData,
@@ -8,6 +8,11 @@ import {
   todayIso,
 } from '../../format';
 import { commonSenseUrl, imdbUrl, rottenTomatoesUrl } from '../../omdb';
+import {
+  getStreamingByImdbId,
+  isStreamingConfigured,
+  isStreamingStale,
+} from '../../watchmode';
 import { CheckIcon, ShareIcon, useShareAction } from '../ShareButton';
 import {
   AMBER,
@@ -26,6 +31,7 @@ import {
 } from './palette';
 import ModernPoster from './ModernPoster';
 import ClassicDetail from '../Detail';
+import StreamingSection from '../StreamingSection';
 
 /*
  * Same prop surface as the classic Detail component so App.tsx can swap
@@ -135,6 +141,41 @@ function ModernView({
       document.scrollingElement.scrollTop = 0;
     }
   }, []);
+
+  // Lazy "Where to watch" resolve, mirroring the classic Detail. ModernView is
+  // always an existing library movie, so there's no mode check — just fetch
+  // when linked, writable, and the cached streaming is missing or stale, then
+  // cache it onto the movie (routed to the Candidate by updateMovie). Failures
+  // are swallowed; streaming is a nice-to-have. The display below renders from
+  // whatever is cached regardless of canWrite.
+  const latestMovieRef = useRef(movie);
+  latestMovieRef.current = movie;
+  const streamingImdbId =
+    isStreamingConfigured &&
+    canWrite &&
+    movie.imdbId != null &&
+    isStreamingStale(movie.streaming)
+      ? movie.imdbId
+      : null;
+  useEffect(() => {
+    if (!streamingImdbId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const info = await getStreamingByImdbId(streamingImdbId);
+        if (cancelled) return;
+        const latest = latestMovieRef.current;
+        if (!latest || latest.imdbId !== streamingImdbId) return;
+        await onUpdate({ ...latest, streaming: info });
+      } catch {
+        // Nice-to-have; leave the section hidden rather than alarm the user.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [streamingImdbId]);
 
   const eyebrow = movie.watched
     ? movie.dateWatched
@@ -599,6 +640,12 @@ function ModernView({
           ) : null}
         </div>
       )}
+
+      <StreamingSection
+        streaming={movie.streaming}
+        searchTitle={getDisplayTitle(movie)}
+        className="mx-5 mt-7"
+      />
 
       {library && (
         <ModernCrossoverBlock
