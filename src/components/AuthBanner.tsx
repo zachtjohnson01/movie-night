@@ -65,7 +65,7 @@ export default function AuthBanner({
           onClick={onSignIn}
           className="px-3 py-1 rounded-lg bg-amber-glow text-ink-950 font-semibold text-xs active:opacity-80"
         >
-          Sign in with Google
+          Sign up / Sign in with Google
         </button>
       </div>
     );
