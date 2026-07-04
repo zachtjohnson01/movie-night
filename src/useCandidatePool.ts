@@ -263,6 +263,39 @@ export function useCandidatePool(): CandidatePoolApi {
     }
   }, []);
 
+  // Re-read the live pool and apply per-candidate patches onto it before
+  // writing. A bulk refresh can run for minutes; without this re-read its final
+  // whole-array write would clobber any edit another admin made to the pool in
+  // the meantime. Patches are keyed by lowercased title (the same key the
+  // refreshers match on) and spread onto the live row, so untouched candidates
+  // and untouched fields survive.
+  const commitPoolPatches = useCallback(
+    async (patches: Map<string, Partial<Candidate>>) => {
+      if (!supabase || patches.size === 0) return;
+      const { data, error } = await supabase
+        .from(MOVIE_NIGHT_TABLE)
+        .select('movies')
+        .is('family_id', null)
+        .eq('kind', 'pool')
+        .maybeSingle();
+      // If the re-read fails, fall back to the in-memory snapshot so the
+      // refresh result isn't lost entirely.
+      const liveRaw =
+        !error && Array.isArray(data?.movies)
+          ? (data!.movies as unknown[])
+          : latestRef.current;
+      const live = liveRaw.map(
+        (c) => coerceCreatorLists(c as object) as Candidate,
+      );
+      const merged = live.map((c) => {
+        const patch = patches.get(c.title.toLowerCase());
+        return patch ? { ...c, ...patch } : c;
+      });
+      await writePool(merged);
+    },
+    [writePool],
+  );
+
   const updateCandidate = useCallback(
     async (originalTitle: string, updated: Candidate) => {
       const current = latestRef.current;
@@ -366,23 +399,21 @@ export function useCandidatePool(): CandidatePoolApi {
       const linked = latestRef.current.filter((c) => c.imdbId != null);
       const total = linked.length;
       let updated = 0, skipped = 0, failed = 0;
-      const next = [...latestRef.current];
+      // Accumulate per-candidate field patches keyed by title; merged onto the
+      // freshly re-read pool at commit time so concurrent edits aren't lost.
+      const patches = new Map<string, Partial<Candidate>>();
 
       for (let i = 0; i < linked.length; i++) {
         if (cancelSignal?.cancelled) {
           onProgress(i, total);
-          await writePool(next);
+          await commitPoolPatches(patches);
           return { updated, skipped, failed };
         }
         onProgress(i, total);
-        const c = linked[i];
+        const prev = linked[i];
         try {
-          const patch = await getMovieById(c.imdbId!);
-          const idx = next.findIndex((x) => x.title === c.title);
-          if (idx === -1) { skipped++; continue; }
-          const prev = next[idx];
-          const merged: Candidate = {
-            ...prev,
+          const patch = await getMovieById(prev.imdbId!);
+          const fields: Partial<Candidate> = {
             imdb: patch.imdb ?? prev.imdb,
             rottenTomatoes: patch.rottenTomatoes ?? prev.rottenTomatoes,
             poster: patch.poster ?? prev.poster,
@@ -395,22 +426,22 @@ export function useCandidatePool(): CandidatePoolApi {
             omdbRefreshedAt: new Date().toISOString(),
           };
           const changed =
-            !sameNameList(merged.directors, prev.directors) ||
-            !sameNameList(merged.writers, prev.writers) ||
-            merged.imdb !== prev.imdb ||
-            merged.rottenTomatoes !== prev.rottenTomatoes ||
-            merged.poster !== prev.poster;
-          next[idx] = merged;
+            !sameNameList(fields.directors, prev.directors) ||
+            !sameNameList(fields.writers, prev.writers) ||
+            fields.imdb !== prev.imdb ||
+            fields.rottenTomatoes !== prev.rottenTomatoes ||
+            fields.poster !== prev.poster;
+          patches.set(prev.title.toLowerCase(), fields);
           if (changed) updated++; else skipped++;
         } catch { failed++; }
         await new Promise((r) => setTimeout(r, 150));
       }
 
       onProgress(total, total);
-      await writePool(next);
+      await commitPoolPatches(patches);
       return { updated, skipped, failed };
     },
-    [writePool],
+    [commitPoolPatches],
   );
 
   // Bulk TMDB/JustWatch streaming refresh across every linked candidate.
@@ -428,31 +459,29 @@ export function useCandidatePool(): CandidatePoolApi {
       const linked = latestRef.current.filter((c) => c.imdbId != null);
       const total = linked.length;
       let updated = 0, skipped = 0, failed = 0;
-      const next = [...latestRef.current];
+      const patches = new Map<string, Partial<Candidate>>();
 
       for (let i = 0; i < linked.length; i++) {
         if (cancelSignal?.cancelled) {
           onProgress(i, total);
-          await writePool(next);
+          await commitPoolPatches(patches);
           return { updated, skipped, failed };
         }
         onProgress(i, total);
         const c = linked[i];
         try {
           const info = await getStreamingByImdbId(c.imdbId!);
-          const idx = next.findIndex((x) => x.title === c.title);
-          if (idx === -1) { skipped++; continue; }
-          next[idx] = { ...next[idx], streaming: info };
+          patches.set(c.title.toLowerCase(), { streaming: info });
           if (hasStreamingProviders(info)) updated++; else skipped++;
         } catch { failed++; }
         await new Promise((r) => setTimeout(r, 150));
       }
 
       onProgress(total, total);
-      await writePool(next);
+      await commitPoolPatches(patches);
       return { updated, skipped, failed };
     },
-    [writePool],
+    [commitPoolPatches],
   );
 
   return {
