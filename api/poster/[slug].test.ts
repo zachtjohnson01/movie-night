@@ -9,8 +9,11 @@ import { createClient } from '@supabase/supabase-js';
 import handler, {
   normalizeTitle,
   rewritePosterSize,
+  isAllowedPosterUrl,
   lookupPosterUrl,
 } from './[slug]';
+
+const AMZ = 'https://m.media-amazon.com/images/M/abc._SX300.jpg';
 
 const JOHNSON_FAMILY_UUID = '00000001-0000-0000-0000-000000000001';
 
@@ -162,14 +165,30 @@ describe('lookupPosterUrl', () => {
   });
 });
 
+describe('isAllowedPosterUrl (SSRF guard)', () => {
+  it('allows https Amazon CDN URLs', () => {
+    expect(isAllowedPosterUrl(AMZ)).toBe(true);
+  });
+  it('rejects other hosts (incl. link-local metadata)', () => {
+    expect(isAllowedPosterUrl('https://evil.example.com/x.jpg')).toBe(false);
+    expect(isAllowedPosterUrl('http://169.254.169.254/latest/meta-data')).toBe(
+      false,
+    );
+  });
+  it('rejects non-https on the allowed host', () => {
+    expect(isAllowedPosterUrl('http://m.media-amazon.com/x.jpg')).toBe(false);
+  });
+  it('rejects unparseable input', () => {
+    expect(isAllowedPosterUrl('not a url')).toBe(false);
+  });
+});
+
 describe('poster handler', () => {
   beforeEach(() => {
     vi.mocked(createClient).mockReset();
     stubSupabase([
       johnsonsLib([{ title: 'Bolt', imdbId: 'tt1' }]),
-      globalPool([
-        { title: 'Bolt', imdbId: 'tt1', poster: 'http://p/abc._SX300.jpg' },
-      ]),
+      globalPool([{ title: 'Bolt', imdbId: 'tt1', poster: AMZ }]),
     ]);
   });
 
@@ -230,18 +249,41 @@ describe('poster handler', () => {
     expect(res._headers['content-type']).toContain('application/json');
     const body = res._body as Record<string, unknown>;
     expect(body.title).toBe('Bolt');
-    expect(body.poster).toBe('http://p/abc._SX300.jpg');
+    expect(body.poster).toBe(AMZ);
     expect(body.entryMatch).toBe('exact');
   });
 
-  it('returns 500 with commit SHA when handler crashes', async () => {
-    global.fetch = vi.fn().mockRejectedValue(new Error('upstream down')) as typeof fetch;
+  it('returns 502 without leaking details when the upstream fetch fails', async () => {
+    global.fetch = vi
+      .fn()
+      .mockRejectedValue(new Error('upstream down')) as typeof fetch;
     const req = makeReq({ slug: 'Bolt.jpg' });
     const res = makeRes();
     await handler(req, res);
-    expect(res._status).toBe(500);
-    expect(String(res._body)).toContain('poster handler crashed');
-    expect(String(res._body)).toContain('upstream down');
+    expect(res._status).toBe(502);
+    expect(String(res._body)).toBe('poster upstream unavailable');
+    expect(String(res._body)).not.toContain('upstream down');
+  });
+
+  it('refuses to proxy a poster on a non-allowlisted host (SSRF)', async () => {
+    stubSupabase([
+      johnsonsLib([{ title: 'Bolt', imdbId: 'tt1' }]),
+      globalPool([
+        {
+          title: 'Bolt',
+          imdbId: 'tt1',
+          poster: 'http://169.254.169.254/latest/meta-data',
+        },
+      ]),
+    ]);
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy as unknown as typeof fetch;
+    const req = makeReq({ slug: 'Bolt.jpg' });
+    const res = makeRes();
+    await handler(req, res);
+    expect(res._status).toBe(404);
+    expect(String(res._body)).toBe('poster unavailable');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('returns the upstream status code if Amazon returns non-2xx', async () => {

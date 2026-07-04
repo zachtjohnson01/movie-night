@@ -42,6 +42,20 @@ function rewritePosterSize(url: string): string {
   return url.replace(/_SX\d+/, '_SX600');
 }
 
+// SSRF guard — see api/poster/[slug].ts. The stored `poster` field is
+// DB-supplied, so this open proxy only fetches Amazon's image CDN over https.
+const ALLOWED_POSTER_HOSTS = new Set(['m.media-amazon.com']);
+const POSTER_FETCH_TIMEOUT_MS = 6000;
+
+function isAllowedPosterUrl(rawUrl: string): boolean {
+  try {
+    const u = new URL(rawUrl);
+    return u.protocol === 'https:' && ALLOWED_POSTER_HOSTS.has(u.hostname);
+  } catch {
+    return false;
+  }
+}
+
 async function resolveFamilyId(
   supabase: SupabaseClient,
   slug: string,
@@ -173,19 +187,33 @@ export default async function handler(
     }
 
     const posterUrl = rewritePosterSize(posterRawUrl);
+    if (!isAllowedPosterUrl(posterUrl)) {
+      res.setHeader('access-control-allow-origin', '*');
+      return res.status(404).send('poster unavailable');
+    }
 
-    const upstream = await fetch(posterUrl, {
-      headers: {
-        'user-agent':
-          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-        accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-      },
-    });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), POSTER_FETCH_TIMEOUT_MS);
+    let upstream: Response;
+    try {
+      upstream = await fetch(posterUrl, {
+        signal: controller.signal,
+        headers: {
+          'user-agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+          accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+        },
+      });
+    } catch {
+      res.setHeader('access-control-allow-origin', '*');
+      res.setHeader('cache-control', 'no-store');
+      return res.status(502).send('poster upstream unavailable');
+    } finally {
+      clearTimeout(timer);
+    }
     if (!upstream.ok) {
       res.setHeader('access-control-allow-origin', '*');
-      return res
-        .status(upstream.status)
-        .send(`upstream ${upstream.status}: ${posterUrl}`);
+      return res.status(upstream.status).send(`upstream ${upstream.status}`);
     }
     const contentType = upstream.headers.get('content-type') ?? 'image/jpeg';
     const buf = Buffer.from(await upstream.arrayBuffer());
@@ -194,15 +222,10 @@ export default async function handler(
     res.setHeader('access-control-allow-origin', '*');
     return res.status(200).send(buf);
   } catch (e) {
-    const msg = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-    const stack = e instanceof Error ? e.stack : undefined;
+    console.error('[poster/f] handler error', e);
     res.setHeader('content-type', 'text/plain; charset=utf-8');
     res.setHeader('access-control-allow-origin', '*');
     res.setHeader('cache-control', 'no-store');
-    return res
-      .status(500)
-      .send(
-        `poster handler crashed (commit ${commit}): ${msg}${stack ? '\n\n' + stack : ''}`,
-      );
+    return res.status(500).send(`poster handler error (commit ${commit})`);
   }
 }

@@ -17,12 +17,12 @@ export default async function handler(
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.setHeader('cache-control', 'no-store');
   res.setHeader('access-control-allow-origin', '*');
+  // Deliberately minimal: the commit SHA is enough to identify the live
+  // deploy. The commit message, branch ref, and internal deploy id were
+  // dropped — no reason to expose them on a public, unauthenticated endpoint.
   return res.status(200).json({
     commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     commitShaShort: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
-    commitMessage: process.env.VERCEL_GIT_COMMIT_MESSAGE ?? null,
-    branch: process.env.VERCEL_GIT_COMMIT_REF ?? null,
-    deployId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
     env: process.env.VERCEL_ENV ?? null,
     region: process.env.VERCEL_REGION ?? null,
     serverTime: new Date().toISOString(),
