@@ -29,7 +29,7 @@ export type MoviesApi = {
 
 // --- Migration detection ---
 
-function isOldMovieFormat(data: unknown[]): boolean {
+export function isOldMovieFormat(data: unknown[]): boolean {
   if (data.length === 0) return false;
   // LibraryEntry never has 'year'. Movie[] always does.
   return 'year' in (data[0] as object);
@@ -37,7 +37,7 @@ function isOldMovieFormat(data: unknown[]): boolean {
 
 // --- Migration helpers ---
 
-function migrateToEntries(movies: Movie[]): LibraryEntry[] {
+export function migrateToEntries(movies: Movie[]): LibraryEntry[] {
   return movies.map((m) => ({
     title: m.title,
     imdbId: m.imdbId,
@@ -51,7 +51,7 @@ function migrateToEntries(movies: Movie[]): LibraryEntry[] {
   }));
 }
 
-function buildNewCandidates(
+export function buildNewCandidates(
   movies: Movie[],
   existing: Candidate[],
 ): Candidate[] {
@@ -86,7 +86,7 @@ function buildNewCandidates(
 
 // --- Join: prefer imdbId, fallback to title ---
 
-function findCandidate(
+export function findCandidate(
   candidates: Candidate[],
   entry: Pick<LibraryEntry, 'title' | 'imdbId'>,
 ): Candidate | undefined {
@@ -101,7 +101,7 @@ function findCandidate(
 
 // --- Merge LibraryEntry + Candidate → Movie ---
 
-function mergeEntry(
+export function mergeEntry(
   entry: LibraryEntry,
   candidate: Candidate | undefined,
 ): Movie {
@@ -145,7 +145,7 @@ function mergeEntry(
 
 // --- Field routing: Movie → LibraryEntry / Candidate ---
 
-function toEntry(m: Movie): LibraryEntry {
+export function toEntry(m: Movie): LibraryEntry {
   return {
     title: m.title,
     imdbId: m.imdbId,
@@ -159,7 +159,7 @@ function toEntry(m: Movie): LibraryEntry {
   };
 }
 
-function toCandidate(m: Movie, existing: Candidate): Candidate {
+export function toCandidate(m: Movie, existing: Candidate): Candidate {
   return {
     ...existing,
     title: m.title,
