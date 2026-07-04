@@ -31,6 +31,7 @@ function candidate(over: Partial<Candidate> = {}): Candidate {
 }
 function entry(over: Partial<LibraryEntry> = {}): LibraryEntry {
   return {
+    id: 'entry-id',
     title: 'X',
     imdbId: null,
     commonSenseAge: null,
@@ -100,6 +101,7 @@ describe('mergeEntry', () => {
     expect(m.directors).toEqual(['Byron Howard']);
     expect(m.production).toBe('Walt Disney');
     expect(m.imdbId).toBe('tt1');
+    expect(m.id).toBe('entry-id');
   });
 
   it('surfaces the candidate imdbId when the entry has none', () => {
@@ -130,9 +132,10 @@ describe('mergeEntry', () => {
 describe('toEntry / toCandidate field routing', () => {
   it('toEntry keeps only the user-overlay fields', () => {
     const e = toEntry(
-      movie({ title: 'Bolt', imdbId: 'tt1', watched: true, notes: 'n', year: 2008, poster: 'p' }),
+      movie({ id: 'm-bolt', title: 'Bolt', imdbId: 'tt1', watched: true, notes: 'n', year: 2008, poster: 'p' }),
     );
     expect(e).toEqual({
+      id: 'm-bolt',
       title: 'Bolt',
       imdbId: 'tt1',
       commonSenseAge: null,
@@ -164,7 +167,9 @@ describe('migrateToEntries / buildNewCandidates', () => {
     const entries = migrateToEntries([
       movie({ title: 'A', watched: true, year: 2001, poster: 'p' }),
     ]);
-    expect(entries[0]).toEqual({
+    expect(typeof entries[0].id).toBe('string');
+    expect(entries[0].id.length).toBeGreaterThan(0);
+    expect(entries[0]).toMatchObject({
       title: 'A',
       imdbId: null,
       commonSenseAge: null,

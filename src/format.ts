@@ -249,6 +249,7 @@ export function sortWatched(
 /** Produce a fresh, empty Movie with the given `watched` default. */
 export function emptyMovie(watched: boolean): Movie {
   return {
+    id: null,
     title: '',
     displayTitle: null,
     commonSenseAge: null,
@@ -275,6 +276,7 @@ export function emptyMovie(watched: boolean): Movie {
 
 export function candidateToTemplate(c: Candidate): Movie {
   return {
+    id: null,
     title: c.title,
     displayTitle: c.displayTitle ?? null,
     commonSenseAge: c.commonSenseAge,

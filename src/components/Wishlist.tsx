@@ -226,7 +226,7 @@ export default function Wishlist({
           {wishlist.map((m, i) =>
             reordering ? (
               <li
-                key={m.title}
+                key={m.id ?? m.title}
                 className="flex items-center gap-2 px-3 py-3 min-h-[88px]"
               >
                 <MoviePoster movie={m} size="thumb" />
@@ -279,7 +279,7 @@ export default function Wishlist({
                 </div>
               </li>
             ) : (
-              <li key={m.title}>
+              <li key={m.id ?? m.title}>
                 <button
                   type="button"
                   onClick={() => onSelect(m)}

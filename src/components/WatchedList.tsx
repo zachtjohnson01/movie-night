@@ -320,7 +320,7 @@ export default function WatchedList({
       ) : (
         <ul className="px-2 pt-1">
           {watched.map((m) => (
-            <li key={m.title}>
+            <li key={m.id ?? m.title}>
               <button
                 type="button"
                 onClick={() => onSelect(m)}

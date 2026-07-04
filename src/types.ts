@@ -43,6 +43,14 @@ export type StreamingInfo = {
 };
 
 export type Movie = {
+  /**
+   * Stable per-entry identity, independent of `title`. Lets two library
+   * movies share a title (remakes / reissues) without edit / delete / reorder
+   * acting on the wrong row or colliding React keys. Null on a not-yet-saved
+   * template (new movie or For You candidate); assigned when added to the
+   * library. Surfaced from the LibraryEntry at merge time.
+   */
+  id: string | null;
   title: string;
   /**
    * Optional override for how the movie is rendered in the UI.
@@ -151,6 +159,8 @@ export type Movie = {
  * The rendered Movie type is produced by mergeEntry(LibraryEntry, Candidate).
  */
 export type LibraryEntry = {
+  /** Stable identity for this entry; the mutation + React key. See Movie.id. */
+  id: string;
   title: string;          // primary join key → Candidate.title
   imdbId: string | null;  // secondary join key (preferred when set)
   commonSenseAge: string | null;
