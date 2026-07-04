@@ -470,32 +470,16 @@ export default function App() {
   }
 
   if (modal?.name === 'candidate') {
-    if (isModern) {
-      return (
-        <ModernDetail
-          mode="candidate"
-          movie={modal.template}
-          canWrite={canWrite}
-          familySlug={currentSlug}
-          library={movies}
-          onBack={() => setModal(null)}
-          onAddToWishlist={handleAddCandidateToWishlist}
-          onMarkWatchedTonight={handleMarkCandidateWatchedTonight}
-          onMarkWatchedUndated={handleMarkCandidateWatchedUndated}
-          onSelectMovie={(title) => {
-            setModal(null);
-            openMovie(title);
-          }}
-        />
-      );
-    }
     // Live state from the pool so the downvote reflects what any user has
-    // done — including the current user in an earlier session.
+    // done — including the current user in an earlier session. Wired for both
+    // skins: ModernDetail renders ClassicDetail in candidate mode, so the
+    // downvote control works identically once these props are passed.
     const live = pool.candidates.find((c) => c.title === modal.candidateTitle);
     const canDownvote = canWrite && pool.status === 'synced' && !!live;
     const candidateTitle = modal.candidateTitle;
+    const CandidateDetail = isModern ? ModernDetail : Detail;
     return (
-      <Detail
+      <CandidateDetail
         mode="candidate"
         movie={modal.template}
         canWrite={canWrite}
