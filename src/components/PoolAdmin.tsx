@@ -1,6 +1,11 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
-import { ageBadgeClass, formatRelativeTime, parseNameList } from '../format';
+import {
+  ageBadgeClass,
+  formatRelativeTime,
+  formatRtScore,
+  parseNameList,
+} from '../format';
 import {
   verifyAll,
   type VerifyField,
@@ -815,7 +820,7 @@ function EditSheet({
       studio: studio.trim() || null,
       imdbId: trimmedId ? trimmedId : null,
       rottenTomatoesId: trimmedRtId ? trimmedRtId : null,
-      rottenTomatoes: rt,
+      rottenTomatoes: formatRtScore(rt),
       imdb,
       awards,
       poster,
@@ -1161,42 +1166,41 @@ function EditSheet({
               className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
             />
           </Field>
-          {rt == null && (
-            <Field label="RT score (manual fallback)">
-              <input
-                type="text"
-                value={rt ?? ''}
-                onChange={(e) =>
-                  setRt(e.target.value.trim() === '' ? null : e.target.value)
-                }
-                autoCorrect="off"
-                autoCapitalize="none"
-                placeholder="e.g. 84%"
-                className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
-              />
-              <p className="text-[11px] text-ink-500 mt-1 leading-snug">
-                Shown when OMDB has no critics score (e.g. foreign films). OMDB will replace this if it ever returns a value.
-              </p>
-            </Field>
-          )}
-          {imdb == null && (
-            <Field label="IMDb score (manual fallback)">
-              <input
-                type="text"
-                value={imdb ?? ''}
-                onChange={(e) =>
-                  setImdb(e.target.value.trim() === '' ? null : e.target.value)
-                }
-                autoCorrect="off"
-                autoCapitalize="none"
-                placeholder="e.g. 7.4"
-                className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
-              />
-              <p className="text-[11px] text-ink-500 mt-1 leading-snug">
-                Shown when OMDB has no rating. OMDB will replace this if it ever returns a value.
-              </p>
-            </Field>
-          )}
+          <Field label="RT score">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={rt ?? ''}
+              onChange={(e) =>
+                setRt(e.target.value.trim() === '' ? null : e.target.value)
+              }
+              onBlur={() => setRt((v) => formatRtScore(v))}
+              autoCorrect="off"
+              autoCapitalize="none"
+              placeholder="e.g. 84%"
+              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+            />
+            <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+              Critics score. Leave blank to let OMDB fill it; a manual value is overwritten if OMDB later returns one. A bare number is saved as a percentage.
+            </p>
+          </Field>
+          <Field label="IMDb score">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={imdb ?? ''}
+              onChange={(e) =>
+                setImdb(e.target.value.trim() === '' ? null : e.target.value)
+              }
+              autoCorrect="off"
+              autoCapitalize="none"
+              placeholder="e.g. 7.4"
+              className="w-full h-11 rounded-xl bg-ink-800 border border-ink-700 px-3 text-base text-ink-100 placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60"
+            />
+            <p className="text-[11px] text-ink-500 mt-1 leading-snug">
+              Rating out of 10. Leave blank to let OMDB fill it; overwritten if OMDB later returns one.
+            </p>
+          </Field>
         </div>
 
         <div className="mt-4 pt-4 border-t border-ink-800 text-[11px] text-ink-500 leading-relaxed space-y-0.5">

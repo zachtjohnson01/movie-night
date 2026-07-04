@@ -81,6 +81,25 @@ export function primaryScore(m: Movie): string | null {
   return null;
 }
 
+/**
+ * Normalize a manually-entered Rotten Tomatoes critics score into the app's
+ * canonical "NN%" string. A bare number ("84", "84.6") becomes "84%" / "85%",
+ * clamped to 0–100. Anything already containing non-digits (e.g. "84%") is
+ * returned trimmed and unchanged. Empty/blank collapses to null (the "unknown"
+ * state used everywhere else). Used by the Manage-pool edit sheet so the admin
+ * can type a bare number and get a properly-formatted percentage.
+ */
+export function formatRtScore(raw: string | null): string | null {
+  if (raw == null) return null;
+  const t = raw.trim();
+  if (t === '') return null;
+  if (/^\d{1,3}(\.\d+)?$/.test(t)) {
+    const n = Math.min(100, Math.max(0, Math.round(Number(t))));
+    return `${n}%`;
+  }
+  return t;
+}
+
 export type ShareData = { title: string; text: string; url: string };
 
 // The bootstrap Johnsons slug. Shared with router.ts (DEFAULT_FAMILY_SLUG)
