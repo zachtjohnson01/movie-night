@@ -5,6 +5,8 @@
  * between them.
  */
 
+import type { CSSProperties } from 'react';
+
 export const BG = '#0a0a0f';
 export const BG_2 = '#13131c';
 export const BG_3 = '#1a1a26';
@@ -19,6 +21,31 @@ export const DISPLAY = '"Fraunces", "Playfair Display", Georgia, serif';
 export const SANS =
   '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif';
 export const MONO = '"JetBrains Mono", ui-monospace, SFMono-Regular, monospace';
+
+/* Shared pill-button styles for owner/list actions (enhance, bulk-link,
+ * reorder) so the modern lists stay visually consistent. */
+export const PILL_NEUTRAL: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 7,
+  padding: '9px 15px',
+  borderRadius: 999,
+  background: BG_3,
+  border: `1px solid ${BORDER}`,
+  color: INK_2,
+  fontFamily: SANS,
+  fontSize: 13,
+  fontWeight: 600,
+  minHeight: 40,
+  cursor: 'pointer',
+};
+
+export const PILL_AMBER: CSSProperties = {
+  ...PILL_NEUTRAL,
+  background: 'rgba(245,165,36,0.12)',
+  border: '1px solid rgba(245,165,36,0.4)',
+  color: AMBER,
+};
 
 /* Poster palettes lifted verbatim from the design's data.jsx. Four colors per
  * palette: [grad top, grad bottom, accent, ink]. A title hashes to one palette,
