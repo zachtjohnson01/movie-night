@@ -382,8 +382,11 @@ export default function App() {
   }
 
   async function handleDelete(movie: Movie) {
-    if (!canWrite) return;
-    await deleteMovie(movie.title);
+    // Delete by stable id so the right row is removed even when another movie
+    // shares the title. Library movies always carry an id (backfilled on load);
+    // the guard just skips the no-op case of a not-yet-saved template.
+    if (!canWrite || !movie.id) return;
+    await deleteMovie(movie.id);
     closeMovie();
   }
 

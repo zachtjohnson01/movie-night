@@ -190,7 +190,7 @@ export default function ModernWishlist({
         >
           {wish.map((m) => (
             <button
-              key={m.title}
+              key={m.id ?? m.title}
               type="button"
               onClick={() => onSelect(m)}
               style={{

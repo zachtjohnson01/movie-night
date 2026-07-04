@@ -12,7 +12,7 @@ const SEED: Movie[] = (seed as unknown[])
   .map(coerceCreatorLists)
   .map((m) => {
     const movie = m as Movie;
-    return { ...movie, favorite: movie.favorite ?? false };
+    return { ...movie, id: movie.id ?? null, favorite: movie.favorite ?? false };
   }) as Movie[];
 
 export type SyncStatus = 'local' | 'loading' | 'synced' | 'error';
@@ -22,7 +22,7 @@ export type MoviesApi = {
   status: SyncStatus;
   updateMovie: (originalTitle: string, updated: Movie) => Promise<void>;
   addMovie: (movie: Movie) => Promise<void>;
-  deleteMovie: (title: string) => Promise<void>;
+  deleteMovie: (id: string) => Promise<void>;
   reorderWishlist: (orderedTitles: string[]) => Promise<void>;
   reload: () => void;
 };
@@ -39,6 +39,7 @@ export function isOldMovieFormat(data: unknown[]): boolean {
 
 export function migrateToEntries(movies: Movie[]): LibraryEntry[] {
   return movies.map((m) => ({
+    id: crypto.randomUUID(),
     title: m.title,
     imdbId: m.imdbId,
     commonSenseAge: m.commonSenseAge,
@@ -106,6 +107,7 @@ export function mergeEntry(
   candidate: Candidate | undefined,
 ): Movie {
   return {
+    id: entry.id,
     title: entry.title,
     // Prefer the entry's own imdbId, but fall back to the matched Candidate's.
     // Seed / older library entries were stored with imdbId: null even though
@@ -147,6 +149,7 @@ export function mergeEntry(
 
 export function toEntry(m: Movie): LibraryEntry {
   return {
+    id: m.id ?? crypto.randomUUID(),
     title: m.title,
     imdbId: m.imdbId,
     commonSenseAge: m.commonSenseAge,
@@ -176,6 +179,22 @@ export function toCandidate(m: Movie, existing: Candidate): Candidate {
     writers: m.writers,
     streaming: m.streaming ?? null,
   };
+}
+
+// Backfill stable ids for entries that predate the `id` field. Returns the
+// (possibly) updated array plus whether anything changed, so the caller can
+// persist exactly once.
+function ensureEntryIds(entries: LibraryEntry[]): {
+  entries: LibraryEntry[];
+  changed: boolean;
+} {
+  let changed = false;
+  const next = entries.map((e) => {
+    if (e.id) return e;
+    changed = true;
+    return { ...e, id: crypto.randomUUID() };
+  });
+  return { entries: next, changed };
 }
 
 /**
@@ -280,8 +299,19 @@ export function useMovies({
         return;
       }
 
-      // Normal post-migration path: stored is LibraryEntry[].
-      setEntries(stored as LibraryEntry[]);
+      // Normal post-migration path: stored is LibraryEntry[]. Backfill any
+      // rows missing a stable id (older data predates the field) and persist
+      // once so mutations and React keys have a durable identity.
+      const backfilled = ensureEntryIds(stored as LibraryEntry[]);
+      setEntries(backfilled.entries);
+      latestRef.current = backfilled.entries;
+      if (backfilled.changed) {
+        await supabase
+          .from(MOVIE_NIGHT_TABLE)
+          .update({ movies: backfilled.entries })
+          .eq('family_id', familyId)
+          .eq('kind', 'library');
+      }
       setStatus('synced');
     }
 
@@ -350,12 +380,14 @@ export function useMovies({
 
   const updateMovie = useCallback(
     async (originalTitle: string, updated: Movie) => {
+      // Match by stable id so an edit targets the right row even when two
+      // movies share a title; fall back to title for a not-yet-id'd template.
+      const matches = (e: LibraryEntry) =>
+        updated.id != null ? e.id === updated.id : e.title === originalTitle;
       // Capture old entry BEFORE mutation — needed for candidate lookup key.
-      const oldEntry = latestRef.current.find((e) => e.title === originalTitle);
+      const oldEntry = latestRef.current.find(matches);
       const newEntry = toEntry(updated);
-      const next = latestRef.current.map((e) =>
-        e.title === originalTitle ? newEntry : e,
-      );
+      const next = latestRef.current.map((e) => (matches(e) ? newEntry : e));
       setEntries(next);
       latestRef.current = next;
       await writeRemote(next);
@@ -407,10 +439,10 @@ export function useMovies({
   );
 
   const deleteMovie = useCallback(
-    async (title: string) => {
+    async (id: string) => {
       // Only removes the LibraryEntry. The Candidate stays in the pool
       // so the movie can be re-recommended or manually re-added later.
-      const next = latestRef.current.filter((e) => e.title !== title);
+      const next = latestRef.current.filter((e) => e.id !== id);
       setEntries(next);
       latestRef.current = next;
       await writeRemote(next);

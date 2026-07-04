@@ -307,7 +307,7 @@ export default function ModernWatchedList({
               >
                 {favorites.map((m) => (
                   <button
-                    key={m.title}
+                    key={m.id ?? m.title}
                     type="button"
                     onClick={() => onSelect(m)}
                     style={{
@@ -358,7 +358,7 @@ export default function ModernWatchedList({
             <div>
               {watched.map((m) => (
                 <ListRow
-                  key={m.title}
+                  key={m.id ?? m.title}
                   movie={m}
                   onClick={() => onSelect(m)}
                 />
