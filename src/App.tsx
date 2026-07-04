@@ -553,16 +553,22 @@ export default function App() {
               <ModernWatchedList
                 movies={movies}
                 canWrite={canWrite}
+                isOwner={effectiveIsOwner}
                 onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
+                onBulkLink={() => setShowBulkLink(true)}
+                onEnhanceAll={() => setEnhanceScope('watched')}
               />
             )}
             {tab === 'wishlist' && (
               <ModernWishlist
                 movies={movies}
                 canWrite={canWrite}
+                isOwner={effectiveIsOwner}
                 onSelect={(m) => openMovie(m.title)}
                 onAdd={openAdd}
+                onEnhanceAll={() => setEnhanceScope('wishlist')}
+                onReorder={reorderWishlist}
               />
             )}
             {tab === 'recs' && canWrite && (

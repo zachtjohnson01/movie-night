@@ -18,6 +18,8 @@ import {
   INK,
   INK_2,
   INK_3,
+  PILL_AMBER,
+  PILL_NEUTRAL,
   SANS,
 } from './palette';
 import ModernPoster from './ModernPoster';
@@ -35,15 +37,21 @@ const SORT_OPTIONS: { key: SortKey; label: string }[] = [
 type Props = {
   movies: Movie[];
   canWrite: boolean;
+  isOwner: boolean;
   onSelect: (movie: Movie) => void;
   onAdd: () => void;
+  onBulkLink: () => void;
+  onEnhanceAll: () => void;
 };
 
 export default function ModernWatchedList({
   movies,
   canWrite,
+  isOwner,
   onSelect,
   onAdd,
+  onBulkLink,
+  onEnhanceAll,
 }: Props) {
   useLayoutEffect(() => {
     const toTop = () => {
@@ -70,6 +78,14 @@ export default function ModernWatchedList({
     [movies, sortKey],
   );
   const earliest = useMemo(() => earliestWatched(watched), [watched]);
+  const unlinkedCount = useMemo(
+    () => watched.filter((m) => m.imdbId == null).length,
+    [watched],
+  );
+  const enhanceableCount = useMemo(
+    () => watched.filter((m) => m.production == null || m.awards == null).length,
+    [watched],
+  );
   const favorites = useMemo(
     () =>
       sortWatched(
@@ -270,6 +286,66 @@ export default function ModernWatchedList({
           </div>
         )}
       </div>
+
+      {watched.length > 0 &&
+        ((canWrite && unlinkedCount > 0) || isOwner) && (
+          <div
+            style={{
+              display: 'flex',
+              gap: 10,
+              flexWrap: 'wrap',
+              padding: '20px 20px 0',
+            }}
+          >
+            {canWrite && unlinkedCount > 0 && (
+              <button
+                type="button"
+                onClick={onBulkLink}
+                style={PILL_NEUTRAL}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={15}
+                  height={15}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+                  <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+                </svg>
+                Link {unlinkedCount} unlinked
+              </button>
+            )}
+            {isOwner && (
+              <button
+                type="button"
+                onClick={onEnhanceAll}
+                style={enhanceableCount > 0 ? PILL_AMBER : PILL_NEUTRAL}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width={15}
+                  height={15}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={2.25}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+                </svg>
+                {enhanceableCount > 0
+                  ? `Enhance ${enhanceableCount} with Claude`
+                  : 'Refresh studio + awards'}
+              </button>
+            )}
+          </div>
+        )}
 
       {watched.length === 0 ? (
         <EmptyState />
