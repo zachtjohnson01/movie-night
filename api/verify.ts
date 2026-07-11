@@ -35,7 +35,12 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
     return { ok: false, status: 401, error: 'Missing Authorization header' };
   }
   const token = match[1];
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  // Carry the caller's token so the family_members read runs as *them*. The
+  // roster is member-scoped RLS (is_family_member), so an anon client sees
+  // zero rows and every owner check would false-negative into a 403.
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
   const { data: userData, error: userErr } = await supabase.auth.getUser(token);
   if (userErr || !userData.user) {
     return { ok: false, status: 401, error: 'Invalid session' };

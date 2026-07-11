@@ -1,0 +1,11 @@
+# Keep test files out of the deployment. Vercel turns every file under api/
+# into a Serverless Function, and the Hobby plan caps a deployment at 12
+# functions. The co-located api/**/*.test.ts files count against that ceiling
+# (the project was sitting at exactly 12), so a new test file tipped the
+# deploy over the limit and failed the build — even though `npm run build`
+# and CI pass, since neither counts functions. Excluding tests drops the
+# count to the real endpoints and leaves headroom. Tests still run in CI.
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
