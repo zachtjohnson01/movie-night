@@ -12,6 +12,34 @@ import { coerceCreatorLists } from './format';
 
 export type PoolStatus = 'local' | 'loading' | 'empty' | 'synced' | 'error';
 
+/**
+ * Filter `next` down to candidates that aren't already in `existing`, matching
+ * on **imdbId first** (the stable identity) and then case-insensitive title.
+ * imdbId matters because a web-sourced pick can share an imdbId with a pool
+ * entry under a slightly different title spelling — a title-only check would
+ * let that duplicate through (it did: two "Puffin Rock" rows, same tt-id).
+ * Also dedupes within `next` so one batch can't seed the same film twice.
+ */
+export function filterNewCandidates(
+  existing: Candidate[],
+  next: Candidate[],
+): Candidate[] {
+  const existingTitles = new Set(existing.map((c) => c.title.toLowerCase()));
+  const existingIds = new Set(
+    existing
+      .map((c) => c.imdbId?.toLowerCase())
+      .filter((id): id is string => !!id),
+  );
+  const seenIds = new Set<string>();
+  return next.filter((c) => {
+    const id = c.imdbId ? c.imdbId.toLowerCase() : null;
+    if (id && (existingIds.has(id) || seenIds.has(id))) return false;
+    if (existingTitles.has(c.title.toLowerCase())) return false;
+    if (id) seenIds.add(id);
+    return true;
+  });
+}
+
 export type CandidatePoolApi = {
   candidates: Candidate[];
   status: PoolStatus;
@@ -221,13 +249,7 @@ export function useCandidatePool(): CandidatePoolApi {
 
   const appendCandidates = useCallback(async (next: Candidate[]) => {
     if (!supabase || next.length === 0) return;
-    // Dedupe against what's already in the pool, case-insensitive by title.
-    const existingTitles = new Set(
-      latestRef.current.map((c) => c.title.toLowerCase()),
-    );
-    const fresh = next.filter(
-      (c) => !existingTitles.has(c.title.toLowerCase()),
-    );
+    const fresh = filterNewCandidates(latestRef.current, next);
     if (fresh.length === 0) return;
 
     const merged = [...latestRef.current, ...fresh];

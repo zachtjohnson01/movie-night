@@ -200,10 +200,13 @@ export async function expandPool(
 
   // Never re-add a title already in the pool or the library. Kept titles are
   // added to this set too, so an intra-batch duplicate (the LLM naming the
-  // same film twice) is skipped rather than seeded twice.
+  // same film twice) is skipped rather than seeded twice. `seenImdbIds` catches
+  // the same film reached via two different title spellings that OMDB resolves
+  // to one id; appendCandidates does the final imdbId dedupe against the pool.
   const ban = new Set<string>();
   for (const t of poolTitles) ban.add(t.toLowerCase());
   for (const t of libraryTitles) ban.add(t.toLowerCase());
+  const seenImdbIds = new Set<string>();
 
   const now = new Date().toISOString();
   const total = raw.length;
@@ -230,8 +233,15 @@ export async function expandPool(
       // OMDB gates the pool: searchMovies is type-filtered to films, so a
       // null enrichment means OMDB couldn't confirm this title as a movie.
       // Drop it rather than let an LLM-hallucinated TV show slip in unlinked.
-      if (omdb && !ban.has(key) && out.length < batchSize) {
+      const idKey = omdb ? omdb.imdbId.toLowerCase() : null;
+      if (
+        omdb &&
+        !ban.has(key) &&
+        !(idKey && seenImdbIds.has(idKey)) &&
+        out.length < batchSize
+      ) {
         ban.add(key);
+        if (idKey) seenImdbIds.add(idKey);
         // Merge rules: OMDB wins for RT / IMDb / awards / year / poster /
         // imdbId. LLM wins for CSM age (OMDB has none) and studio (OMDB's
         // Production is usually "N/A" on the free tier).

@@ -188,12 +188,12 @@ describe('expandPool', () => {
     stubApiTitles(Array.from({ length: 30 }, (_, i) => `M${i}`));
     let active = 0;
     let maxActive = 0;
-    vi.mocked(enrichCandidate).mockImplementation(async () => {
+    vi.mocked(enrichCandidate).mockImplementation(async (t: string) => {
       active++;
       maxActive = Math.max(maxActive, active);
       await new Promise((r) => setTimeout(r, 3));
       active--;
-      return omdbPatch('x');
+      return omdbPatch(t);
     });
 
     await expandPool([], [], 100);
@@ -217,7 +217,7 @@ describe('expandPool', () => {
 
   it('stops after batchSize survivors and never re-adds pool titles', async () => {
     stubApiTitles(['Owned', ...Array.from({ length: 20 }, (_, i) => `M${i}`)]);
-    vi.mocked(enrichCandidate).mockImplementation(async () => omdbPatch('x'));
+    vi.mocked(enrichCandidate).mockImplementation(async (t: string) => omdbPatch(t));
 
     const out = await expandPool(['Owned'], [], 5);
     expect(out).toHaveLength(5);
@@ -230,7 +230,7 @@ describe('expandPool', () => {
 
   it('reports progress stages ending in done', async () => {
     stubApiTitles(['A', 'B']);
-    vi.mocked(enrichCandidate).mockImplementation(async () => omdbPatch('x'));
+    vi.mocked(enrichCandidate).mockImplementation(async (t: string) => omdbPatch(t));
     const events: ExpandProgress[] = [];
 
     await expandPool([], [], 100, undefined, (p) => events.push(p));
