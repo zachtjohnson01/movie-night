@@ -1637,7 +1637,7 @@ function DuplicateReview({
   return (
     <div
       className="fixed inset-0 z-50 bg-ink-950/85 backdrop-blur-sm flex items-end"
-      onClick={onClose}
+      onClick={busy ? undefined : onClose}
     >
       <div
         className="w-full max-w-xl mx-auto rounded-t-3xl bg-ink-950 border-t border-ink-700 max-h-[92vh] flex flex-col overflow-hidden"
@@ -1677,8 +1677,9 @@ function DuplicateReview({
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             aria-label="Close"
-            className="w-11 h-11 -mr-2 shrink-0 rounded-full flex items-center justify-center text-ink-300 active:bg-ink-800"
+            className="w-11 h-11 -mr-2 shrink-0 rounded-full flex items-center justify-center text-ink-300 active:bg-ink-800 disabled:opacity-40"
           >
             <svg
               viewBox="0 0 24 24"

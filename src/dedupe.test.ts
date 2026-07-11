@@ -132,6 +132,12 @@ describe('mergeCandidates', () => {
       '2023-01-01T00:00:00Z',
     );
   });
+
+  it('treats an empty array as missing so real creator lists are inherited', () => {
+    const survivor = cand({ title: 'A', imdbId: 'tt1', directors: [] });
+    const victim = cand({ title: 'A', imdbId: 'tt1', directors: ['Brad Bird'] });
+    expect(mergeCandidates(survivor, [victim]).directors).toEqual(['Brad Bird']);
+  });
 });
 
 describe('applyMerge', () => {
@@ -216,6 +222,31 @@ describe('applyMerge', () => {
     expect(next.find((x) => x.imdbId === 'tt9')!.removedAt).toBeFalsy();
     expect(next.find((x) => x.imdbId == null)!.removedAt).toBe(NOW);
     expect(next.find((x) => x.imdbId === 'tt1')!.studio).toBe('Pixar');
+  });
+
+  it('does not let an already-removed twin block a live victim from merging', () => {
+    // A previously-removed row shares the live victim's exact signature. It
+    // must not consume the victim's multiset slot (that would leave the real
+    // duplicate active).
+    const survivor = cand({ title: 'Up', imdbId: 'ttS' });
+    const removedTwin = cand({
+      title: 'Up',
+      imdbId: 'ttV',
+      year: 2009,
+      removedAt: '2020-01-01T00:00:00Z',
+      removedReason: 'TV show',
+    });
+    const liveVictim = cand({ title: 'Up', imdbId: 'ttV', year: 2009 });
+    const next = applyMerge(
+      [survivor, removedTwin, liveVictim],
+      survivor,
+      [liveVictim],
+      NOW,
+    );
+    const active = next.filter((c) => c.removedAt == null);
+    expect(active.map((c) => c.imdbId)).toEqual(['ttS']); // only survivor live
+    expect(next.find((c) => c.removedReason === 'TV show')).toBeTruthy();
+    expect(next.filter((c) => c.removedReason === MERGED_REASON)).toHaveLength(1);
   });
 
   it('does not restamp an already-removed victim', () => {

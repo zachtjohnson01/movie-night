@@ -44,8 +44,12 @@ function isEffective(c: Candidate, imdbIds: Set<string>, titles: Set<string>): b
  * the For You header matches what the admin screen shows.
  */
 export function countEffectiveCandidates(candidates: Candidate[]): number {
+  // Only live rows count toward duplicate detection — otherwise a merge
+  // survivor still shares a dedupKey with its soft-removed twin and would be
+  // wrongly treated as a duplicate, undercounting the eligible pool.
   const counts = new Map<string, number>();
   for (const c of candidates) {
+    if (c.removedAt != null) continue;
     const k = dedupKey(c.title);
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
