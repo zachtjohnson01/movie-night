@@ -71,6 +71,21 @@ describe('findCandidate', () => {
   it('returns undefined when nothing matches', () => {
     expect(findCandidate(cands, { title: 'nope', imdbId: 'ttX' })).toBeUndefined();
   });
+  it('prefers the active row over a soft-removed twin sharing an imdbId', () => {
+    const dupes = [
+      candidate({ title: 'Cars', imdbId: 'tt9', studio: null, removedAt: '2026-01-01T00:00:00Z' }),
+      candidate({ title: 'Cars', imdbId: 'tt9', studio: 'Pixar' }),
+    ];
+    const hit = findCandidate(dupes, { title: 'Cars', imdbId: 'tt9' });
+    expect(hit?.removedAt).toBeFalsy();
+    expect(hit?.studio).toBe('Pixar');
+  });
+  it('still resolves when the only match is soft-removed (stays linked)', () => {
+    const only = [
+      candidate({ title: 'Cars', imdbId: 'tt9', removedAt: '2026-01-01T00:00:00Z' }),
+    ];
+    expect(findCandidate(only, { title: 'Cars', imdbId: 'tt9' })?.imdbId).toBe('tt9');
+  });
 });
 
 describe('mergeEntry', () => {

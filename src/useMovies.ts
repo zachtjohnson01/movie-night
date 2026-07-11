@@ -91,13 +91,19 @@ export function findCandidate(
   candidates: Candidate[],
   entry: Pick<LibraryEntry, 'title' | 'imdbId'>,
 ): Candidate | undefined {
+  // When duplicates exist (e.g. a merge survivor + its soft-removed twin share
+  // an imdbId or title), prefer the active row so the library movie surfaces
+  // the enriched survivor rather than the removed copy. Fall back to any match
+  // so a movie whose only candidate is soft-removed still stays linked.
   if (entry.imdbId) {
-    const byId = candidates.find((c) => c.imdbId === entry.imdbId);
-    if (byId) return byId;
+    const byId = candidates.filter((c) => c.imdbId === entry.imdbId);
+    if (byId.length > 0) {
+      return byId.find((c) => c.removedAt == null) ?? byId[0];
+    }
   }
-  return candidates.find(
-    (c) => c.title.toLowerCase() === entry.title.toLowerCase(),
-  );
+  const lower = entry.title.toLowerCase();
+  const byTitle = candidates.filter((c) => c.title.toLowerCase() === lower);
+  return byTitle.find((c) => c.removedAt == null) ?? byTitle[0];
 }
 
 // --- Merge LibraryEntry + Candidate → Movie ---

@@ -1609,19 +1609,11 @@ function DuplicateReview({
     ? group.members.filter((_, i) => i !== keeperIdx && !excluded.has(i))
     : [];
 
-  // IMDb id the survivor will carry after the merge (its own, else the first
-  // one it inherits). Library entries that reference a victim by a *different*
-  // id and a different title would become unlinked — flag those.
-  const keeperImdbAfter =
-    keeper?.imdbId ?? victims.map((v) => v.imdbId).find(Boolean) ?? null;
-  const brokenLinks = victims.filter(
-    (v) =>
-      isInLibrary(v) &&
-      !(
-        (v.imdbId != null && v.imdbId === keeperImdbAfter) ||
-        dedupKey(v.title) === dedupKey(keeper?.title ?? '')
-      ),
-  );
+  // How many of the folded-in rows are referenced by a watched/wishlist movie.
+  // Merging never orphans them — applyMerge soft-removes victims and
+  // findCandidate still resolves soft-removed rows — but it's worth telling the
+  // admin which ones are in a list before they merge.
+  const libraryVictims = victims.filter(isInLibrary);
 
   async function handleMerge() {
     if (!group || !keeper || busy) return;
@@ -1645,7 +1637,7 @@ function DuplicateReview({
   return (
     <div
       className="fixed inset-0 z-50 bg-ink-950/85 backdrop-blur-sm flex items-end"
-      onClick={onClose}
+      onClick={busy ? undefined : onClose}
     >
       <div
         className="w-full max-w-xl mx-auto rounded-t-3xl bg-ink-950 border-t border-ink-700 max-h-[92vh] flex flex-col overflow-hidden"
@@ -1685,8 +1677,9 @@ function DuplicateReview({
           <button
             type="button"
             onClick={onClose}
+            disabled={busy}
             aria-label="Close"
-            className="w-11 h-11 -mr-2 shrink-0 rounded-full flex items-center justify-center text-ink-300 active:bg-ink-800"
+            className="w-11 h-11 -mr-2 shrink-0 rounded-full flex items-center justify-center text-ink-300 active:bg-ink-800 disabled:opacity-40"
           >
             <svg
               viewBox="0 0 24 24"
@@ -1811,19 +1804,25 @@ function DuplicateReview({
                 )}
               </div>
 
-              {brokenLinks.length > 0 && (
-                <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-crimson-deep/15 border border-crimson-deep/50 px-3.5 py-3 text-xs leading-relaxed text-crimson-bright">
-                  <AlertTriangleIcon className="w-4 h-4 mt-px shrink-0" />
-                  <p>
-                    <span className="font-bold">Heads up:</span>{' '}
-                    {brokenLinks.length} library movie
-                    {brokenLinks.length === 1 ? '' : 's'} reference the other
-                    record. Merging will unlink{' '}
-                    {brokenLinks.length === 1 ? 'it' : 'them'} — keep that record
-                    instead if you want the link preserved.
-                  </p>
-                </div>
-              )}
+              <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-ink-900 border border-ink-800 px-3.5 py-3 text-xs leading-relaxed text-ink-400">
+                <CheckCircleIcon className="w-4 h-4 mt-px shrink-0 text-emerald-300" />
+                <p>
+                  {libraryVictims.length > 0 ? (
+                    <>
+                      <span className="font-semibold text-ink-300">
+                        {libraryVictims.length}
+                      </span>{' '}
+                      of these{' '}
+                      {libraryVictims.length === 1 ? 'is' : 'are'} in a list —
+                      merging keeps{' '}
+                      {libraryVictims.length === 1 ? 'it' : 'them'} linked.{' '}
+                    </>
+                  ) : null}
+                  Folded-in copies move to{' '}
+                  <span className="font-semibold text-ink-300">Removed</span> and
+                  can be restored — nothing is deleted.
+                </p>
+              </div>
 
               {error && (
                 <p className="mt-4 text-center text-xs text-crimson-bright">

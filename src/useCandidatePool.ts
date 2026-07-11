@@ -248,8 +248,15 @@ export function useCandidatePool(): CandidatePoolApi {
     }
   }, []);
 
-  const writePool = useCallback(async (next: Candidate[]) => {
-    if (!supabase) return;
+  // Optimistically applies `next`, then persists it. Returns `false` (and
+  // rolls the optimistic update back to the pre-write snapshot) if the DB
+  // write fails, so callers that care — e.g. the merge flow — can surface the
+  // failure instead of showing a success the server never accepted. Internal
+  // callers that ignore the return value keep their prior fire-and-forget
+  // behaviour, minus the stale optimistic state on failure.
+  const writePool = useCallback(async (next: Candidate[]): Promise<boolean> => {
+    if (!supabase) return true;
+    const prev = latestRef.current;
     setCandidates(next);
     setStatus(next.length === 0 ? 'empty' : 'synced');
     const { error } = await supabase
@@ -259,8 +266,11 @@ export function useCandidatePool(): CandidatePoolApi {
       .eq('kind', 'pool');
     if (error) {
       console.error('[useCandidatePool] write failed', error);
+      setCandidates(prev);
       setStatus('error');
+      return false;
     }
+    return true;
   }, []);
 
   // Re-read the live pool and apply per-candidate patches onto it before
@@ -362,11 +372,33 @@ export function useCandidatePool(): CandidatePoolApi {
   const restoreCandidate = useCallback(
     async (title: string) => {
       const current = latestRef.current;
-      const idx = current.findIndex((c) => c.title === title);
+      // Prefer a row that is actually removed. Two rows can share a title (a
+      // remake, or a merge survivor + its soft-removed duplicate); a bare
+      // title match would return the first — often the still-active survivor —
+      // and silently no-op, leaving the removed twin unrestorable.
+      let idx = current.findIndex(
+        (c) => c.title === title && c.removedAt != null,
+      );
+      if (idx === -1) idx = current.findIndex((c) => c.title === title);
       if (idx === -1) return;
       const next = [...current];
       next[idx] = { ...next[idx], removedReason: null, removedAt: null };
       await writePool(next);
+    },
+    [writePool],
+  );
+
+  // Public whole-array replace that THROWS if the write doesn't persist. Used
+  // by the merge flow so a failed save surfaces to the admin instead of being
+  // reported as a successful merge (writePool rolls the optimistic state back).
+  const replaceCandidates = useCallback(
+    async (next: Candidate[]) => {
+      const ok = await writePool(next);
+      if (!ok) {
+        throw new Error(
+          "Couldn't save to the server — nothing was changed. Check your connection and try again.",
+        );
+      }
     },
     [writePool],
   );
@@ -491,7 +523,7 @@ export function useCandidatePool(): CandidatePoolApi {
     weights,
     appendCandidates,
     updateCandidate,
-    replaceCandidates: writePool,
+    replaceCandidates,
     toggleDownvote,
     removeCandidate,
     restoreCandidate,

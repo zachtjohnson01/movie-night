@@ -6,6 +6,7 @@ import {
   applyMerge,
   pickDefaultSurvivor,
   completenessScore,
+  MERGED_REASON,
 } from './dedupe';
 
 function cand(partial: Partial<Candidate> & { title: string }): Candidate {
@@ -131,29 +132,57 @@ describe('mergeCandidates', () => {
       '2023-01-01T00:00:00Z',
     );
   });
+
+  it('treats an empty array as missing so real creator lists are inherited', () => {
+    const survivor = cand({ title: 'A', imdbId: 'tt1', directors: [] });
+    const victim = cand({ title: 'A', imdbId: 'tt1', directors: ['Brad Bird'] });
+    expect(mergeCandidates(survivor, [victim]).directors).toEqual(['Brad Bird']);
+  });
 });
 
 describe('applyMerge', () => {
-  it('removes victims and replaces the survivor with the merged record', () => {
+  const NOW = '2026-01-01T00:00:00.000Z';
+
+  it('soft-removes victims (keeps the row) and enriches the survivor', () => {
     const a = cand({ title: 'Lion King', imdbId: null, studio: null });
     const b = cand({ title: 'The Lion King', imdbId: 'tt1', studio: 'Disney' });
     const c = cand({ title: 'Frozen', imdbId: 'tt2' });
-    const next = applyMerge([a, b, c], a, [b]);
-    expect(next).toHaveLength(2);
+    const next = applyMerge([a, b, c], a, [b], NOW);
+    // Nothing is deleted — the pool keeps all three rows.
+    expect(next).toHaveLength(3);
     const survivor = next.find((x) => x.title === 'Lion King')!;
     expect(survivor.imdbId).toBe('tt1');
     expect(survivor.studio).toBe('Disney');
-    expect(next.some((x) => x.title === 'The Lion King')).toBe(false);
-    expect(next.some((x) => x.title === 'Frozen')).toBe(true);
+    expect(survivor.removedAt).toBeFalsy(); // survivor stays active
+    const victim = next.find((x) => x.title === 'The Lion King')!;
+    expect(victim.removedAt).toBe(NOW); // victim soft-removed, still present
+    expect(victim.removedReason).toBe(MERGED_REASON);
+    expect(next.find((x) => x.title === 'Frozen')!.removedAt).toBeFalsy();
   });
 
-  it('handles two rows with an identical title', () => {
-    const survivor = cand({ title: 'Dupe', imdbId: 'tt1' });
-    const victim = cand({ title: 'Dupe', imdbId: 'tt1', imdb: '7.0' });
-    const next = applyMerge([survivor, victim], survivor, [victim]);
-    expect(next).toHaveLength(1);
-    expect(next[0].imdb).toBe('7.0');
-    expect(next[0].imdbId).toBe('tt1');
+  it('keeps a merged-away title resolvable so library entries are not orphaned', () => {
+    // A library entry references the victim by imdbId. After merge, the victim
+    // row must still exist (soft-removed) so findCandidate can resolve it.
+    const survivor = cand({ title: 'Cars', imdbId: 'tt1' });
+    const victim = cand({ title: 'Cars', imdbId: 'ttLIB', year: 2006 });
+    const next = applyMerge([survivor, victim], survivor, [victim], NOW);
+    expect(next.find((c) => c.imdbId === 'ttLIB')).toBeTruthy();
+  });
+
+  it('drops merged rows from a re-scan (regression: no re-finding the same dupes)', () => {
+    const a = cand({ title: 'Up', imdbId: 'tt1' });
+    const b = cand({ title: 'Up', imdbId: 'tt2' });
+    const c = cand({ title: 'Frozen', imdbId: 'tt3' });
+    expect(findDuplicateGroups([a, b, c])).toHaveLength(1);
+    const merged = applyMerge([a, b, c], a, [b], NOW);
+    expect(findDuplicateGroups(merged)).toHaveLength(0);
+  });
+
+  it('preserves a downvote from any member', () => {
+    const survivor = cand({ title: 'X', imdbId: 'tt1' });
+    const victim = cand({ title: 'X', imdbId: 'tt2', downvoted: true });
+    const next = applyMerge([survivor, victim], survivor, [victim], NOW);
+    expect(next.find((c) => c.imdbId === 'tt1')!.downvoted).toBe(true);
   });
 
   it('matches by value, not reference, so it survives a realtime reload', () => {
@@ -166,26 +195,78 @@ describe('applyMerge', () => {
       cand({ title: 'The Lion King', imdbId: 'tt1', studio: 'Disney' }),
       cand({ title: 'Frozen', imdbId: 'tt2' }),
     ];
-    const next = applyMerge(reloadedPool, snapSurvivor, [snapVictim]);
+    const next = applyMerge(reloadedPool, snapSurvivor, [snapVictim], NOW);
+    const survivor = next.find((x) => x.title === 'Lion King')!;
+    expect(survivor.imdbId).toBe('tt1');
+    expect(survivor.removedAt).toBeFalsy();
+    expect(next.find((x) => x.title === 'The Lion King')!.removedAt).toBe(NOW);
+  });
+
+  it('collapses identical-signature rows to one active + one removed', () => {
+    const survivor = cand({ title: 'Dupe', imdbId: 'tt1' });
+    const victim = cand({ title: 'Dupe', imdbId: 'tt1', imdb: '7.0' });
+    const next = applyMerge([survivor, victim], survivor, [victim], NOW);
     expect(next).toHaveLength(2);
-    expect(next.some((x) => x.title === 'The Lion King')).toBe(false);
-    expect(next.find((x) => x.title === 'Lion King')!.imdbId).toBe('tt1');
+    const active = next.filter((c) => c.removedAt == null);
+    expect(active).toHaveLength(1);
+    expect(active[0].imdb).toBe('7.0');
+    expect(active[0].imdbId).toBe('tt1');
   });
 
   it('merges only the selected subset of a 3-member group', () => {
     const keeper = cand({ title: 'Cars', imdbId: 'tt1' });
     const foldIn = cand({ title: 'Cars ', imdbId: null, studio: 'Pixar' });
     const leaveOut = cand({ title: 'Cars', imdbId: 'tt9', year: 2011 });
-    const next = applyMerge([keeper, foldIn, leaveOut], keeper, [foldIn]);
-    expect(next).toHaveLength(2);
-    expect(next.some((x) => x.imdbId === 'tt9')).toBe(true); // left separate
+    const next = applyMerge([keeper, foldIn, leaveOut], keeper, [foldIn], NOW);
+    // The left-out member stays active; only the folded-in one is removed.
+    expect(next.find((x) => x.imdbId === 'tt9')!.removedAt).toBeFalsy();
+    expect(next.find((x) => x.imdbId == null)!.removedAt).toBe(NOW);
     expect(next.find((x) => x.imdbId === 'tt1')!.studio).toBe('Pixar');
+  });
+
+  it('does not let an already-removed twin block a live victim from merging', () => {
+    // A previously-removed row shares the live victim's exact signature. It
+    // must not consume the victim's multiset slot (that would leave the real
+    // duplicate active).
+    const survivor = cand({ title: 'Up', imdbId: 'ttS' });
+    const removedTwin = cand({
+      title: 'Up',
+      imdbId: 'ttV',
+      year: 2009,
+      removedAt: '2020-01-01T00:00:00Z',
+      removedReason: 'TV show',
+    });
+    const liveVictim = cand({ title: 'Up', imdbId: 'ttV', year: 2009 });
+    const next = applyMerge(
+      [survivor, removedTwin, liveVictim],
+      survivor,
+      [liveVictim],
+      NOW,
+    );
+    const active = next.filter((c) => c.removedAt == null);
+    expect(active.map((c) => c.imdbId)).toEqual(['ttS']); // only survivor live
+    expect(next.find((c) => c.removedReason === 'TV show')).toBeTruthy();
+    expect(next.filter((c) => c.removedReason === MERGED_REASON)).toHaveLength(1);
+  });
+
+  it('does not restamp an already-removed victim', () => {
+    const survivor = cand({ title: 'A', imdbId: 'tt1' });
+    const already = cand({
+      title: 'A',
+      imdbId: 'tt2',
+      removedAt: '2020-01-01T00:00:00Z',
+      removedReason: 'TV show',
+    });
+    const next = applyMerge([survivor, already], survivor, [already], NOW);
+    const row = next.find((c) => c.imdbId === 'tt2')!;
+    expect(row.removedAt).toBe('2020-01-01T00:00:00Z');
+    expect(row.removedReason).toBe('TV show');
   });
 
   it('is a no-op when no victims are selected', () => {
     const a = cand({ title: 'A', imdbId: 'tt1' });
     const b = cand({ title: 'A', imdbId: 'tt2' });
-    expect(applyMerge([a, b], a, [])).toEqual([a, b]);
+    expect(applyMerge([a, b], a, [], NOW)).toEqual([a, b]);
   });
 });
 
