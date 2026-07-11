@@ -1,6 +1,11 @@
 import { useLayoutEffect, useMemo, useState } from 'react';
 import type { Movie } from '../types';
-import { ageBadgeClass, getDisplayTitle, sortWishlist } from '../format';
+import {
+  ageBadgeClass,
+  getDisplayTitle,
+  needsEnhance,
+  sortWishlist,
+} from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
 
@@ -54,9 +59,7 @@ export default function Wishlist({
   }, [wishlistAll, query]);
 
   const enhanceableCount = useMemo(
-    () =>
-      wishlistAll.filter((m) => m.production == null || m.awards == null)
-        .length,
+    () => wishlistAll.filter(needsEnhance).length,
     [wishlistAll],
   );
 

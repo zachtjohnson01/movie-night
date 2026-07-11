@@ -81,6 +81,7 @@ export function buildNewCandidates(
         directors: m.directors ?? null,
         writers: m.writers ?? null,
         omdbRefreshedAt: m.omdbRefreshedAt ?? null,
+        enrichedAt: m.enrichedAt ?? null,
       }),
     );
 }
@@ -140,6 +141,7 @@ export function mergeEntry(
     year: candidate?.year ?? null,
     poster: candidate?.poster ?? null,
     omdbRefreshedAt: candidate?.omdbRefreshedAt ?? null,
+    enrichedAt: candidate?.enrichedAt ?? null,
     imdb: candidate?.imdb ?? null,
     rottenTomatoes: candidate?.rottenTomatoes ?? null,
     rottenTomatoesId: candidate?.rottenTomatoesId ?? null,
@@ -177,6 +179,7 @@ export function toCandidate(m: Movie, existing: Candidate): Candidate {
     year: m.year,
     poster: m.poster,
     omdbRefreshedAt: m.omdbRefreshedAt,
+    enrichedAt: m.enrichedAt ?? existing.enrichedAt ?? null,
     imdb: m.imdb,
     rottenTomatoes: m.rottenTomatoes,
     awards: m.awards,

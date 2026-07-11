@@ -6,6 +6,7 @@ import {
   formatDate,
   formatMonthYear,
   getDisplayTitle,
+  needsEnhance,
   sortWatched,
 } from '../format';
 import BuildStamp from './BuildStamp';
@@ -71,8 +72,7 @@ export default function WatchedList({
   );
 
   const enhanceableCount = useMemo(
-    () =>
-      watchedAll.filter((m) => m.production == null || m.awards == null).length,
+    () => watchedAll.filter(needsEnhance).length,
     [watchedAll],
   );
 

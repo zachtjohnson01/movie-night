@@ -247,6 +247,25 @@ export function sortWatched(
 }
 
 /** Produce a fresh, empty Movie with the given `watched` default. */
+/**
+ * Whether a movie should surface in the "Enhance with Claude" count. Only
+ * movies enrichment hasn't tried yet (`enrichedAt == null`) count: once a
+ * movie has been through a pass, any field still null is almost always
+ * terminal (the movie won no awards, OMDB/Claude has no studio to supply),
+ * so re-advertising it just makes the button promise updates it can't
+ * deliver. "Refresh all" in EnhanceAllSheet bypasses this to re-run every
+ * movie regardless. Mirrors the field set EnhanceAllSheet fills.
+ */
+export function needsEnhance(m: Movie): boolean {
+  if (m.enrichedAt != null) return false;
+  return (
+    m.production == null ||
+    m.awards == null ||
+    m.directors == null ||
+    m.writers == null
+  );
+}
+
 export function emptyMovie(watched: boolean): Movie {
   return {
     id: null,
@@ -261,6 +280,7 @@ export function emptyMovie(watched: boolean): Movie {
     year: null,
     poster: null,
     omdbRefreshedAt: null,
+    enrichedAt: null,
     watched,
     dateWatched: null,
     notes: null,
@@ -288,6 +308,7 @@ export function candidateToTemplate(c: Candidate): Movie {
     year: c.year,
     poster: c.poster,
     omdbRefreshedAt: c.omdbRefreshedAt ?? null,
+    enrichedAt: c.enrichedAt ?? null,
     watched: false,
     dateWatched: null,
     notes: null,

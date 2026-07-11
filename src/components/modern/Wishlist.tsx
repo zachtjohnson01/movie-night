@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useState, type CSSProperties } from 'react';
 import type { Movie } from '../../types';
-import { getDisplayTitle, sortWishlist } from '../../format';
+import { getDisplayTitle, needsEnhance, sortWishlist } from '../../format';
 import {
   AMBER,
   BG,
@@ -69,7 +69,7 @@ export default function ModernWishlist({
   }, [wishAll, query]);
 
   const enhanceableCount = useMemo(
-    () => wishAll.filter((m) => m.production == null || m.awards == null).length,
+    () => wishAll.filter(needsEnhance).length,
     [wishAll],
   );
   const canReorder = canWrite && wishAll.length >= 2;

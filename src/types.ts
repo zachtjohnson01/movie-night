@@ -102,6 +102,15 @@ export type Movie = {
    */
   omdbRefreshedAt: string | null;
   /**
+   * ISO timestamp of the last time the "Enhance with Claude" flow processed
+   * this movie (studio/awards/director/writer fill via OMDB + Claude). Set
+   * whether or not any field actually changed, so a movie whose remaining
+   * null fields are terminal (no awards, no studio OMDB/Claude will supply)
+   * stops being re-advertised as "enhanceable" after one pass. Null means
+   * never enhanced. Optional so older rows parse without a migration.
+   */
+  enrichedAt?: string | null;
+  /**
    * Whether this movie has been watched at all. Independent from
    * `dateWatched` so we can record "we watched this, don't remember when".
    */
@@ -239,6 +248,12 @@ export type Candidate = {
   writers?: string[] | null;
   /** ISO timestamp of the last successful OMDB fetch for this candidate. Optional for backward compat. */
   omdbRefreshedAt?: string | null;
+  /**
+   * ISO timestamp of the last "Enhance with Claude" pass over this movie.
+   * See `Movie.enrichedAt`. Optional so older pool rows parse as "never
+   * enhanced" without a migration.
+   */
+  enrichedAt?: string | null;
   /**
    * Cached TMDB/JustWatch streaming availability. Optional so older pool rows
    * parse as "never checked" without a migration. Resolved lazily on Detail.

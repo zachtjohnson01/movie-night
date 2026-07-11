@@ -6,6 +6,7 @@ import {
   formatDate,
   formatMonthYear,
   getDisplayTitle,
+  needsEnhance,
   sortWatched,
 } from '../../format';
 import {
@@ -83,7 +84,7 @@ export default function ModernWatchedList({
     [watched],
   );
   const enhanceableCount = useMemo(
-    () => watched.filter((m) => m.production == null || m.awards == null).length,
+    () => watched.filter(needsEnhance).length,
     [watched],
   );
   const favorites = useMemo(

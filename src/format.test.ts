@@ -7,6 +7,7 @@ import {
   formatDate,
   formatRtScore,
   getDisplayTitle,
+  needsEnhance,
   parseNameList,
   sortWatched,
 } from './format';
@@ -15,6 +16,40 @@ import type { Movie } from './types';
 function movie(over: Partial<Movie> = {}): Movie {
   return { ...emptyMovie(false), ...over };
 }
+
+describe('needsEnhance', () => {
+  const complete = {
+    production: 'Pixar',
+    awards: 'Won 1 Oscar.',
+    directors: ['A'],
+    writers: ['B'],
+  };
+
+  it('counts a never-enhanced movie missing any enrichable field', () => {
+    expect(needsEnhance(movie({ ...complete, production: null }))).toBe(true);
+    expect(needsEnhance(movie({ ...complete, awards: null }))).toBe(true);
+    expect(needsEnhance(movie({ ...complete, directors: null }))).toBe(true);
+    expect(needsEnhance(movie({ ...complete, writers: null }))).toBe(true);
+  });
+
+  it('does not count a movie with every field already filled', () => {
+    expect(needsEnhance(movie(complete))).toBe(false);
+  });
+
+  it('stops counting once a movie has been through an enrich pass', () => {
+    // A movie whose remaining nulls are terminal (no awards, no studio to
+    // fetch) must not be re-advertised after it has been tried — this is
+    // the fix for the badge over-promising updates it can't deliver.
+    const tried = movie({
+      production: null,
+      awards: null,
+      directors: null,
+      writers: null,
+      enrichedAt: '2026-07-11T00:00:00.000Z',
+    });
+    expect(needsEnhance(tried)).toBe(false);
+  });
+});
 
 describe('formatRtScore', () => {
   it('appends % to a bare integer', () => {

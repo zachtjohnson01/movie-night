@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import type { Movie } from '../types';
-import { getDisplayTitle } from '../format';
+import { getDisplayTitle, needsEnhance } from '../format';
 import { enrichMovies } from '../enrich';
 
 type Props = {
@@ -59,15 +59,12 @@ export default function EnhanceAllSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+  // Only movies enrichment hasn't already tried. Once a movie has been
+  // through a pass, its remaining null fields are almost always terminal
+  // (no awards, no studio to supply) — see `needsEnhance`. "Refresh all"
+  // ignores this and re-runs everything.
   const missingTargets = useMemo(
-    () =>
-      allTargets.filter(
-        (m) =>
-          m.production == null ||
-          m.awards == null ||
-          m.directors == null ||
-          m.writers == null,
-      ),
+    () => allTargets.filter(needsEnhance),
     [allTargets],
   );
 
@@ -87,6 +84,22 @@ export default function EnhanceAllSheet({
     setProgress(0);
     cancelRef.current = false;
     const acc: Results = { enriched: [], skipped: [], failed: [] };
+    const now = new Date().toISOString();
+
+    // Record that we tried this movie even when nothing changed, so its
+    // terminal null fields (no awards, no studio to fetch) stop being
+    // re-advertised as "enhanceable" on the next visit.
+    const markSkipped = async (m: Movie) => {
+      try {
+        await onUpdateMovie(m.title, { ...m, enrichedAt: now });
+        acc.skipped.push(getDisplayTitle(m));
+      } catch (e) {
+        acc.failed.push({
+          title: getDisplayTitle(m),
+          error: (e as Error).message || 'write failed',
+        });
+      }
+    };
 
     for (let start = 0; start < targets.length; start += BATCH_SIZE) {
       if (cancelRef.current) {
@@ -124,7 +137,7 @@ export default function EnhanceAllSheet({
         const m = batch[i];
         const item = items[i];
         if (!item) {
-          acc.skipped.push(getDisplayTitle(m));
+          await markSkipped(m);
           setProgress(start + i + 1);
           continue;
         }
@@ -156,7 +169,7 @@ export default function EnhanceAllSheet({
           !sameNameList(nextDirectors, m.directors) ||
           !sameNameList(nextWriters, m.writers);
         if (!changed) {
-          acc.skipped.push(getDisplayTitle(m));
+          await markSkipped(m);
           setProgress(start + i + 1);
           continue;
         }
@@ -167,6 +180,7 @@ export default function EnhanceAllSheet({
             awards: nextAwards,
             directors: nextDirectors,
             writers: nextWriters,
+            enrichedAt: now,
           });
           acc.enriched.push(getDisplayTitle(m));
         } catch (e) {
