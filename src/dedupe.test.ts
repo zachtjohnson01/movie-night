@@ -147,14 +147,45 @@ describe('applyMerge', () => {
     expect(next.some((x) => x.title === 'Frozen')).toBe(true);
   });
 
-  it('handles two rows with an identical title (reference identity)', () => {
+  it('handles two rows with an identical title', () => {
     const survivor = cand({ title: 'Dupe', imdbId: 'tt1' });
     const victim = cand({ title: 'Dupe', imdbId: 'tt1', imdb: '7.0' });
     const next = applyMerge([survivor, victim], survivor, [victim]);
     expect(next).toHaveLength(1);
-    expect(next[0]).toBe(next[0]);
     expect(next[0].imdb).toBe('7.0');
     expect(next[0].imdbId).toBe('tt1');
+  });
+
+  it('matches by value, not reference, so it survives a realtime reload', () => {
+    // Simulate the pool being re-parsed from JSON: the live array holds fresh
+    // objects that are value-equal to the review snapshot but not identical.
+    const snapSurvivor = cand({ title: 'Lion King', imdbId: null });
+    const snapVictim = cand({ title: 'The Lion King', imdbId: 'tt1', studio: 'Disney' });
+    const reloadedPool = [
+      cand({ title: 'Lion King', imdbId: null }),
+      cand({ title: 'The Lion King', imdbId: 'tt1', studio: 'Disney' }),
+      cand({ title: 'Frozen', imdbId: 'tt2' }),
+    ];
+    const next = applyMerge(reloadedPool, snapSurvivor, [snapVictim]);
+    expect(next).toHaveLength(2);
+    expect(next.some((x) => x.title === 'The Lion King')).toBe(false);
+    expect(next.find((x) => x.title === 'Lion King')!.imdbId).toBe('tt1');
+  });
+
+  it('merges only the selected subset of a 3-member group', () => {
+    const keeper = cand({ title: 'Cars', imdbId: 'tt1' });
+    const foldIn = cand({ title: 'Cars ', imdbId: null, studio: 'Pixar' });
+    const leaveOut = cand({ title: 'Cars', imdbId: 'tt9', year: 2011 });
+    const next = applyMerge([keeper, foldIn, leaveOut], keeper, [foldIn]);
+    expect(next).toHaveLength(2);
+    expect(next.some((x) => x.imdbId === 'tt9')).toBe(true); // left separate
+    expect(next.find((x) => x.imdbId === 'tt1')!.studio).toBe('Pixar');
+  });
+
+  it('is a no-op when no victims are selected', () => {
+    const a = cand({ title: 'A', imdbId: 'tt1' });
+    const b = cand({ title: 'A', imdbId: 'tt2' });
+    expect(applyMerge([a, b], a, [])).toEqual([a, b]);
   });
 });
 
