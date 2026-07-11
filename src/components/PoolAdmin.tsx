@@ -48,7 +48,26 @@ type Props = {
   onBack: () => void;
 };
 
-const EXPAND_BATCH = 100;
+// How many movies "Expand pool" asks for. Editable in the UI: smaller runs
+// finish faster and cost fewer credits; larger ones try for more at once. The
+// server enforces the same 10–100 range and its own time budget.
+const EXPAND_MIN = 10;
+const EXPAND_MAX = 100;
+const EXPAND_DEFAULT = 30;
+const EXPAND_COUNT_KEY = 'mn_expand_count';
+
+const clampExpandCount = (n: number): number =>
+  Math.max(EXPAND_MIN, Math.min(EXPAND_MAX, Math.round(n)));
+
+function loadExpandCount(): number {
+  try {
+    const raw = localStorage.getItem(EXPAND_COUNT_KEY);
+    const n = raw == null ? NaN : parseInt(raw, 10);
+    return Number.isFinite(n) ? clampExpandCount(n) : EXPAND_DEFAULT;
+  } catch {
+    return EXPAND_DEFAULT;
+  }
+}
 
 // Human-readable line for the current expansion stage, shown under the button
 // so the multi-second run isn't a blind spinner.
@@ -109,9 +128,23 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   const [expanding, setExpanding] = useState(false);
   const [expandError, setExpandError] = useState<string | null>(null);
   const [expandProgress, setExpandProgress] = useState<ExpandProgress | null>(null);
+  // How many movies to request per expansion (editable; persisted).
+  const [expandCount, setExpandCount] = useState<number>(loadExpandCount);
   // Titles added by the most recent expansion, so the user can see exactly
   // what landed (empty array = ran but found nothing new).
   const [lastAdded, setLastAdded] = useState<string[] | null>(null);
+
+  const adjustExpandCount = useCallback((next: number) => {
+    setExpandCount(() => {
+      const clamped = clampExpandCount(next);
+      try {
+        localStorage.setItem(EXPAND_COUNT_KEY, String(clamped));
+      } catch {
+        /* ignore storage errors */
+      }
+      return clamped;
+    });
+  }, []);
 
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
   const libraryDirectors = useMemo(
@@ -137,7 +170,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       const fresh = await expandPool(
         pool.candidates.map((c) => c.title),
         libraryTitles,
-        EXPAND_BATCH,
+        expandCount,
         {
           directors: libraryDirectors,
           writers: libraryWriters,
@@ -158,6 +191,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     }
   }, [
     expanding,
+    expandCount,
     pool,
     libraryTitles,
     libraryDirectors,
@@ -363,6 +397,36 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       </header>
 
       <div className="px-5 pt-4 pb-1 flex flex-col gap-1.5">
+        {!expanding && (
+          <div className="flex items-center justify-between gap-3 pb-0.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">
+              Movies to add
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Fewer movies"
+                onClick={() => adjustExpandCount(expandCount - 5)}
+                disabled={expandCount <= EXPAND_MIN}
+                className="w-11 h-11 rounded-xl bg-ink-800 border border-ink-700 text-xl leading-none text-ink-200 active:bg-ink-700 disabled:opacity-40"
+              >
+                −
+              </button>
+              <span className="w-10 text-center text-base font-bold tabular-nums text-ink-100">
+                {expandCount}
+              </span>
+              <button
+                type="button"
+                aria-label="More movies"
+                onClick={() => adjustExpandCount(expandCount + 5)}
+                disabled={expandCount >= EXPAND_MAX}
+                className="w-11 h-11 rounded-xl bg-ink-800 border border-ink-700 text-xl leading-none text-ink-200 active:bg-ink-700 disabled:opacity-40"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        )}
         <button
           type="button"
           disabled={expanding}
@@ -382,7 +446,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
               Adding movies…
             </>
           ) : (
-            <>Expand pool +{EXPAND_BATCH}</>
+            <>Expand pool +{expandCount}</>
           )}
         </button>
 

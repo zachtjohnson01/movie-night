@@ -111,16 +111,16 @@ const OVER_REQUEST_RATIO = 1.6;
 const overRequestCount = (batchSize: number) =>
   Math.ceil(batchSize * OVER_REQUEST_RATIO);
 
-// How many titles to ask the web-grounded model for per press. Kept modest so
-// the whole search-then-generate run finishes inside Vercel's 60s function
-// limit (web search + a large JSON output otherwise 504s). The client caps
-// the added movies at batchSize anyway, and a saturated pool rarely yields
-// more than a few dozen genuinely-new titles per press regardless.
-const WEB_TARGET = 40;
-
+// `target` is how many titles to ask the web-grounded model for per press,
+// chosen by the admin in the UI. Smaller = a faster run (less to generate) and
+// fewer credits; the hard deadline in generateCandidates keeps even a large
+// target from ever 504-ing. The client caps the added movies at batchSize, and
+// a saturated pool rarely yields more than a few dozen genuinely-new titles
+// per press regardless.
 function buildPrompt(
   poolTitles: string[],
   libraryTitles: string[],
+  target: number,
   directors: string[] = [],
   writers: string[] = [],
   studios: string[] = [],
@@ -159,7 +159,7 @@ YOU HAVE A web_search TOOL — you MUST call it at least 3 times before writing 
 - well-reviewed international and indie family films across different decades and countries
 Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST — drop anything already there.
 
-TASK: Return up to ${WEB_TARGET} feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
+TASK: Return up to ${target} feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
 
 Every title must be a REAL, released feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its exact title; anything that doesn't resolve is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title within your answer, and do not output anything on the ban list.
 
@@ -263,7 +263,13 @@ function parseCandidates(text: string): RawCandidate[] {
 // Cap the number of web searches per expansion. Each search costs money and
 // adds latency; a few across the query angles in the prompt is plenty, and
 // keeping this low is part of staying under Vercel's 60s function limit.
-const WEB_SEARCH_MAX_USES = 4;
+const WEB_SEARCH_MAX_USES = 3;
+
+// Hard wall-clock budget for the whole model call, kept safely under Vercel's
+// 60s function limit. On expiry we abort the stream and return whatever titles
+// have arrived (parseCandidates recovers a truncated array) — so a slow run
+// degrades to "fewer titles" instead of a gateway 504.
+const GENERATION_DEADLINE_MS = 30_000;
 
 /**
  * Ask Claude (Sonnet 5) for a batch of candidate films, grounded in live web
@@ -280,36 +286,65 @@ async function generateCandidates(
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
   const tools = [
-    { type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES },
+    // Basic web search (no server-side dynamic-filtering code execution) — it's
+    // markedly faster per query than web_search_20260209, which matters for the
+    // wall-clock budget. Sonnet 5 supports it fine.
+    { type: 'web_search_20250305', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES },
   ] as Anthropic.Messages.ToolUnion[];
 
   const messages: Anthropic.Messages.MessageParam[] = [
     { role: 'user', content: prompt },
   ];
 
-  // Up to a few rounds: each `pause_turn` means the server-side search loop
-  // hit its iteration cap mid-flight — echo the partial assistant turn back
-  // and let it continue. The final (non-paused) message carries the JSON.
+  // Abort the whole thing at the deadline so the function always returns before
+  // Vercel's limit — no more 504s. Whatever streamed by then is kept.
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), GENERATION_DEADLINE_MS);
+
   let text = '';
-  for (let round = 0; round < 3; round++) {
-    const stream = client.messages.stream({
-      model: 'claude-sonnet-5',
-      // Small ceiling: the trimmed 4-field shape for ~40 titles is only a few
-      // thousand tokens. Thinking is disabled to cut latency — the run has to
-      // finish inside Vercel's 60s limit, and the prompt's explicit "call
-      // web_search at least 3 times" keeps tool use reliable without it.
-      max_tokens: 8000,
-      thinking: { type: 'disabled' },
-      tools,
-      messages,
-    });
-    const message = await stream.finalMessage();
-    text = message.content
-      .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('');
-    if (message.stop_reason !== 'pause_turn') break;
-    messages.push({ role: 'assistant', content: message.content });
+  try {
+    // At most two rounds: a `pause_turn` means the server-side search loop hit
+    // its iteration cap mid-flight — echo the partial assistant turn back and
+    // let it continue. The final (non-paused) message carries the JSON.
+    for (let round = 0; round < 2; round++) {
+      const stream = client.messages.stream(
+        {
+          model: 'claude-sonnet-5',
+          // Small ceiling: the trimmed 4-field shape for ~40 titles is only a
+          // few thousand tokens. Thinking is disabled to cut latency; the
+          // prompt's explicit "call web_search at least 3 times" keeps tool use
+          // reliable without it.
+          max_tokens: 8000,
+          thinking: { type: 'disabled' },
+          tools,
+          messages,
+        },
+        { signal: controller.signal },
+      );
+      // Accumulate deltas so a mid-generation abort still yields the titles
+      // produced so far (parseCandidates recovers the truncated JSON tail).
+      let roundText = '';
+      stream.on('text', (delta) => {
+        roundText += delta;
+      });
+
+      let message: Anthropic.Messages.Message;
+      try {
+        message = await stream.finalMessage();
+      } catch {
+        // Deadline (or network) abort — keep whatever this round streamed.
+        if (roundText) text = roundText;
+        break;
+      }
+      text = message.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      if (message.stop_reason !== 'pause_turn') break;
+      messages.push({ role: 'assistant', content: message.content });
+    }
+  } finally {
+    clearTimeout(deadline);
   }
   return text;
 }
@@ -352,7 +387,7 @@ export default async function handler(
       ? Math.min(body.batchSize, 100)
       : 100;
 
-  const prompt = buildPrompt(poolTitles, libraryTitles, directors, writers, studios);
+  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios);
 
   try {
     const text = await generateCandidates(ANTHROPIC_API_KEY, prompt);
