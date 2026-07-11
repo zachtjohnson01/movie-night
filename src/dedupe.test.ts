@@ -1,0 +1,191 @@
+import { describe, it, expect } from 'vitest';
+import type { Candidate } from './types';
+import {
+  findDuplicateGroups,
+  mergeCandidates,
+  applyMerge,
+  pickDefaultSurvivor,
+  completenessScore,
+} from './dedupe';
+
+function cand(partial: Partial<Candidate> & { title: string }): Candidate {
+  const base: Candidate = {
+    title: '',
+    year: null,
+    imdbId: null,
+    imdb: null,
+    rottenTomatoes: null,
+    commonSenseAge: null,
+    studio: null,
+    awards: null,
+    poster: null,
+    addedAt: '2024-01-01T00:00:00.000Z',
+  };
+  return { ...base, ...partial };
+}
+
+describe('findDuplicateGroups', () => {
+  it('groups candidates that share a title dedup key', () => {
+    const pool = [
+      cand({ title: 'The Lion King', imdbId: 'tt1' }),
+      cand({ title: 'Lion King', imdbId: 'tt2' }),
+      cand({ title: 'Frozen', imdbId: 'tt3' }),
+    ];
+    const groups = findDuplicateGroups(pool);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members.map((m) => m.title).sort()).toEqual([
+      'Lion King',
+      'The Lion King',
+    ]);
+  });
+
+  it('groups candidates that share an imdbId even with different titles', () => {
+    const pool = [
+      cand({ title: 'Star Wars', imdbId: 'tt0076759' }),
+      cand({ title: 'Star Wars: A New Hope', imdbId: 'tt0076759' }),
+    ];
+    const groups = findDuplicateGroups(pool);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].sharesImdbId).toBe(true);
+  });
+
+  it('flags title-only groups as not sharing an imdbId (possible remake)', () => {
+    const pool = [
+      cand({ title: 'The Lion King', imdbId: 'tt0110357', year: 1994 }),
+      cand({ title: 'The Lion King', imdbId: 'tt6105098', year: 2019 }),
+    ];
+    const groups = findDuplicateGroups(pool);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].sharesImdbId).toBe(false);
+  });
+
+  it('collapses a transitive chain into one group', () => {
+    // A~B by title, B~C by imdbId => {A,B,C}
+    const pool = [
+      cand({ title: 'Cars', imdbId: 'ttA' }),
+      cand({ title: 'Cars', imdbId: 'ttSHARED' }),
+      cand({ title: 'Cars (2006)', imdbId: 'ttSHARED' }),
+    ];
+    const groups = findDuplicateGroups(pool);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toHaveLength(3);
+  });
+
+  it('excludes soft-removed candidates', () => {
+    const pool = [
+      cand({ title: 'Up', imdbId: 'tt1' }),
+      cand({ title: 'Up', imdbId: 'tt2', removedAt: '2024-02-01T00:00:00Z' }),
+    ];
+    expect(findDuplicateGroups(pool)).toHaveLength(0);
+  });
+
+  it('returns strong-signal groups before title-only groups', () => {
+    const pool = [
+      cand({ title: 'Remake', imdbId: 'tt10', year: 1980 }),
+      cand({ title: 'Remake', imdbId: 'tt11', year: 2010 }),
+      cand({ title: 'Dupe', imdbId: 'ttSAME' }),
+      cand({ title: 'Dupe Movie', imdbId: 'ttSAME' }),
+    ];
+    const groups = findDuplicateGroups(pool);
+    expect(groups[0].sharesImdbId).toBe(true);
+    expect(groups[1].sharesImdbId).toBe(false);
+  });
+
+  it('finds nothing when there are no duplicates', () => {
+    const pool = [
+      cand({ title: 'A', imdbId: 'tt1' }),
+      cand({ title: 'B', imdbId: 'tt2' }),
+    ];
+    expect(findDuplicateGroups(pool)).toEqual([]);
+  });
+});
+
+describe('mergeCandidates', () => {
+  it('fills empty survivor fields from victims without overwriting present ones', () => {
+    const survivor = cand({ title: 'Toy Story', imdbId: 'tt1', rottenTomatoes: '100%' });
+    const victim = cand({
+      title: 'Toy Story',
+      imdbId: 'tt1',
+      rottenTomatoes: '95%',
+      imdb: '8.3',
+      studio: 'Pixar',
+    });
+    const merged = mergeCandidates(survivor, [victim]);
+    expect(merged.rottenTomatoes).toBe('100%'); // survivor wins
+    expect(merged.imdb).toBe('8.3'); // filled from victim
+    expect(merged.studio).toBe('Pixar');
+    expect(merged.title).toBe('Toy Story');
+  });
+
+  it('unions the imdbId from a victim when the survivor is unlinked', () => {
+    const survivor = cand({ title: 'Lion King', imdbId: null });
+    const victim = cand({ title: 'The Lion King', imdbId: 'tt0110357' });
+    const merged = mergeCandidates(survivor, [victim]);
+    expect(merged.imdbId).toBe('tt0110357');
+  });
+
+  it('keeps the earliest addedAt', () => {
+    const survivor = cand({ title: 'X', addedAt: '2024-05-01T00:00:00Z' });
+    const victim = cand({ title: 'X', addedAt: '2023-01-01T00:00:00Z' });
+    expect(mergeCandidates(survivor, [victim]).addedAt).toBe(
+      '2023-01-01T00:00:00Z',
+    );
+  });
+});
+
+describe('applyMerge', () => {
+  it('removes victims and replaces the survivor with the merged record', () => {
+    const a = cand({ title: 'Lion King', imdbId: null, studio: null });
+    const b = cand({ title: 'The Lion King', imdbId: 'tt1', studio: 'Disney' });
+    const c = cand({ title: 'Frozen', imdbId: 'tt2' });
+    const next = applyMerge([a, b, c], a, [b]);
+    expect(next).toHaveLength(2);
+    const survivor = next.find((x) => x.title === 'Lion King')!;
+    expect(survivor.imdbId).toBe('tt1');
+    expect(survivor.studio).toBe('Disney');
+    expect(next.some((x) => x.title === 'The Lion King')).toBe(false);
+    expect(next.some((x) => x.title === 'Frozen')).toBe(true);
+  });
+
+  it('handles two rows with an identical title (reference identity)', () => {
+    const survivor = cand({ title: 'Dupe', imdbId: 'tt1' });
+    const victim = cand({ title: 'Dupe', imdbId: 'tt1', imdb: '7.0' });
+    const next = applyMerge([survivor, victim], survivor, [victim]);
+    expect(next).toHaveLength(1);
+    expect(next[0]).toBe(next[0]);
+    expect(next[0].imdb).toBe('7.0');
+    expect(next[0].imdbId).toBe('tt1');
+  });
+});
+
+describe('pickDefaultSurvivor', () => {
+  it('prefers a member already in the library', () => {
+    const inLib = cand({ title: 'Lion King', imdbId: null });
+    const richer = cand({ title: 'The Lion King', imdbId: 'tt1', studio: 'Disney' });
+    const idx = pickDefaultSurvivor([richer, inLib], (c) => c === inLib);
+    expect([richer, inLib][idx]).toBe(inLib);
+  });
+
+  it('falls back to the most complete/linked record', () => {
+    const sparse = cand({ title: 'A', imdbId: null });
+    const linked = cand({ title: 'A', imdbId: 'tt1', studio: 'S' });
+    const idx = pickDefaultSurvivor([sparse, linked]);
+    expect([sparse, linked][idx]).toBe(linked);
+  });
+});
+
+describe('completenessScore', () => {
+  it('rewards linked candidates heavily', () => {
+    const linked = cand({ title: 'A', imdbId: 'tt1' });
+    const unlinkedRich = cand({
+      title: 'A',
+      studio: 'S',
+      awards: 'W',
+      imdb: '9',
+      year: 2000,
+    });
+    expect(completenessScore(linked)).toBeGreaterThan(
+      completenessScore(unlinkedRich),
+    );
+  });
+});
