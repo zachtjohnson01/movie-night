@@ -16,6 +16,12 @@ import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
 import { expandPool, extractUnique, type ExpandProgress } from '../recommendations';
 import {
+  findDuplicateGroups,
+  applyMerge,
+  pickDefaultSurvivor,
+  type DuplicateGroup,
+} from '../dedupe';
+import {
   commonSenseUrl,
   dedupKey,
   getMovieById,
@@ -435,6 +441,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       <BulkOmdbSection pool={pool} />
 
       <BulkStreamingSection pool={pool} />
+
+      <FindDuplicatesSection pool={pool} movies={movies} />
 
       <ul className="pt-2">
         {visible.map(({ c, fit }, i) => (
@@ -1394,6 +1402,584 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+// Duplicate finder: scans the pool for candidates that collide on title
+// key and/or IMDb id, then walks the admin through each group one at a time
+// (records shown side by side) to fold the extras into a single survivor.
+// Mirrors the idle-button pattern of BulkOmdbSection/BulkStreamingSection.
+function FindDuplicatesSection({
+  pool,
+  movies,
+}: {
+  pool: CandidatePoolApi;
+  movies: Movie[];
+}) {
+  // Snapshot the groups when the review opens so merges made mid-review don't
+  // reshuffle the stepper under the admin. `null` = closed.
+  const [session, setSession] = useState<DuplicateGroup[] | null>(null);
+
+  const groups = useMemo(
+    () => findDuplicateGroups(pool.candidates),
+    [pool.candidates],
+  );
+
+  const isInLibrary = useMemo(() => {
+    const ids = new Set(
+      movies.map((m) => m.imdbId).filter((x): x is string => x != null),
+    );
+    const keys = new Set(movies.map((m) => dedupKey(m.title)));
+    return (c: Candidate) =>
+      (c.imdbId != null && ids.has(c.imdbId)) || keys.has(dedupKey(c.title));
+  }, [movies]);
+
+  const count = groups.length;
+
+  return (
+    <div className="px-4 pt-1 pb-2">
+      <button
+        type="button"
+        onClick={() => setSession(groups)}
+        aria-label={`Find duplicates, ${count} ${
+          count === 1 ? 'group' : 'groups'
+        }`}
+        className={`w-full min-h-[48px] rounded-2xl border text-sm font-semibold flex items-center justify-center gap-2 active:bg-ink-700 transition-colors ${
+          count > 0
+            ? 'bg-ink-800 border-amber-glow/40 text-ink-100'
+            : 'bg-ink-800 border-ink-700 text-ink-200'
+        }`}
+      >
+        <LayersIcon
+          className={`w-[18px] h-[18px] shrink-0 ${
+            count > 0 ? 'text-amber-glow' : 'text-ink-500'
+          }`}
+        />
+        <span>Find duplicates</span>
+        <span
+          className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold tabular-nums ${
+            count > 0 ? 'bg-amber-glow text-ink-950' : 'bg-ink-700 text-ink-400'
+          }`}
+        >
+          {count}
+        </span>
+      </button>
+
+      {session && (
+        <DuplicateReview
+          groups={session}
+          isInLibrary={isInLibrary}
+          onMerge={(keeper, victims) =>
+            pool.replaceCandidates(
+              applyMerge(pool.candidates, keeper, victims),
+            )
+          }
+          onClose={() => setSession(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Full-screen review stepper. Presents one duplicate group at a time with its
+// members side by side; the admin taps the record to keep and merges the rest
+// in, or skips the group. Merging fills the survivor's empty metadata from the
+// others and drops the extra rows (see src/dedupe.ts).
+function DuplicateReview({
+  groups,
+  isInLibrary,
+  onMerge,
+  onClose,
+}: {
+  groups: DuplicateGroup[];
+  isInLibrary: (c: Candidate) => boolean;
+  onMerge: (keeper: Candidate, victims: Candidate[]) => Promise<void>;
+  onClose: () => void;
+}) {
+  const total = groups.length;
+  const [index, setIndex] = useState(0);
+  const [keeperIdx, setKeeperIdx] = useState(() =>
+    total > 0 ? pickDefaultSurvivor(groups[0].members, isInLibrary) : 0,
+  );
+  const [busy, setBusy] = useState(false);
+  const [merged, setMerged] = useState(0);
+  const [skipped, setSkipped] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const done = index >= total;
+  const group = done ? null : groups[index];
+
+  const advance = useCallback(
+    (next: number) => {
+      setError(null);
+      if (next < groups.length) {
+        setKeeperIdx(pickDefaultSurvivor(groups[next].members, isInLibrary));
+      }
+      setIndex(next);
+    },
+    [groups, isInLibrary],
+  );
+
+  const keeper = group ? group.members[keeperIdx] : null;
+  const victims = group
+    ? group.members.filter((_, i) => i !== keeperIdx)
+    : [];
+
+  // IMDb id the survivor will carry after the merge (its own, else the first
+  // one it inherits). Library entries that reference a victim by a *different*
+  // id and a different title would become unlinked — flag those.
+  const keeperImdbAfter =
+    keeper?.imdbId ?? victims.map((v) => v.imdbId).find(Boolean) ?? null;
+  const brokenLinks = victims.filter(
+    (v) =>
+      isInLibrary(v) &&
+      !(
+        (v.imdbId != null && v.imdbId === keeperImdbAfter) ||
+        dedupKey(v.title) === dedupKey(keeper?.title ?? '')
+      ),
+  );
+
+  async function handleMerge() {
+    if (!group || !keeper || busy) return;
+    setBusy(true);
+    try {
+      await onMerge(keeper, victims);
+      setMerged((n) => n + 1);
+      advance(index + 1);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleSkip() {
+    setSkipped((n) => n + 1);
+    advance(index + 1);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-ink-950/85 backdrop-blur-sm flex items-end"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl mx-auto rounded-t-3xl bg-ink-950 border-t border-ink-700 max-h-[92vh] flex flex-col overflow-hidden"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {total > 0 && !done && (
+          <div className="h-1 bg-ink-800 shrink-0" aria-hidden>
+            <div
+              className="h-full bg-amber-glow transition-[width] duration-200"
+              style={{ width: `${(index / total) * 100}%` }}
+            />
+          </div>
+        )}
+
+        <header className="px-5 pt-4 pb-3 border-b border-ink-800/70 flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.22em] text-crimson-bright font-semibold">
+              Duplicate finder
+            </div>
+            <h2 className="mt-0.5 text-lg font-bold text-ink-100 leading-tight tabular-nums">
+              {total === 0
+                ? 'No duplicates'
+                : done
+                  ? 'All reviewed'
+                  : `Group ${index + 1} of ${total}`}
+            </h2>
+            {total > 0 && !done && (merged > 0 || skipped > 0) && (
+              <div className="mt-1 text-[11px] text-ink-500 tabular-nums">
+                <span className="text-ink-300 font-semibold">{merged}</span>{' '}
+                merged{' · '}
+                <span className="text-ink-300 font-semibold">{skipped}</span>{' '}
+                skipped
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="w-11 h-11 -mr-2 shrink-0 rounded-full flex items-center justify-center text-ink-300 active:bg-ink-800"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width={22}
+              height={22}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </header>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {total === 0 && (
+            <div className="py-14 flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-300">
+                <CheckCircleIcon className="w-8 h-8" />
+              </div>
+              <p className="mt-4 text-ink-100 text-base font-bold">
+                No duplicates found
+              </p>
+              <p className="mt-1.5 max-w-[17rem] text-ink-500 text-xs leading-relaxed">
+                Every candidate in the pool has a distinct title and IMDb id.
+              </p>
+            </div>
+          )}
+
+          {done && total > 0 && (
+            <div className="py-14 flex flex-col items-center text-center">
+              <div className="w-16 h-16 rounded-full bg-amber-glow/10 border border-amber-glow/30 flex items-center justify-center text-amber-glow">
+                <CheckCircleIcon className="w-8 h-8" />
+              </div>
+              <p className="mt-4 text-ink-100 text-lg font-bold">All done</p>
+              <p className="mt-1 text-sm text-ink-400">
+                Reviewed all {total} {total === 1 ? 'group' : 'groups'}.
+              </p>
+              <div className="mt-4 flex items-center gap-2">
+                <span className="inline-flex items-baseline gap-1.5 rounded-full bg-amber-glow/10 border border-amber-glow/30 px-3 py-1 text-xs font-semibold text-amber-glow tabular-nums">
+                  <span className="text-sm font-bold">{merged}</span> merged
+                </span>
+                <span className="inline-flex items-baseline gap-1.5 rounded-full bg-ink-800 border border-ink-700 px-3 py-1 text-xs font-semibold text-ink-300 tabular-nums">
+                  <span className="text-sm font-bold text-ink-200">
+                    {skipped}
+                  </span>{' '}
+                  skipped
+                </span>
+              </div>
+            </div>
+          )}
+
+          {group && keeper && (
+            <>
+              <div
+                className={`mb-4 flex items-start gap-2.5 rounded-xl px-3.5 py-3 text-xs leading-relaxed ${
+                  group.sharesImdbId
+                    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-glow/10 border border-amber-glow/30 text-amber-glow'
+                }`}
+              >
+                <span aria-hidden className="mt-px shrink-0">
+                  {group.sharesImdbId ? (
+                    <CheckCircleIcon className="w-4 h-4" />
+                  ) : (
+                    <AlertTriangleIcon className="w-4 h-4" />
+                  )}
+                </span>
+                <span>
+                  <span className="font-bold">
+                    {group.sharesImdbId ? 'Shared IMDb id' : 'Title match only'}
+                  </span>
+                  {group.sharesImdbId
+                    ? ' — very likely the same title.'
+                    : ' — confirm this is not a remake before merging.'}
+                </span>
+              </div>
+
+              <div className="relative">
+                <div
+                  className={`grid gap-3 ${
+                    group.members.length === 2
+                      ? 'grid-cols-2 items-stretch'
+                      : 'grid-cols-1'
+                  }`}
+                >
+                  {group.members.map((c, i) => (
+                    <DupeCard
+                      key={i}
+                      c={c}
+                      selected={i === keeperIdx}
+                      inLibrary={isInLibrary(c)}
+                      onSelect={() => setKeeperIdx(i)}
+                    />
+                  ))}
+                </div>
+                {group.members.length === 2 && (
+                  <div
+                    aria-hidden
+                    className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-ink-950 border border-ink-700 flex items-center justify-center text-[9px] font-bold uppercase tracking-wider text-ink-400"
+                  >
+                    vs
+                  </div>
+                )}
+              </div>
+
+              {brokenLinks.length > 0 && (
+                <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-crimson-deep/15 border border-crimson-deep/50 px-3.5 py-3 text-xs leading-relaxed text-crimson-bright">
+                  <AlertTriangleIcon className="w-4 h-4 mt-px shrink-0" />
+                  <p>
+                    <span className="font-bold">Heads up:</span>{' '}
+                    {brokenLinks.length} library movie
+                    {brokenLinks.length === 1 ? '' : 's'} reference the other
+                    record. Merging will unlink{' '}
+                    {brokenLinks.length === 1 ? 'it' : 'them'} — keep that record
+                    instead if you want the link preserved.
+                  </p>
+                </div>
+              )}
+
+              {error && (
+                <p className="mt-4 text-center text-xs text-crimson-bright">
+                  {error}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="px-5 pt-3 border-t border-ink-800/70 shrink-0">
+          {group ? (
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleSkip}
+                className="min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-50"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleMerge()}
+                className="min-h-[48px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {busy ? (
+                  <>
+                    <span
+                      aria-hidden
+                      className="inline-block w-3 h-3 rounded-full border-2 border-ink-950 border-t-transparent animate-spin"
+                    />
+                    Merging…
+                  </>
+                ) : (
+                  <>
+                    Merge {victims.length} in
+                  </>
+                )}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-full min-h-[48px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80"
+            >
+              Done
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One candidate card inside the review stepper. Tappable to choose as the
+// survivor; the selected card gets an amber ring + "Keep" badge, the rest stay
+// fully legible with a muted "Merge in" badge.
+function DupeCard({
+  c,
+  selected,
+  inLibrary,
+  onSelect,
+}: {
+  c: Candidate;
+  selected: boolean;
+  inLibrary: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`relative flex flex-col text-left rounded-2xl border p-3 transition-colors ${
+        selected
+          ? 'bg-amber-glow/5 border-amber-glow ring-1 ring-amber-glow'
+          : 'bg-ink-900 border-ink-700 active:border-ink-600'
+      }`}
+    >
+      <div
+        className={`absolute top-2 right-2 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+          selected ? 'bg-amber-glow text-ink-950' : 'bg-ink-800 text-ink-500'
+        }`}
+      >
+        {selected && <CheckIcon className="w-2.5 h-2.5" />}
+        {selected ? 'Keep' : 'Merge in'}
+      </div>
+
+      <div className="flex gap-3">
+        {c.poster ? (
+          <img
+            src={c.poster}
+            alt=""
+            className="w-[46px] h-[69px] rounded-md object-cover border border-ink-700 shrink-0 bg-ink-800"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-[46px] h-[69px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
+            <span className="text-base font-bold text-ink-600 select-none">
+              {(c.displayTitle ?? c.title).charAt(0).toUpperCase()}
+            </span>
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-semibold text-ink-100 leading-tight pr-16 truncate">
+            {c.displayTitle ?? c.title}
+          </div>
+          <div className="mt-0.5 text-[11px] font-mono tabular-nums text-ink-500">
+            {c.year ?? '—'}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap gap-1.5">
+        <span
+          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+            c.imdbId
+              ? 'border-emerald-500/40 text-emerald-300'
+              : 'border-ink-700 text-ink-500'
+          }`}
+        >
+          {c.imdbId ? 'Linked' : 'Unlinked'}
+        </span>
+        {inLibrary && (
+          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright">
+            In library
+          </span>
+        )}
+        {c.commonSenseAge && (
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${ageBadgeClass(
+              c.commonSenseAge,
+            )}`}
+          >
+            {c.commonSenseAge}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-2.5 grid grid-cols-2 gap-x-2 text-[11px]">
+        <DupeStat label="RT" value={c.rottenTomatoes} />
+        <DupeStat label="IMDb" value={c.imdb} />
+      </div>
+
+      <div className="mt-2 text-[10.5px] font-medium truncate">
+        {c.studio ? (
+          <span className="text-ink-500">{c.studio}</span>
+        ) : (
+          <span className="text-ink-600">No studio</span>
+        )}
+      </div>
+      <div className="mt-1 text-[10px] text-ink-600 tabular-nums">
+        added {formatRelativeTime(c.addedAt)}
+      </div>
+    </button>
+  );
+}
+
+// One aligned RT / IMDb metric slot inside a DupeCard. Always renders so the
+// two cards' rows line up even when one is missing a score.
+function DupeStat({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span className="text-[8px] font-semibold uppercase tracking-wider text-ink-500">
+        {label}
+      </span>
+      <span
+        className={`font-semibold tabular-nums ${
+          value ? 'text-ink-300' : 'text-ink-600'
+        }`}
+      >
+        {value ?? '—'}
+      </span>
+    </span>
+  );
+}
+
+function LayersIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M12 2 2 7l10 5 10-5-10-5Z" />
+      <path d="m2 17 10 5 10-5" />
+      <path d="m2 12 10 5 10-5" />
+    </svg>
+  );
+}
+
+function CheckCircleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <path d="m9 11 3 3L22 4" />
+    </svg>
+  );
+}
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={3}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
+function AlertTriangleIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      className={className}
+    >
+      <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
   );
 }
 
