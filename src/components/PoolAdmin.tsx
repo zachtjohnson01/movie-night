@@ -1501,6 +1501,9 @@ function DuplicateReview({
   const [keeperIdx, setKeeperIdx] = useState(() =>
     total > 0 ? pickDefaultSurvivor(groups[0].members, isInLibrary) : 0,
   );
+  // Member indices the admin chose to leave OUT of the merge (only relevant
+  // for groups with 3+ members — the leftover stays as its own pool row).
+  const [excluded, setExcluded] = useState<Set<number>>(new Set());
   const [busy, setBusy] = useState(false);
   const [merged, setMerged] = useState(0);
   const [skipped, setSkipped] = useState(0);
@@ -1512,6 +1515,7 @@ function DuplicateReview({
   const advance = useCallback(
     (next: number) => {
       setError(null);
+      setExcluded(new Set());
       if (next < groups.length) {
         setKeeperIdx(pickDefaultSurvivor(groups[next].members, isInLibrary));
       }
@@ -1520,9 +1524,25 @@ function DuplicateReview({
     [groups, isInLibrary],
   );
 
+  // Choosing a new keeper resets the include/exclude selection — the roles
+  // shift, so default back to "merge in everything else".
+  const selectKeeper = useCallback((i: number) => {
+    setKeeperIdx(i);
+    setExcluded(new Set());
+  }, []);
+
+  const toggleExclude = useCallback((i: number) => {
+    setExcluded((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }, []);
+
   const keeper = group ? group.members[keeperIdx] : null;
   const victims = group
-    ? group.members.filter((_, i) => i !== keeperIdx)
+    ? group.members.filter((_, i) => i !== keeperIdx && !excluded.has(i))
     : [];
 
   // IMDb id the survivor will carry after the merge (its own, else the first
@@ -1683,6 +1703,13 @@ function DuplicateReview({
                 </span>
               </div>
 
+              {group.members.length > 2 && (
+                <p className="mb-3 text-[11px] text-ink-500 leading-relaxed">
+                  Tap a record to keep it. Toggle the others to choose which
+                  fold in — any left separate stay as their own pool entry.
+                </p>
+              )}
+
               <div className="relative">
                 <div
                   className={`grid gap-3 ${
@@ -1691,15 +1718,24 @@ function DuplicateReview({
                       : 'grid-cols-1'
                   }`}
                 >
-                  {group.members.map((c, i) => (
-                    <DupeCard
-                      key={i}
-                      c={c}
-                      selected={i === keeperIdx}
-                      inLibrary={isInLibrary(c)}
-                      onSelect={() => setKeeperIdx(i)}
-                    />
-                  ))}
+                  {group.members.map((c, i) => {
+                    const isKeeper = i === keeperIdx;
+                    return (
+                      <DupeCard
+                        key={i}
+                        c={c}
+                        selected={isKeeper}
+                        included={!isKeeper && !excluded.has(i)}
+                        inLibrary={isInLibrary(c)}
+                        onSelect={() => selectKeeper(i)}
+                        onToggleInclude={
+                          group.members.length > 2 && !isKeeper
+                            ? () => toggleExclude(i)
+                            : undefined
+                        }
+                      />
+                    );
+                  })}
                 </div>
                 {group.members.length === 2 && (
                   <div
@@ -1747,7 +1783,7 @@ function DuplicateReview({
               </button>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || victims.length === 0}
                 onClick={() => void handleMerge()}
                 className="min-h-[48px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
               >
@@ -1759,10 +1795,10 @@ function DuplicateReview({
                     />
                     Merging…
                   </>
+                ) : victims.length === 0 ? (
+                  <>Select to merge</>
                 ) : (
-                  <>
-                    Merge {victims.length} in
-                  </>
+                  <>Merge {victims.length} in</>
                 )}
               </button>
             </div>
@@ -1781,107 +1817,147 @@ function DuplicateReview({
   );
 }
 
-// One candidate card inside the review stepper. Tappable to choose as the
-// survivor; the selected card gets an amber ring + "Keep" badge, the rest stay
-// fully legible with a muted "Merge in" badge.
+// One candidate card inside the review stepper. Tap the body to choose it as
+// the survivor (amber ring + "Keep" badge). For groups of 3+, non-keeper cards
+// also get a toggle to include/exclude them from the merge — an excluded card
+// dims and reads "Separate", and stays as its own pool row.
 function DupeCard({
   c,
   selected,
+  included = true,
   inLibrary,
   onSelect,
+  onToggleInclude,
 }: {
   c: Candidate;
   selected: boolean;
+  included?: boolean;
   inLibrary: boolean;
   onSelect: () => void;
+  onToggleInclude?: () => void;
 }) {
+  const separate = onToggleInclude != null && !selected && !included;
+  const badge = selected ? 'Keep' : separate ? 'Separate' : 'Merge in';
+
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      className={`relative flex flex-col text-left rounded-2xl border p-3 transition-colors ${
+    <div
+      className={`relative flex flex-col rounded-2xl border transition-colors ${
         selected
           ? 'bg-amber-glow/5 border-amber-glow ring-1 ring-amber-glow'
-          : 'bg-ink-900 border-ink-700 active:border-ink-600'
+          : separate
+            ? 'bg-ink-900 border-ink-800 opacity-55'
+            : 'bg-ink-900 border-ink-700'
       }`}
     >
       <div
-        className={`absolute top-2 right-2 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
-          selected ? 'bg-amber-glow text-ink-950' : 'bg-ink-800 text-ink-500'
+        className={`absolute top-2 right-2 z-10 inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+          selected
+            ? 'bg-amber-glow text-ink-950'
+            : separate
+              ? 'bg-ink-800 text-ink-500'
+              : 'bg-ink-800 text-ink-300'
         }`}
       >
         {selected && <CheckIcon className="w-2.5 h-2.5" />}
-        {selected ? 'Keep' : 'Merge in'}
+        {badge}
       </div>
 
-      <div className="flex gap-3">
-        {c.poster ? (
-          <img
-            src={c.poster}
-            alt=""
-            className="w-[46px] h-[69px] rounded-md object-cover border border-ink-700 shrink-0 bg-ink-800"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-[46px] h-[69px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
-            <span className="text-base font-bold text-ink-600 select-none">
-              {(c.displayTitle ?? c.title).charAt(0).toUpperCase()}
-            </span>
-          </div>
-        )}
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-ink-100 leading-tight pr-16 truncate">
-            {c.displayTitle ?? c.title}
-          </div>
-          <div className="mt-0.5 text-[11px] font-mono tabular-nums text-ink-500">
-            {c.year ?? '—'}
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={selected}
+        className="text-left p-3 rounded-2xl active:bg-ink-800/30 transition-colors"
+      >
+        <div className="flex gap-3">
+          {c.poster ? (
+            <img
+              src={c.poster}
+              alt=""
+              className="w-[46px] h-[69px] rounded-md object-cover border border-ink-700 shrink-0 bg-ink-800"
+              loading="lazy"
+            />
+          ) : (
+            <div className="w-[46px] h-[69px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
+              <span className="text-base font-bold text-ink-600 select-none">
+                {(c.displayTitle ?? c.title).charAt(0).toUpperCase()}
+              </span>
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-ink-100 leading-tight pr-16 truncate">
+              {c.displayTitle ?? c.title}
+            </div>
+            <div className="mt-0.5 text-[11px] font-mono tabular-nums text-ink-500">
+              {c.year ?? '—'}
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="mt-2.5 flex flex-wrap gap-1.5">
-        <span
-          className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
-            c.imdbId
-              ? 'border-emerald-500/40 text-emerald-300'
-              : 'border-ink-700 text-ink-500'
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          <span
+            className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+              c.imdbId
+                ? 'border-emerald-500/40 text-emerald-300'
+                : 'border-ink-700 text-ink-500'
+            }`}
+          >
+            {c.imdbId ? 'Linked' : 'Unlinked'}
+          </span>
+          {inLibrary && (
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright">
+              In library
+            </span>
+          )}
+          {c.commonSenseAge && (
+            <span
+              className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${ageBadgeClass(
+                c.commonSenseAge,
+              )}`}
+            >
+              {c.commonSenseAge}
+            </span>
+          )}
+        </div>
+
+        <div className="mt-2.5 grid grid-cols-2 gap-x-2 text-[11px]">
+          <DupeStat label="RT" value={c.rottenTomatoes} />
+          <DupeStat label="IMDb" value={c.imdb} />
+        </div>
+
+        <div className="mt-2 text-[10.5px] font-medium truncate">
+          {c.studio ? (
+            <span className="text-ink-500">{c.studio}</span>
+          ) : (
+            <span className="text-ink-600">No studio</span>
+          )}
+        </div>
+        <div className="mt-1 text-[10px] text-ink-600 tabular-nums">
+          added {formatRelativeTime(c.addedAt)}
+        </div>
+      </button>
+
+      {onToggleInclude && !selected && (
+        <button
+          type="button"
+          onClick={onToggleInclude}
+          aria-pressed={included}
+          className={`mx-3 mb-3 min-h-[44px] rounded-xl border text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors ${
+            included
+              ? 'bg-amber-glow/10 border-amber-glow/40 text-amber-glow active:bg-amber-glow/20'
+              : 'bg-ink-800 border-ink-700 text-ink-400 active:bg-ink-700'
           }`}
         >
-          {c.imdbId ? 'Linked' : 'Unlinked'}
-        </span>
-        {inLibrary && (
-          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright">
-            In library
-          </span>
-        )}
-        {c.commonSenseAge && (
-          <span
-            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${ageBadgeClass(
-              c.commonSenseAge,
-            )}`}
-          >
-            {c.commonSenseAge}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-2.5 grid grid-cols-2 gap-x-2 text-[11px]">
-        <DupeStat label="RT" value={c.rottenTomatoes} />
-        <DupeStat label="IMDb" value={c.imdb} />
-      </div>
-
-      <div className="mt-2 text-[10.5px] font-medium truncate">
-        {c.studio ? (
-          <span className="text-ink-500">{c.studio}</span>
-        ) : (
-          <span className="text-ink-600">No studio</span>
-        )}
-      </div>
-      <div className="mt-1 text-[10px] text-ink-600 tabular-nums">
-        added {formatRelativeTime(c.addedAt)}
-      </div>
-    </button>
+          {included ? (
+            <>
+              <CheckIcon className="w-3 h-3" />
+              Merging in
+            </>
+          ) : (
+            <>Left separate</>
+          )}
+        </button>
+      )}
+    </div>
   );
 }
 
