@@ -1,5 +1,5 @@
 import type { Candidate, Movie } from './types';
-import { dedupKey, enrichCandidate, normalizeTitle } from './omdb';
+import { dedupKey, enrichCandidate, normalizeTitle, type CandidateOmdbPatch } from './omdb';
 import { DEFAULT_WEIGHTS, scoreCandidate, type ScoreContext, type ScoringWeights } from './scoring';
 import { supabase } from './supabase';
 import { parseNameList } from './format';
@@ -115,16 +115,42 @@ export function extractUnique(raw: (string | null | undefined)[]): string[] {
 }
 
 /**
- * Admin-only: request a fresh batch of candidate films from the LLM,
- * enrich each one via OMDB in parallel, and return a fully-formed
- * Candidate[] ready to append to the pool. Does NOT write to Supabase —
- * the caller does that through `useCandidatePool.appendCandidates`.
+ * Progress signal for the admin pool-expansion flow, surfaced so the UI can
+ * show which stage it's in — and, during the slow OMDB pass, how many titles
+ * have been checked and kept — instead of a blind multi-second spinner.
+ */
+export type ExpandProgress =
+  | { stage: 'requesting' }
+  | { stage: 'enriching'; done: number; total: number; kept: number }
+  // `saving` is set by the caller while it writes the batch to Supabase;
+  // expandPool itself only emits requesting / enriching / done.
+  | { stage: 'saving' }
+  | { stage: 'done'; added: number };
+
+// OMDB's free tier rate-limits bursts hard. Enriching the whole batch at once
+// (the old all-`Promise.all` approach) tripped the limiter and silently
+// dropped almost every title, so the pool grew by one or two per press.
+// Enrich a few at a time instead — the same conservative throttling the bulk
+// refreshers already use.
+const OMDB_CONCURRENCY = 4;
+
+/**
+ * Admin-only: request a fresh batch of candidate films from the LLM, enrich
+ * each one via OMDB (throttled), and return a fully-formed Candidate[] ready
+ * to append to the pool. Does NOT write to Supabase — the caller does that
+ * through `useCandidatePool.appendCandidates`. Reports progress via the
+ * optional `onProgress` callback.
+ *
+ * The LLM over-delivers (the server returns more than `batchSize`) because
+ * OMDB can't confirm every title; we enrich until `batchSize` verified
+ * survivors are collected, then stop to save free-tier OMDB quota.
  */
 export async function expandPool(
   poolTitles: string[],
   libraryTitles: string[],
   batchSize: number = 100,
   libraryContext?: { directors: string[]; writers: string[]; studios: string[] },
+  onProgress?: (p: ExpandProgress) => void,
 ): Promise<Candidate[]> {
   // The endpoint verifies this JWT server-side and rejects anyone not on
   // the admin allowlist — without a live session we can't even try.
@@ -136,6 +162,8 @@ export async function expandPool(
   if (!token) {
     throw new Error('Sign in required to expand the pool.');
   }
+
+  onProgress?.({ stage: 'requesting' });
 
   const resp = await fetch('/api/recommendations', {
     method: 'POST',
@@ -161,48 +189,72 @@ export async function expandPool(
 
   const data = (await resp.json()) as { items: RawCandidateFromApi[] };
   const raw = Array.isArray(data.items) ? data.items : [];
-  if (raw.length === 0) return [];
+  if (raw.length === 0) {
+    onProgress?.({ stage: 'done', added: 0 });
+    return [];
+  }
 
-  // OMDB calls in parallel. allSettled so one 404 doesn't nuke the batch.
-  const enriched = await Promise.allSettled(
-    raw.map((r) => enrichCandidate(r.title)),
-  );
-
-  const now = new Date().toISOString();
-  // OMDB gates the pool: searchMovies is type-filtered to films, so a null
-  // enrichment means OMDB couldn't confirm this title as a movie. Drop it
-  // rather than let an LLM-hallucinated TV show slip in unlinked.
-  const out: Candidate[] = raw.flatMap((r, i) => {
-    const omdb =
-      enriched[i].status === 'fulfilled' ? enriched[i].value : null;
-    if (!omdb) return [];
-    // Merge rules: OMDB wins for RT / IMDb / awards / year / poster / imdbId.
-    // LLM wins for CSM age (OMDB has none) and studio (OMDB's Production
-    // is usually "N/A" on the free tier).
-    return [{
-      title: r.title,
-      year: omdb.year ?? r.year,
-      imdbId: omdb.imdbId,
-      imdb: omdb.imdb ?? r.imdb,
-      rottenTomatoes: omdb.rottenTomatoes ?? r.rottenTomatoes,
-      commonSenseAge: r.commonSenseAge,
-      studio: r.studio ?? omdb.production ?? null,
-      awards: omdb.awards ?? r.awards,
-      directors:
-        omdb.directors ??
-        parseNameList(r.directors ?? r.director),
-      writers:
-        omdb.writers ??
-        parseNameList(r.writers ?? r.writer),
-      poster: omdb.poster ?? null,
-      addedAt: now,
-      type: omdb.type,
-    }];
-  });
-
-  // Final client-side dedupe against pool + library.
+  // Never re-add a title already in the pool or the library. Kept titles are
+  // added to this set too, so an intra-batch duplicate (the LLM naming the
+  // same film twice) is skipped rather than seeded twice.
   const ban = new Set<string>();
   for (const t of poolTitles) ban.add(t.toLowerCase());
   for (const t of libraryTitles) ban.add(t.toLowerCase());
-  return out.filter((c) => !ban.has(c.title.toLowerCase()));
+
+  const now = new Date().toISOString();
+  const total = raw.length;
+  const out: Candidate[] = [];
+  let done = 0;
+  let cursor = 0;
+  onProgress?.({ stage: 'enriching', done: 0, total, kept: 0 });
+
+  // Throttled workers share a cursor into `raw`. Each stops pulling new
+  // titles once `out` holds a full batch of OMDB-verified survivors.
+  const worker = async () => {
+    while (cursor < raw.length && out.length < batchSize) {
+      const r = raw[cursor++];
+      const key = r.title.toLowerCase();
+      let omdb: CandidateOmdbPatch | null = null;
+      if (!ban.has(key)) {
+        try {
+          omdb = await enrichCandidate(r.title);
+        } catch {
+          omdb = null;
+        }
+      }
+      done++;
+      // OMDB gates the pool: searchMovies is type-filtered to films, so a
+      // null enrichment means OMDB couldn't confirm this title as a movie.
+      // Drop it rather than let an LLM-hallucinated TV show slip in unlinked.
+      if (omdb && !ban.has(key) && out.length < batchSize) {
+        ban.add(key);
+        // Merge rules: OMDB wins for RT / IMDb / awards / year / poster /
+        // imdbId. LLM wins for CSM age (OMDB has none) and studio (OMDB's
+        // Production is usually "N/A" on the free tier).
+        out.push({
+          title: r.title,
+          year: omdb.year ?? r.year,
+          imdbId: omdb.imdbId,
+          imdb: omdb.imdb ?? r.imdb,
+          rottenTomatoes: omdb.rottenTomatoes ?? r.rottenTomatoes,
+          commonSenseAge: r.commonSenseAge,
+          studio: r.studio ?? omdb.production ?? null,
+          awards: omdb.awards ?? r.awards,
+          directors: omdb.directors ?? parseNameList(r.directors ?? r.director),
+          writers: omdb.writers ?? parseNameList(r.writers ?? r.writer),
+          poster: omdb.poster ?? null,
+          addedAt: now,
+          type: omdb.type,
+        });
+      }
+      onProgress?.({ stage: 'enriching', done, total, kept: out.length });
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(OMDB_CONCURRENCY, raw.length) }, worker),
+  );
+
+  onProgress?.({ stage: 'done', added: out.length });
+  return out;
 }

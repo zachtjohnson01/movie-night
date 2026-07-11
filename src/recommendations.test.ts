@@ -1,9 +1,29 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('./supabase', () => ({
+  supabase: {
+    auth: {
+      getSession: vi
+        .fn()
+        .mockResolvedValue({ data: { session: { access_token: 'tok' } } }),
+    },
+  },
+}));
+// Keep the real normalizeTitle/dedupKey (used by rankTopPicks etc.); only
+// stub the network-bound OMDB enrichment.
+vi.mock('./omdb', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./omdb')>();
+  return { ...actual, enrichCandidate: vi.fn() };
+});
+
 import {
   countEffectiveCandidates,
+  expandPool,
   extractUnique,
   rankTopPicks,
+  type ExpandProgress,
 } from './recommendations';
+import { enrichCandidate, type CandidateOmdbPatch } from './omdb';
 import { emptyMovie } from './format';
 import type { Candidate, Movie } from './types';
 
@@ -118,5 +138,105 @@ describe('countEffectiveCandidates', () => {
       cand({ title: 'Dup', imdbId: 'tt2' }),
     ];
     expect(countEffectiveCandidates(dupes)).toBe(0);
+  });
+});
+
+describe('expandPool', () => {
+  const omdbPatch = (title: string): CandidateOmdbPatch => ({
+    imdbId: `tt-${title}`,
+    year: 2020,
+    imdb: '8.0',
+    rottenTomatoes: '90%',
+    poster: null,
+    awards: null,
+    production: null,
+    directors: null,
+    writers: null,
+    type: 'movie',
+  });
+
+  const stubApiTitles = (titles: string[]) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          items: titles.map((t) => ({
+            title: t,
+            year: 2020,
+            commonSenseAge: '6+',
+            studio: null,
+            awards: null,
+            director: null,
+            writer: null,
+            rottenTomatoes: null,
+            imdb: null,
+          })),
+        }),
+      }),
+    );
+  };
+
+  beforeEach(() => {
+    vi.mocked(enrichCandidate).mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('enriches OMDB with bounded concurrency (never all at once)', async () => {
+    stubApiTitles(Array.from({ length: 30 }, (_, i) => `M${i}`));
+    let active = 0;
+    let maxActive = 0;
+    vi.mocked(enrichCandidate).mockImplementation(async () => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 3));
+      active--;
+      return omdbPatch('x');
+    });
+
+    await expandPool([], [], 100);
+
+    // The whole point of the fix: OMDB is hit a few at a time, not in a
+    // ~30-wide burst that trips the free-tier rate limiter.
+    expect(maxActive).toBeGreaterThan(0);
+    expect(maxActive).toBeLessThanOrEqual(4);
+  });
+
+  it('keeps only OMDB-verified titles and drops the rest', async () => {
+    stubApiTitles(['Good', 'Bad', 'Good2']);
+    vi.mocked(enrichCandidate).mockImplementation(async (t: string) =>
+      t.startsWith('Good') ? omdbPatch(t) : null,
+    );
+
+    const out = await expandPool([], [], 100);
+    expect(out.map((c) => c.title).sort()).toEqual(['Good', 'Good2']);
+    expect(out[0].imdbId).toBe('tt-Good');
+  });
+
+  it('stops after batchSize survivors and never re-adds pool titles', async () => {
+    stubApiTitles(['Owned', ...Array.from({ length: 20 }, (_, i) => `M${i}`)]);
+    vi.mocked(enrichCandidate).mockImplementation(async () => omdbPatch('x'));
+
+    const out = await expandPool(['Owned'], [], 5);
+    expect(out).toHaveLength(5);
+    expect(out.map((c) => c.title)).not.toContain('Owned');
+    // Early-stop: does not enrich all 21 titles once 5 have verified.
+    expect(vi.mocked(enrichCandidate).mock.calls.length).toBeLessThan(20);
+    // A pool title is filtered before it ever costs an OMDB lookup.
+    expect(enrichCandidate).not.toHaveBeenCalledWith('Owned');
+  });
+
+  it('reports progress stages ending in done', async () => {
+    stubApiTitles(['A', 'B']);
+    vi.mocked(enrichCandidate).mockImplementation(async () => omdbPatch('x'));
+    const events: ExpandProgress[] = [];
+
+    await expandPool([], [], 100, undefined, (p) => events.push(p));
+
+    expect(events[0]).toEqual({ stage: 'requesting' });
+    expect(events.some((e) => e.stage === 'enriching')).toBe(true);
+    expect(events[events.length - 1]).toEqual({ stage: 'done', added: 2 });
   });
 });

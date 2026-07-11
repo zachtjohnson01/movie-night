@@ -98,6 +98,13 @@ type RawCandidate = {
   imdb: string | null;
 };
 
+// Over-request generously: OMDB (client-side) can't verify every title, so the
+// client needs a buffer of extra candidates to reach `batchSize` real, linkable
+// movies. It enriches until it has enough and drops the rest.
+const OVER_REQUEST_RATIO = 1.6;
+const overRequestCount = (batchSize: number) =>
+  Math.ceil(batchSize * OVER_REQUEST_RATIO);
+
 function buildPrompt(
   poolTitles: string[],
   libraryTitles: string[],
@@ -106,7 +113,7 @@ function buildPrompt(
   writers: string[] = [],
   studios: string[] = [],
 ): string {
-  const overRequest = Math.ceil(batchSize * 1.25);
+  const overRequest = overRequestCount(batchSize);
   const skipBlocks: string[] = [];
   if (libraryTitles.length)
     skipBlocks.push(`Already in the user's library:\n${libraryTitles.join(', ')}`);
@@ -135,6 +142,8 @@ ${banList}
 
 TASK: Return ${overRequest} feature-length family films NOT on the ban list. Include a mix of animated and live-action, major studios and indie/international, across multiple decades. Favor films that are widely respected and would score well on RT + IMDb; the user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
 
+Every title must be a REAL, released, theatrical or streaming feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its title; anything that doesn't resolve to a real film is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title you've already listed in this response, and do not output anything on the ban list.
+
 Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
 
 For each film, provide best-known metadata. Accuracy matters — the pool is persisted and reused across sessions. Use "N/A" sparingly; "null" is fine for fields you genuinely don't know.
@@ -142,6 +151,7 @@ For each film, provide best-known metadata. Accuracy matters — the pool is per
 Return ONLY a JSON array. Each object shape:
 {"title":"","year":0,"commonSenseAge":"6+","studio":"","awards":"","director":"","writer":"","rottenTomatoes":"95%","imdb":"7.8"}
 
+- "title": the film's exact canonical English title as it appears on IMDb, with correct spelling and punctuation and NO year or extra subtitle. This string is matched against a database automatically — an inexact title is dropped, so precision here directly controls how many suggestions actually land.
 - "commonSenseAge": format "N+" like "5+", "6+", "8+"
 - "studio": the lead production company (e.g. "Studio Ghibli", "Pixar")
 - "awards": brief summary like "Won Best Animated Feature Oscar" or "BAFTA-nominated". Empty string if none notable.
@@ -334,10 +344,11 @@ export default async function handler(
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        // 100 candidate items × ~150 tokens each + prompt ≈ 16K-20K tokens.
-        // Streaming is required because Anthropic 400s non-streaming requests
-        // above ~16K max_tokens (HTTP-timeout guard).
-        max_tokens: 24000,
+        // ~160 candidate items (batchSize 100 × 1.6 over-request) × ~150 tokens
+        // each + prompt ≈ 26K-30K tokens. Streaming is required because
+        // Anthropic 400s non-streaming requests above ~16K max_tokens
+        // (HTTP-timeout guard). parseCandidates recovers a truncated tail.
+        max_tokens: 32000,
         stream: true,
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -364,8 +375,11 @@ export default async function handler(
       (c) => !banSet.has(c.title.toLowerCase()),
     );
 
+    // Return the full over-requested batch (not just batchSize): the client
+    // enriches these against OMDB and keeps the first batchSize that verify,
+    // so it needs the extras to absorb titles OMDB can't confirm.
     return res.json({
-      items: deduped.slice(0, batchSize),
+      items: deduped.slice(0, overRequestCount(batchSize)),
       rawCount: parsed.length,
     });
   } catch (e) {

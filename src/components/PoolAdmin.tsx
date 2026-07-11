@@ -14,7 +14,7 @@ import {
 } from '../verify';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { expandPool, extractUnique } from '../recommendations';
+import { expandPool, extractUnique, type ExpandProgress } from '../recommendations';
 import {
   commonSenseUrl,
   dedupKey,
@@ -43,6 +43,21 @@ type Props = {
 };
 
 const EXPAND_BATCH = 100;
+
+// Human-readable line for the current expansion stage, shown under the button
+// so the multi-second run isn't a blind spinner.
+function expandStageLabel(p: ExpandProgress): string {
+  switch (p.stage) {
+    case 'requesting':
+      return 'Asking Claude for fresh titles…';
+    case 'enriching':
+      return `Verifying on OMDB — ${p.done}/${p.total} checked, ${p.kept} kept`;
+    case 'saving':
+      return 'Saving to the pool…';
+    case 'done':
+      return `Found ${p.added}`;
+  }
+}
 
 type FilterKey = 'eligible' | 'missingLink' | 'duplicate' | 'tvShow' | 'removed';
 
@@ -87,6 +102,10 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   const [active, setActive] = useState<Set<FilterKey>>(new Set());
   const [expanding, setExpanding] = useState(false);
   const [expandError, setExpandError] = useState<string | null>(null);
+  const [expandProgress, setExpandProgress] = useState<ExpandProgress | null>(null);
+  // Titles added by the most recent expansion, so the user can see exactly
+  // what landed (empty array = ran but found nothing new).
+  const [lastAdded, setLastAdded] = useState<string[] | null>(null);
 
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
   const libraryDirectors = useMemo(
@@ -105,6 +124,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   const runExpansion = useCallback(async () => {
     if (expanding) return;
     setExpandError(null);
+    setLastAdded(null);
+    setExpandProgress({ stage: 'requesting' });
     setExpanding(true);
     try {
       const fresh = await expandPool(
@@ -116,14 +137,18 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
           writers: libraryWriters,
           studios: libraryStudios,
         },
+        setExpandProgress,
       );
       if (fresh.length > 0) {
+        setExpandProgress({ stage: 'saving' });
         await pool.appendCandidates(fresh);
       }
+      setLastAdded(fresh.map((c) => c.title));
     } catch (e) {
       setExpandError(e instanceof Error ? e.message : String(e));
     } finally {
       setExpanding(false);
+      setExpandProgress(null);
     }
   }, [
     expanding,
@@ -348,16 +373,62 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
                 aria-hidden
                 className="inline-block w-3 h-3 rounded-full border-2 border-amber-glow border-t-transparent animate-spin"
               />
-              Adding {EXPAND_BATCH} more…
+              Adding movies…
             </>
           ) : (
             <>Expand pool +{EXPAND_BATCH}</>
           )}
         </button>
+
+        {expanding && expandProgress && (
+          <div className="flex flex-col gap-1.5 pt-0.5">
+            <p className="text-center text-xs text-ink-300">
+              {expandStageLabel(expandProgress)}
+            </p>
+            {expandProgress.stage === 'enriching' && (
+              <div
+                className="h-1 w-full rounded-full bg-ink-800 overflow-hidden"
+                role="progressbar"
+                aria-valuenow={expandProgress.done}
+                aria-valuemax={expandProgress.total}
+              >
+                <div
+                  className="h-full bg-amber-glow transition-[width] duration-200"
+                  style={{
+                    width: `${
+                      expandProgress.total
+                        ? (expandProgress.done / expandProgress.total) * 100
+                        : 0
+                    }%`,
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {expandError && (
           <p className="text-center text-xs text-crimson-bright">
             {expandError}
           </p>
+        )}
+
+        {!expanding && lastAdded && (
+          lastAdded.length > 0 ? (
+            <div className="rounded-xl border border-ink-700 bg-ink-900 p-3">
+              <p className="text-xs font-semibold text-ink-100">
+                Added {lastAdded.length} movie{lastAdded.length === 1 ? '' : 's'}
+              </p>
+              <p className="mt-1 max-h-32 overflow-y-auto text-xs leading-relaxed text-ink-400">
+                {lastAdded.join(' · ')}
+              </p>
+            </div>
+          ) : (
+            <p className="text-center text-xs text-ink-400">
+              No new movies found this time — the pool may be saturated. Try
+              again to pull a different batch.
+            </p>
+          )
         )}
       </div>
 
