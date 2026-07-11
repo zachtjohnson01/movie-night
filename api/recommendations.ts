@@ -111,15 +111,20 @@ const OVER_REQUEST_RATIO = 1.6;
 const overRequestCount = (batchSize: number) =>
   Math.ceil(batchSize * OVER_REQUEST_RATIO);
 
+// How many titles to ask the web-grounded model for per press. Kept modest so
+// the whole search-then-generate run finishes inside Vercel's 60s function
+// limit (web search + a large JSON output otherwise 504s). The client caps
+// the added movies at batchSize anyway, and a saturated pool rarely yields
+// more than a few dozen genuinely-new titles per press regardless.
+const WEB_TARGET = 40;
+
 function buildPrompt(
   poolTitles: string[],
   libraryTitles: string[],
-  batchSize: number,
   directors: string[] = [],
   writers: string[] = [],
   studios: string[] = [],
 ): string {
-  const overRequest = overRequestCount(batchSize);
   const skipBlocks: string[] = [];
   if (libraryTitles.length)
     skipBlocks.push(`Already in the user's library:\n${libraryTitles.join(', ')}`);
@@ -146,7 +151,7 @@ ${tasteSection}BAN LIST — if ANY title in your output appears here the respons
 
 ${banList}
 
-YOU HAVE A web_search TOOL — USE IT before answering. The ban list already holds hundreds of the obvious family films, so titles pulled from memory will mostly be duplicates that get thrown away. Search the web to discover fresh, real titles this family doesn't already have. Run several searches from different angles first, for example:
+YOU HAVE A web_search TOOL — you MUST call it at least 3 times before writing any answer. The ban list already holds hundreds of the obvious family films, so titles pulled from memory will mostly be duplicates that get thrown away. Search the web to discover fresh, real titles this family doesn't already have. Use different angles across your searches, for example:
 - recent critics' and year-end lists ("best kids movies 2024", "best family films 2025", "underrated animated movies")
 - new and upcoming family films in theaters and on streaming (Disney+, Netflix, Prime, etc.)
 - award and festival lists (Annecy, the Oscar/BAFTA animated-feature slates, family/children's film awards)
@@ -154,25 +159,19 @@ YOU HAVE A web_search TOOL — USE IT before answering. The ban list already hol
 - well-reviewed international and indie family films across different decades and countries
 Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST — drop anything already there.
 
-TASK: Return as many as you can, up to ${overRequest}, feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
+TASK: Return up to ${WEB_TARGET} feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
 
 Every title must be a REAL, released feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its exact title; anything that doesn't resolve is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title within your answer, and do not output anything on the ban list.
 
 Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
 
-For each film, provide best-known metadata. Accuracy matters — the pool is persisted and reused across sessions. Use "N/A" sparingly; "null" is fine for fields you genuinely don't know.
-
-Return ONLY a JSON array. Each object shape:
-{"title":"","year":0,"commonSenseAge":"6+","studio":"","awards":"","director":"","writer":"","rottenTomatoes":"95%","imdb":"7.8"}
+Return ONLY a JSON array — no prose, no explanation. Keep each object to exactly these four fields so you can return more titles quickly; ratings, awards, and cast are filled in automatically from a database afterward, so DO NOT include them. Object shape:
+{"title":"","year":0,"commonSenseAge":"6+","studio":""}
 
 - "title": the film's exact canonical English title as it appears on IMDb, with correct spelling and punctuation and NO year or extra subtitle. This string is matched against a database automatically — an inexact title is dropped, so precision here directly controls how many suggestions actually land.
-- "commonSenseAge": format "N+" like "5+", "6+", "8+"
-- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar")
-- "awards": brief summary like "Won Best Animated Feature Oscar" or "BAFTA-nominated". Empty string if none notable.
-- "director": director name(s), comma-separated. Empty string if unknown.
-- "writer": primary screenwriter(s), comma-separated. Empty string if unknown.
-- "rottenTomatoes": "NN%" or null
-- "imdb": "N.N" or null`;
+- "year": release year (an integer) — helps match the right film, especially for remakes.
+- "commonSenseAge": format "N+" like "5+", "6+", "8+".
+- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar").`;
 }
 
 function parseCandidates(text: string): RawCandidate[] {
@@ -262,8 +261,9 @@ function parseCandidates(text: string): RawCandidate[] {
 }
 
 // Cap the number of web searches per expansion. Each search costs money and
-// adds latency; a handful across the query angles in the prompt is plenty.
-const WEB_SEARCH_MAX_USES = 6;
+// adds latency; a few across the query angles in the prompt is plenty, and
+// keeping this low is part of staying under Vercel's 60s function limit.
+const WEB_SEARCH_MAX_USES = 4;
 
 /**
  * Ask Claude (Sonnet 5) for a batch of candidate films, grounded in live web
@@ -294,7 +294,12 @@ async function generateCandidates(
   for (let round = 0; round < 3; round++) {
     const stream = client.messages.stream({
       model: 'claude-sonnet-5',
-      max_tokens: 32000,
+      // Small ceiling: the trimmed 4-field shape for ~40 titles is only a few
+      // thousand tokens. Thinking is disabled to cut latency — the run has to
+      // finish inside Vercel's 60s limit, and the prompt's explicit "call
+      // web_search at least 3 times" keeps tool use reliable without it.
+      max_tokens: 8000,
+      thinking: { type: 'disabled' },
       tools,
       messages,
     });
@@ -347,7 +352,7 @@ export default async function handler(
       ? Math.min(body.batchSize, 100)
       : 100;
 
-  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios);
+  const prompt = buildPrompt(poolTitles, libraryTitles, directors, writers, studios);
 
   try {
     const text = await generateCandidates(ANTHROPIC_API_KEY, prompt);
