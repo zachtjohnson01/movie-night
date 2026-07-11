@@ -1,4 +1,7 @@
 {
+  "functions": {
+    "api/recommendations.ts": { "maxDuration": 60 }
+  },
   "rewrites": [
     {
       "source": "/share/f/:slug/:title",
