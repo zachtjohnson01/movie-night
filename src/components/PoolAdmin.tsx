@@ -19,6 +19,7 @@ import {
   findDuplicateGroups,
   applyMerge,
   pickDefaultSurvivor,
+  conflictingIds,
   type DuplicateGroup,
 } from '../dedupe';
 import {
@@ -1615,6 +1616,13 @@ function DuplicateReview({
   // admin which ones are in a list before they merge.
   const libraryVictims = victims.filter(isInLibrary);
 
+  // Loud guard against a FALSE-positive merge (the "Shaun the Sheep" bug: the
+  // 2015 film and the 2019 sequel got merged). See dedupe.conflictingIds.
+  const idConflicts = keeper ? conflictingIds(keeper, victims) : [];
+  const conflictInLibrary =
+    idConflicts.length > 0 &&
+    (idConflicts.some(isInLibrary) || (keeper != null && isInLibrary(keeper)));
+
   async function handleMerge() {
     if (!group || !keeper || busy) return;
     setBusy(true);
@@ -1804,6 +1812,25 @@ function DuplicateReview({
                 )}
               </div>
 
+              {idConflicts.length > 0 && (
+                <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-crimson-deep/15 border border-crimson-deep/50 px-3.5 py-3 text-xs leading-relaxed text-crimson-bright">
+                  <AlertTriangleIcon className="w-4 h-4 mt-px shrink-0" />
+                  <p>
+                    <span className="font-bold">Different IMDb IDs.</span> The
+                    record{idConflicts.length === 1 ? '' : 's'} you&rsquo;re
+                    folding in {idConflicts.length === 1 ? 'has' : 'have'} a
+                    different IMDb id than the one you&rsquo;re keeping — IMDb
+                    ids are unique per title, so these are probably{' '}
+                    <span className="font-bold">different movies</span> (e.g. a
+                    sequel).{' '}
+                    {conflictInLibrary
+                      ? 'They are separately tracked in your list. '
+                      : ''}
+                    Skip unless they&rsquo;re genuinely the same film.
+                  </p>
+                </div>
+              )}
+
               <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-ink-900 border border-ink-800 px-3.5 py-3 text-xs leading-relaxed text-ink-400">
                 <CheckCircleIcon className="w-4 h-4 mt-px shrink-0 text-emerald-300" />
                 <p>
@@ -1848,7 +1875,11 @@ function DuplicateReview({
                 type="button"
                 disabled={busy || victims.length === 0}
                 onClick={() => void handleMerge()}
-                className="min-h-[48px] rounded-2xl bg-amber-glow text-ink-950 text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2"
+                className={`min-h-[48px] rounded-2xl text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2 ${
+                  idConflicts.length > 0
+                    ? 'bg-ink-800 border border-crimson-deep/60 text-crimson-bright'
+                    : 'bg-amber-glow text-ink-950'
+                }`}
               >
                 {busy ? (
                   <>

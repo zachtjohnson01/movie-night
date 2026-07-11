@@ -6,6 +6,7 @@ import {
   applyMerge,
   pickDefaultSurvivor,
   completenessScore,
+  conflictingIds,
   MERGED_REASON,
 } from './dedupe';
 
@@ -283,6 +284,35 @@ describe('pickDefaultSurvivor', () => {
     const linked = cand({ title: 'A', imdbId: 'tt1', studio: 'S' });
     const idx = pickDefaultSurvivor([sparse, linked]);
     expect([sparse, linked][idx]).toBe(linked);
+  });
+});
+
+describe('conflictingIds', () => {
+  it('flags a victim whose non-null imdbId differs from the survivor (the Shaun bug)', () => {
+    const keep = cand({ title: 'Shaun the Sheep Movie', imdbId: 'tt2872750' });
+    const other = cand({
+      title: 'A Shaun the Sheep Movie: Farmageddon',
+      imdbId: 'tt6193408',
+    });
+    expect(conflictingIds(keep, [other])).toHaveLength(1);
+  });
+
+  it('does not flag a victim that shares the survivor imdbId', () => {
+    const keep = cand({ title: 'Cars', imdbId: 'tt1' });
+    const dup = cand({ title: 'Cars', imdbId: 'tt1' });
+    expect(conflictingIds(keep, [dup])).toEqual([]);
+  });
+
+  it('does not flag an unlinked victim (safe to fold in)', () => {
+    const keep = cand({ title: 'Cars', imdbId: 'tt1' });
+    const unlinked = cand({ title: 'Cars', imdbId: null });
+    expect(conflictingIds(keep, [unlinked])).toEqual([]);
+  });
+
+  it('never flags when the survivor is unlinked', () => {
+    const keep = cand({ title: 'Cars', imdbId: null });
+    const linked = cand({ title: 'Cars', imdbId: 'tt9' });
+    expect(conflictingIds(keep, [linked])).toEqual([]);
   });
 });
 
