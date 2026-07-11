@@ -1,5 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
+import Anthropic from '@anthropic-ai/sdk';
+
+// The pool is web-grounded now: Claude searches the web for real family films,
+// which takes longer than a single completion. Give Vercel room to finish
+// (also set in vercel.json's `functions` block, the authoritative source).
+export const maxDuration = 60;
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
@@ -140,9 +146,17 @@ ${tasteSection}BAN LIST — if ANY title in your output appears here the respons
 
 ${banList}
 
-TASK: Return ${overRequest} feature-length family films NOT on the ban list. Include a mix of animated and live-action, major studios and indie/international, across multiple decades. Favor films that are widely respected and would score well on RT + IMDb; the user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
+YOU HAVE A web_search TOOL — USE IT before answering. The ban list already holds hundreds of the obvious family films, so titles pulled from memory will mostly be duplicates that get thrown away. Search the web to discover fresh, real titles this family doesn't already have. Run several searches from different angles first, for example:
+- recent critics' and year-end lists ("best kids movies 2024", "best family films 2025", "underrated animated movies")
+- new and upcoming family films in theaters and on streaming (Disney+, Netflix, Prime, etc.)
+- award and festival lists (Annecy, the Oscar/BAFTA animated-feature slates, family/children's film awards)
+- more films from the family's favorite studios, directors, and writers (see the taste profile above)
+- well-reviewed international and indie family films across different decades and countries
+Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST — drop anything already there.
 
-Every title must be a REAL, released, theatrical or streaming feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its title; anything that doesn't resolve to a real film is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title you've already listed in this response, and do not output anything on the ban list.
+TASK: Return as many as you can, up to ${overRequest}, feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
+
+Every title must be a REAL, released feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its exact title; anything that doesn't resolve is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title within your answer, and do not output anything on the ban list.
 
 Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
 
@@ -247,50 +261,51 @@ function parseCandidates(text: string): RawCandidate[] {
   return [];
 }
 
+// Cap the number of web searches per expansion. Each search costs money and
+// adds latency; a handful across the query angles in the prompt is plenty.
+const WEB_SEARCH_MAX_USES = 6;
+
 /**
- * Reads an Anthropic Messages API SSE stream and returns the concatenated
- * text output. We only care about `content_block_delta` events with
- * `text_delta` payloads — everything else (message_start, ping, usage,
- * message_stop) is metadata we don't need for parsing.
+ * Ask Claude (Sonnet 5) for a batch of candidate films, grounded in live web
+ * search rather than parametric memory — the pool is large enough that
+ * memory-only suggestions are almost all duplicates. Streams the response
+ * (large JSON output + a big model need streaming to dodge HTTP timeouts) and
+ * resumes across `pause_turn` boundaries, which the server-side web-search
+ * loop can emit. Returns the concatenated assistant text; parseCandidates
+ * pulls the JSON array out of it.
  */
-async function readAnthropicStream(body: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+async function generateCandidates(
+  apiKey: string,
+  prompt: string,
+): Promise<string> {
+  const client = new Anthropic({ apiKey });
+  const tools = [
+    { type: 'web_search_20260209', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES },
+  ] as Anthropic.Messages.ToolUnion[];
+
+  const messages: Anthropic.Messages.MessageParam[] = [
+    { role: 'user', content: prompt },
+  ];
+
+  // Up to a few rounds: each `pause_turn` means the server-side search loop
+  // hit its iteration cap mid-flight — echo the partial assistant turn back
+  // and let it continue. The final (non-paused) message carries the JSON.
   let text = '';
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    // SSE events are separated by blank lines. Process complete events,
-    // keep the trailing partial in the buffer.
-    let idx: number;
-    while ((idx = buffer.indexOf('\n\n')) !== -1) {
-      const rawEvent = buffer.slice(0, idx);
-      buffer = buffer.slice(idx + 2);
-
-      for (const line of rawEvent.split('\n')) {
-        if (!line.startsWith('data:')) continue;
-        const data = line.slice(5).trim();
-        if (!data || data === '[DONE]') continue;
-        try {
-          const evt = JSON.parse(data);
-          if (
-            evt.type === 'content_block_delta' &&
-            evt.delta?.type === 'text_delta' &&
-            typeof evt.delta.text === 'string'
-          ) {
-            text += evt.delta.text;
-          }
-        } catch {
-          // skip malformed line
-        }
-      }
-    }
+  for (let round = 0; round < 3; round++) {
+    const stream = client.messages.stream({
+      model: 'claude-sonnet-5',
+      max_tokens: 32000,
+      tools,
+      messages,
+    });
+    const message = await stream.finalMessage();
+    text = message.content
+      .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+      .map((b) => b.text)
+      .join('');
+    if (message.stop_reason !== 'pause_turn') break;
+    messages.push({ role: 'assistant', content: message.content });
   }
-
   return text;
 }
 
@@ -335,35 +350,7 @@ export default async function handler(
   const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios);
 
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        // ~160 candidate items (batchSize 100 × 1.6 over-request) × ~150 tokens
-        // each + prompt ≈ 26K-30K tokens. Streaming is required because
-        // Anthropic 400s non-streaming requests above ~16K max_tokens
-        // (HTTP-timeout guard). parseCandidates recovers a truncated tail.
-        max_tokens: 32000,
-        stream: true,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-
-    if (!resp.ok || !resp.body) {
-      const errText = resp.body ? await resp.text() : '(no body)';
-      console.error('[pool-expand] anthropic error', resp.status, errText);
-      return res.status(502).json({
-        error: `Anthropic API returned ${resp.status}`,
-        detail: errText.slice(0, 500),
-      });
-    }
-
-    const text = await readAnthropicStream(resp.body);
+    const text = await generateCandidates(ANTHROPIC_API_KEY, prompt);
     const parsed = parseCandidates(text);
 
     // Server-side dedupe against the ban list as belt-and-suspenders;
