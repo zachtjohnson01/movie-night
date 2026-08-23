@@ -86,8 +86,14 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
  * IMDb, and Awards but runs client-side after this endpoint returns).
  *
  * POST { poolTitles: string[], libraryTitles: string[], batchSize: number,
+ *         taste?: TasteProfile,
  *         directors?: string[], writers?: string[], studios?: string[] }
  * -> { items: RawCandidate[], rawCount: number }
+ *
+ * `taste` is the similarity signal (src/taste.ts) and is what the prompt is
+ * built around. The flat `directors`/`writers`/`studios` arrays are the legacy
+ * shape kept so an old cached client bundle mid-deploy still gets a usable
+ * (if weaker) profile instead of an empty one.
  */
 
 type RawCandidate = {
@@ -98,10 +104,40 @@ type RawCandidate = {
   awards: string | null;
   director: string | null;
   writer: string | null;
+  // Which watched film this was picked as a neighbour of. Not persisted on the
+  // Candidate; it exists to force the model to ground every suggestion in the
+  // taste profile rather than free-associating popular titles, and to give the
+  // server something to check when it drops off-profile results.
+  similarTo: string | null;
   // Tentative scores from the LLM. Kept as fallbacks — the client overlays
   // OMDB's authoritative values on top before scoring.
   rottenTomatoes: string | null;
   imdb: string | null;
+};
+
+/**
+ * The taste profile the client derives from the family's **watched** library
+ * (see src/taste.ts). Anchors are seed titles ordered best-loved first;
+ * the creator/studio lists are ranked by demonstrated affinity, not
+ * alphabetically. This is the similarity signal the prompt is built around.
+ */
+type TasteAnchor = {
+  title: string;
+  year: number | null;
+  studio: string | null;
+  directors: string[];
+  commonSenseAge: string | null;
+  rottenTomatoes: string | null;
+  imdb: string | null;
+  favorite: boolean;
+};
+
+type TasteProfile = {
+  anchors: TasteAnchor[];
+  directors: string[];
+  writers: string[];
+  studios: string[];
+  watchedCount: number;
 };
 
 // Over-request generously: OMDB (client-side) can't verify every title, so the
@@ -111,67 +147,157 @@ const OVER_REQUEST_RATIO = 1.6;
 const overRequestCount = (batchSize: number) =>
   Math.ceil(batchSize * OVER_REQUEST_RATIO);
 
-// `target` is how many titles to ask the web-grounded model for per press,
-// chosen by the admin in the UI. Smaller = a faster run (less to generate) and
-// fewer credits; the hard deadline in generateCandidates keeps even a large
-// target from ever 504-ing. The client caps the added movies at batchSize, and
-// a saturated pool rarely yields more than a few dozen genuinely-new titles
-// per press regardless.
-function buildPrompt(
+// Upper bound on seed films echoed into the prompt. The client already
+// trims to a dozen; this is the server-side guard so a hand-rolled request
+// can't stuff the prompt with hundreds of anchor lines.
+const MAX_PROMPT_ANCHORS = 15;
+
+// Cap the number of web searches per expansion. Each search costs money and
+// adds latency. Similarity sourcing needs more angles than the old generic
+// prompt did — one or two per seed film plus a couple of director/studio
+// sweeps — so this is higher than the original 3, but still bounded to stay
+// under the wall-clock budget below.
+const WEB_SEARCH_MAX_USES = 6;
+
+// Hard wall-clock budget for the whole model call, kept safely under Vercel's
+// 60s function limit (`maxDuration` above / vercel.json). On expiry we abort
+// the stream and return whatever titles have arrived (parseCandidates recovers
+// a truncated array) — so a slow run degrades to "fewer titles" instead of a
+// gateway 504. Raised alongside WEB_SEARCH_MAX_USES: more searches need more
+// room, and the leftover ~15s covers auth, JSON handling, and cold start.
+const GENERATION_DEADLINE_MS = 45_000;
+
+/** One profile seed rendered as a compact, scannable line. */
+function anchorLine(a: TasteAnchor, i: number): string {
+  const bits: string[] = [];
+  bits.push(`${i + 1}. ${a.title}${a.year ? ` (${a.year})` : ''}`);
+  if (a.studio) bits.push(a.studio);
+  if (a.directors.length) bits.push(`dir. ${a.directors.join(' & ')}`);
+  if (a.commonSenseAge) bits.push(`CSM ${a.commonSenseAge}`);
+  const scores = [
+    a.rottenTomatoes ? `RT ${a.rottenTomatoes}` : null,
+    a.imdb ? `IMDb ${a.imdb}` : null,
+  ].filter(Boolean);
+  if (scores.length) bits.push(scores.join(', '));
+  return bits.join(' - ') + (a.favorite ? ' [FAVORITE]' : '');
+}
+
+/**
+ * Build the expansion prompt.
+ *
+ * The prompt is organised around **similarity to what the family actually
+ * watched**, which is the thing the old version got wrong: it passed the
+ * library only as a ban list ("don't return these") plus an alphabetical dump
+ * of every credited name, so the model had no idea which films to find
+ * neighbours of and fell back on generic "best family movies" listicles —
+ * which are exactly the titles the 400-title pool already contains. Hence the
+ * complaint that expansion barely pulls anything in.
+ *
+ * Now the taste profile leads: named seed titles with their metadata, ranked
+ * creator lists, an explicit search strategy phrased as neighbour-finding, and
+ * a required `similarTo` field so every suggestion has to be justified against
+ * a seed instead of free-associated.
+ *
+ * `target` is how many titles to ask for per press, chosen by the admin in the
+ * UI. Smaller = a faster run and fewer credits; the hard deadline in
+ * generateCandidates keeps even a large target from ever 504-ing.
+ */
+export function buildPrompt(
   poolTitles: string[],
   libraryTitles: string[],
   target: number,
-  directors: string[] = [],
-  writers: string[] = [],
-  studios: string[] = [],
+  taste: TasteProfile,
 ): string {
   const skipBlocks: string[] = [];
   if (libraryTitles.length)
-    skipBlocks.push(`Already in the user's library:\n${libraryTitles.join(', ')}`);
+    skipBlocks.push(`Already watched or wishlisted:\n${libraryTitles.join(', ')}`);
   if (poolTitles.length)
     skipBlocks.push(`Already in the recommendation pool:\n${poolTitles.join(', ')}`);
   const banList = skipBlocks.join('\n\n') || '(none)';
 
-  const tasteLines: string[] = [];
-  if (directors.length) tasteLines.push(`Directors: ${directors.join(', ')}`);
-  if (writers.length) tasteLines.push(`Writers: ${writers.join(', ')}`);
-  if (studios.length) tasteLines.push(`Studios / production companies: ${studios.join(', ')}`);
-  const tasteSection = tasteLines.length
-    ? `FAMILY TASTE PROFILE — directors, writers, and studios from films they've already watched or wishlisted:
-${tasteLines.join('\n')}
+  const sections: string[] = [];
 
-Prioritize discovering more films from these directors, writers, and studios that the family hasn't seen yet. Diversity across decades and styles is still valued — use this as a positive signal, not a hard constraint.
+  sections.push(
+    `You are sourcing NEW films for a family's movie-night recommendation pool (a parent watching with a young child, target Common Sense Media age 5-8).
 
-`
-    : '';
+YOUR GOAL: find real, released feature films that are as SIMILAR AS POSSIBLE to the films this family has already watched and loved, and that are NOT already on the ban list below. Similarity to the profile matters more than general popularity - a well-matched obscure film beats a famous mismatch.`,
+  );
 
-  return `Building a deterministic recommendation pool of family films for Family Movie Night (parent + young child, target CSM age 5–8).
+  if (taste.anchors.length) {
+    const derivedFrom = taste.watchedCount
+      ? `derived from ${taste.watchedCount} watched film${taste.watchedCount === 1 ? '' : 's'}`
+      : 'derived from their library';
+    sections.push(
+      `FAMILY TASTE PROFILE (${derivedFrom})
 
-${tasteSection}BAN LIST — if ANY title in your output appears here the response is INVALID:
+SEED FILMS - this is what "similar" means here. Ordered best-loved first; [FAVORITE] means they explicitly starred it:
+${taste.anchors.map(anchorLine).join('\n')}`,
+    );
+  }
 
-${banList}
+  const rankedLines: string[] = [];
+  if (taste.directors.length)
+    rankedLines.push(`Directors they keep coming back to: ${taste.directors.join(', ')}`);
+  if (taste.writers.length)
+    rankedLines.push(`Writers: ${taste.writers.join(', ')}`);
+  if (taste.studios.length)
+    rankedLines.push(`Studios / production companies: ${taste.studios.join(', ')}`);
+  if (rankedLines.length) {
+    sections.push(
+      `${rankedLines.join('\n')}
 
-YOU HAVE A web_search TOOL — you MUST call it at least 3 times before writing any answer. The ban list already holds hundreds of the obvious family films, so titles pulled from memory will mostly be duplicates that get thrown away. Search the web to discover fresh, real titles this family doesn't already have. Use different angles across your searches, for example:
-- recent critics' and year-end lists ("best kids movies 2024", "best family films 2025", "underrated animated movies")
-- new and upcoming family films in theaters and on streaming (Disney+, Netflix, Prime, etc.)
-- award and festival lists (Annecy, the Oscar/BAFTA animated-feature slates, family/children's film awards)
-- more films from the family's favorite studios, directors, and writers (see the taste profile above)
-- well-reviewed international and indie family films across different decades and countries
-Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST — drop anything already there.
+(These lists are ranked by how much the family liked the films involved, so the first few names carry the most signal.)`,
+    );
+  }
 
-TASK: Return up to ${target} feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
+  sections.push(
+    `HOW TO PICK CANDIDATES - work down this priority order:
+1. Films by the directors, writers, and studios listed above that the family has NOT seen.
+2. Films that critics, curators, or audiences explicitly recommend to people who liked the seed films ("if you liked X, watch Y", "movies like X", staff picks, curated similar-film lists).
+3. Films that share the seeds' defining qualities even without a direct comparison: animation technique, tone, era, country of origin, themes, protagonist's age, emotional register.
+4. Only after the above: highly-rated family films that fit the age band and would plausibly appeal to someone with this profile.
 
-Every title must be a REAL, released feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its exact title; anything that doesn't resolve is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title within your answer, and do not output anything on the ban list.
+Aim for a spread across the seed films rather than twenty neighbours of a single one, and keep a mix of animated and live-action, major-studio and indie/international, and multiple decades.`,
+  );
 
-Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
+  sections.push(
+    `YOU HAVE A web_search TOOL - you MUST call it at least 3 times (up to ${WEB_SEARCH_MAX_USES}) before writing any answer. The ban list already holds hundreds of the obvious family films, so titles pulled from memory or from generic listicles will mostly be duplicates that get thrown away.
 
-Return ONLY a JSON array — no prose, no explanation. Keep each object to exactly these four fields so you can return more titles quickly; ratings, awards, and cast are filled in automatically from a database afterward, so DO NOT include them. Object shape:
-{"title":"","year":0,"commonSenseAge":"6+","studio":""}
+Ground every search in the profile above. Strong queries:
+- "movies like <seed film>" / "if you liked <seed film> watch next"
+- "films similar to <seed film> letterboxd" or curated similar-film lists
+- "<top director from the list> films" / "<top studio> best films"
+- "<a defining quality of the seeds, e.g. hand-drawn coming-of-age animation> family films"
 
-- "title": the film's exact canonical English title as it appears on IMDb, with correct spelling and punctuation and NO year or extra subtitle. This string is matched against a database automatically — an inexact title is dropped, so precision here directly controls how many suggestions actually land.
-- "year": release year (an integer) — helps match the right film, especially for remakes.
+Weak queries - do NOT spend a search on these: "best kids movies 2024", "top family films", "best animated movies of all time". Those return the exact titles already on the ban list.
+
+Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST before including it.`,
+  );
+
+  sections.push(
+    `BAN LIST - if ANY title in your output appears here the response is INVALID:
+
+${banList}`,
+  );
+
+  sections.push(
+    `TASK: return up to ${target} feature films that pass every rule above.
+
+Quality beats quantity: a shorter list of genuinely new, real, well-matched films is far better than a padded one with repeats or invented titles. Every title must be a REAL, released feature film that exists in IMDb - no TV series, no shorts, no invented titles. Each suggestion is looked up in a movie database by exact title and year; anything that doesn't resolve is silently discarded, so a wrong title is a wasted slot. Never repeat a title within your answer.
+
+Prefer films rated CSM 5-8. CSM 9+ is only worth including if the film is a genuine masterpiece and a strong match for a seed. CSM 4 and under is fine but shouldn't dominate.
+
+Return ONLY a JSON array - no prose, no explanation. Ratings, awards, and cast are filled in automatically from a database afterward, so DO NOT include them. Object shape:
+{"title":"","year":0,"commonSenseAge":"6+","studio":"","similarTo":""}
+
+- "title": the film's exact canonical English title as it appears on IMDb, correct spelling and punctuation, NO year and no extra subtitle. This string is matched against a database automatically, so precision here directly controls how many suggestions actually land.
+- "year": release year (an integer). Used to disambiguate remakes, so get it right.
 - "commonSenseAge": format "N+" like "5+", "6+", "8+".
-- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar").`;
+- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar").
+- "similarTo": the exact title of the SEED FILM above that this recommendation most resembles. Every object must name one; if you can't justify the pick against a seed, leave the film out.`,
+  );
+
+  return sections.join('\n\n');
 }
 
 function parseCandidates(text: string): RawCandidate[] {
@@ -249,6 +375,10 @@ function parseCandidates(text: string): RawCandidate[] {
             r.writer && String(r.writer).trim()
               ? String(r.writer).trim()
               : null,
+          similarTo:
+            r.similarTo && String(r.similarTo).trim()
+              ? String(r.similarTo).trim()
+              : null,
           rottenTomatoes: r.rottenTomatoes ? String(r.rottenTomatoes) : null,
           imdb: r.imdb ? String(r.imdb) : null,
         }));
@@ -259,17 +389,6 @@ function parseCandidates(text: string): RawCandidate[] {
   }
   return [];
 }
-
-// Cap the number of web searches per expansion. Each search costs money and
-// adds latency; a few across the query angles in the prompt is plenty, and
-// keeping this low is part of staying under Vercel's 60s function limit.
-const WEB_SEARCH_MAX_USES = 3;
-
-// Hard wall-clock budget for the whole model call, kept safely under Vercel's
-// 60s function limit. On expiry we abort the stream and return whatever titles
-// have arrived (parseCandidates recovers a truncated array) — so a slow run
-// degrades to "fewer titles" instead of a gateway 504.
-const GENERATION_DEADLINE_MS = 30_000;
 
 /**
  * Ask Claude (Sonnet 5) for a batch of candidate films, grounded in live web
@@ -349,6 +468,54 @@ async function generateCandidates(
   return text;
 }
 
+/**
+ * Coerce the client's taste payload into a trusted shape. The body is
+ * user-controlled and lands verbatim in a prompt, so every field is
+ * re-validated and the anchor list is capped rather than trusted.
+ */
+function normalizeTaste(
+  raw: unknown,
+  legacy: { directors: string[]; writers: string[]; studios: string[] },
+): TasteProfile {
+  const strings = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((t: unknown): t is string => typeof t === 'string') : [];
+  const t = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const str = (v: unknown): string | null =>
+    typeof v === 'string' && v.trim() ? v.trim() : null;
+
+  const anchors: TasteAnchor[] = (Array.isArray(t.anchors) ? t.anchors : [])
+    .filter(
+      (a: unknown): a is Record<string, unknown> =>
+        !!a && typeof a === 'object' && typeof (a as Record<string, unknown>).title === 'string',
+    )
+    .slice(0, MAX_PROMPT_ANCHORS)
+    .map((a) => ({
+      title: String(a.title).trim(),
+      year: typeof a.year === 'number' ? a.year : null,
+      studio: str(a.studio),
+      directors: strings(a.directors).slice(0, 2),
+      commonSenseAge: str(a.commonSenseAge),
+      rottenTomatoes: str(a.rottenTomatoes),
+      imdb: str(a.imdb),
+      favorite: a.favorite === true,
+    }))
+    .filter((a) => a.title.length > 0);
+
+  const directors = strings(t.directors);
+  const writers = strings(t.writers);
+  const studios = strings(t.studios);
+
+  return {
+    anchors,
+    // Fall back to the legacy flat arrays when a stale client omits `taste`.
+    directors: directors.length ? directors : legacy.directors,
+    writers: writers.length ? writers : legacy.writers,
+    studios: studios.length ? studios : legacy.studios,
+    watchedCount:
+      typeof t.watchedCount === 'number' && t.watchedCount > 0 ? t.watchedCount : 0,
+  };
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -379,15 +546,18 @@ export default async function handler(
     Array.isArray(v) ? v.filter((t: unknown): t is string => typeof t === 'string') : [];
   const poolTitles: string[] = filterStrings(body.poolTitles);
   const libraryTitles: string[] = filterStrings(body.libraryTitles);
-  const directors: string[] = filterStrings(body.directors);
-  const writers: string[] = filterStrings(body.writers);
-  const studios: string[] = filterStrings(body.studios);
   const batchSize: number =
     typeof body.batchSize === 'number' && body.batchSize > 0
       ? Math.min(body.batchSize, 100)
       : 100;
 
-  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios);
+  const taste = normalizeTaste(body.taste, {
+    directors: filterStrings(body.directors),
+    writers: filterStrings(body.writers),
+    studios: filterStrings(body.studios),
+  });
+
+  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, taste);
 
   try {
     const text = await generateCandidates(ANTHROPIC_API_KEY, prompt);
@@ -400,6 +570,15 @@ export default async function handler(
     for (const t of libraryTitles) banSet.add(t.toLowerCase());
     const deduped = parsed.filter(
       (c) => !banSet.has(c.title.toLowerCase()),
+    );
+
+    // Breadcrumb for tuning the prompt: `similarTo` is the model's own claim
+    // that a pick is grounded in a seed film. A low ratio here means the taste
+    // profile isn't steering the search and the run has drifted back toward
+    // generic "best family movies" territory.
+    const grounded = deduped.filter((c) => c.similarTo).length;
+    console.log(
+      `[pool-expand] raw=${parsed.length} new=${deduped.length} grounded=${grounded} anchors=${taste.anchors.length}`,
     );
 
     // Return the full over-requested batch (not just batchSize): the client

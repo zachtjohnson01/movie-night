@@ -4,10 +4,10 @@ import type { CandidatePoolApi } from '../../useCandidatePool';
 import {
   countEffectiveCandidates,
   expandPool,
-  extractUnique,
   rankTopPicks,
   type RankedPick,
 } from '../../recommendations';
+import { buildTasteProfile } from '../../taste';
 import { DEFAULT_WEIGHTS, type ScoringWeights } from '../../scoring';
 import {
   AMBER,
@@ -67,9 +67,9 @@ export default function ModernRecommendations({
     [pool.candidates, movies, pool.weights],
   );
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
-  const libraryDirectors = useMemo(() => extractUnique(movies.flatMap((m) => m.directors ?? [])), [movies]);
-  const libraryWriters = useMemo(() => extractUnique(movies.flatMap((m) => m.writers ?? [])), [movies]);
-  const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
+  // Similarity signal for expansion: seed titles + affinity-ranked creators,
+  // derived from what the family has actually watched (see src/taste.ts).
+  const taste = useMemo(() => buildTasteProfile(movies), [movies]);
   const effectiveCount = useMemo(
     () => countEffectiveCandidates(pool.candidates),
     [pool.candidates],
@@ -91,7 +91,7 @@ export default function ModernRecommendations({
             [...currentPoolTitles()],
             libraryTitles,
             EXPAND_BATCH,
-            { directors: libraryDirectors, writers: libraryWriters, studios: libraryStudios },
+            taste,
           );
           if (fresh.length === 0) break;
           await pool.appendCandidates(fresh);
@@ -104,7 +104,7 @@ export default function ModernRecommendations({
       }
       setBusy({ kind: 'idle' });
     },
-    [libraryTitles, libraryDirectors, libraryWriters, libraryStudios, pool],
+    [libraryTitles, taste, pool],
   );
 
   const loading = pool.status === 'loading';

@@ -14,7 +14,8 @@ import {
 } from '../verify';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { expandPool, extractUnique, type ExpandProgress } from '../recommendations';
+import { expandPool, type ExpandProgress } from '../recommendations';
+import { buildTasteProfile } from '../taste';
 import {
   findDuplicateGroups,
   applyMerge,
@@ -148,18 +149,9 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   }, []);
 
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
-  const libraryDirectors = useMemo(
-    () => extractUnique(movies.flatMap((m) => m.directors ?? [])),
-    [movies],
-  );
-  const libraryWriters = useMemo(
-    () => extractUnique(movies.flatMap((m) => m.writers ?? [])),
-    [movies],
-  );
-  const libraryStudios = useMemo(
-    () => extractUnique(movies.map((m) => m.production)),
-    [movies],
-  );
+  // Similarity signal for expansion: seed titles + affinity-ranked creators,
+  // derived from what the family has actually watched (see src/taste.ts).
+  const taste = useMemo(() => buildTasteProfile(movies), [movies]);
 
   const runExpansion = useCallback(async () => {
     if (expanding) return;
@@ -172,11 +164,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
         pool.candidates.map((c) => c.title),
         libraryTitles,
         expandCount,
-        {
-          directors: libraryDirectors,
-          writers: libraryWriters,
-          studios: libraryStudios,
-        },
+        taste,
         setExpandProgress,
       );
       if (fresh.length > 0) {
@@ -190,15 +178,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       setExpanding(false);
       setExpandProgress(null);
     }
-  }, [
-    expanding,
-    expandCount,
-    pool,
-    libraryTitles,
-    libraryDirectors,
-    libraryWriters,
-    libraryStudios,
-  ]);
+  }, [expanding, expandCount, pool, libraryTitles, taste]);
 
   // Set of dedup keys that appear at least twice — used both for the
   // "Duplicates" filter chip and for the Eligible complement.

@@ -13,7 +13,7 @@ vi.hoisted(() => {
 vi.mock('@supabase/supabase-js', () => ({ createClient: vi.fn() }));
 
 import { createClient } from '@supabase/supabase-js';
-import handler from './recommendations';
+import handler, { buildPrompt } from './recommendations';
 
 const OWNER_ID = '0df1ce41-9ab4-445c-aeee-4d6ee2d279ef';
 
@@ -123,5 +123,86 @@ describe('recommendations auth', () => {
     const res = makeRes();
     await handler(makeReq({ authorization: 'Bearer tok-123' }), res);
     expect(res._status).toBe(403);
+  });
+});
+
+describe('buildPrompt', () => {
+  const anchor = (over: Partial<Parameters<typeof buildPrompt>[3]['anchors'][number]> = {}) => ({
+    title: 'Spirited Away',
+    year: 2001,
+    studio: 'Studio Ghibli',
+    directors: ['Hayao Miyazaki'],
+    commonSenseAge: '8+',
+    rottenTomatoes: '97%',
+    imdb: '8.6',
+    favorite: false,
+    ...over,
+  });
+
+  const taste = (over: Partial<Parameters<typeof buildPrompt>[3]> = {}) => ({
+    anchors: [anchor()],
+    directors: ['Hayao Miyazaki', 'Brad Bird'],
+    writers: ['Brad Bird'],
+    studios: ['Studio Ghibli'],
+    watchedCount: 42,
+    ...over,
+  });
+
+  it('leads with the seed films and their metadata', () => {
+    const p = buildPrompt([], [], 20, taste());
+    expect(p).toContain('SEED FILMS');
+    expect(p).toContain('Spirited Away (2001)');
+    expect(p).toContain('Studio Ghibli');
+    expect(p).toContain('dir. Hayao Miyazaki');
+    expect(p).toContain('CSM 8+');
+    expect(p).toContain('RT 97%, IMDb 8.6');
+    expect(p).toContain('derived from 42 watched films');
+    // The taste profile must come before the ban list, not after it.
+    expect(p.indexOf('SEED FILMS')).toBeLessThan(p.indexOf('BAN LIST'));
+  });
+
+  it('marks explicit favorites so they read as the strongest signal', () => {
+    expect(buildPrompt([], [], 20, taste({ anchors: [anchor({ favorite: true })] })))
+      .toContain('[FAVORITE]');
+  });
+
+  it('omits metadata the library does not have', () => {
+    const bare = buildPrompt([], [], 20, taste({
+      anchors: [anchor({ year: null, studio: null, directors: [], commonSenseAge: null, rottenTomatoes: null, imdb: null })],
+    }));
+    const line = bare.split('\n').find((l) => l.startsWith('1. '))!;
+    expect(line).toBe('1. Spirited Away');
+    expect(bare).not.toContain('undefined');
+    expect(bare).not.toContain('null');
+  });
+
+  it('requires a similarTo justification in the output shape', () => {
+    const p = buildPrompt([], [], 20, taste());
+    expect(p).toContain('"similarTo"');
+    expect(p).toContain('SEED FILM above that this recommendation most resembles');
+  });
+
+  it('steers web search toward neighbour queries and away from generic lists', () => {
+    const p = buildPrompt([], [], 20, taste());
+    expect(p).toContain('movies like <seed film>');
+    expect(p).toContain('best kids movies 2024');
+    expect(p).toContain('do NOT spend a search on these');
+  });
+
+  it('still emits the ban list and the requested target', () => {
+    const p = buildPrompt(['Pool One'], ['Owned One'], 37, taste());
+    expect(p).toContain('Pool One');
+    expect(p).toContain('Owned One');
+    expect(p).toContain('return up to 37 feature films');
+  });
+
+  it('degrades gracefully when the family has no profile yet', () => {
+    const p = buildPrompt([], [], 20, {
+      anchors: [], directors: [], writers: [], studios: [], watchedCount: 0,
+    });
+    expect(p).not.toContain('SEED FILMS');
+    expect(p).toContain('BAN LIST');
+    expect(p).toContain('(none)');
+    expect(p).toContain('return up to 20 feature films');
   });
 });

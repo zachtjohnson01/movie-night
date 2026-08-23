@@ -228,6 +228,49 @@ describe('expandPool', () => {
     expect(enrichCandidate).not.toHaveBeenCalledWith('Owned');
   });
 
+  it('passes the release year to OMDB so remakes resolve to the right film', async () => {
+    stubApiTitles(['The Lion King']);
+    vi.mocked(enrichCandidate).mockImplementation(async (t: string) => omdbPatch(t));
+
+    await expandPool([], [], 100);
+
+    // stubApiTitles stamps every item with year 2020.
+    expect(enrichCandidate).toHaveBeenCalledWith('The Lion King', 2020);
+  });
+
+  it('sends the taste profile to the endpoint, plus the legacy flat fields', async () => {
+    stubApiTitles(['A']);
+    vi.mocked(enrichCandidate).mockResolvedValue(omdbPatch('A'));
+    const taste = {
+      anchors: [
+        {
+          title: 'Spirited Away',
+          year: 2001,
+          studio: 'Studio Ghibli',
+          directors: ['Hayao Miyazaki'],
+          commonSenseAge: '8+',
+          rottenTomatoes: '97%',
+          imdb: '8.6',
+          favorite: true,
+        },
+      ],
+      directors: ['Hayao Miyazaki'],
+      writers: ['Hayao Miyazaki'],
+      studios: ['Studio Ghibli'],
+      watchedCount: 3,
+    };
+
+    await expandPool([], [], 5, taste);
+
+    const body = JSON.parse(
+      vi.mocked(globalThis.fetch).mock.calls[0][1]!.body as string,
+    );
+    expect(body.taste).toEqual(taste);
+    // Legacy shape kept so an older function deploy still gets a signal.
+    expect(body.directors).toEqual(['Hayao Miyazaki']);
+    expect(body.studios).toEqual(['Studio Ghibli']);
+  });
+
   it('reports progress stages ending in done', async () => {
     stubApiTitles(['A', 'B']);
     vi.mocked(enrichCandidate).mockImplementation(async (t: string) => omdbPatch(t));

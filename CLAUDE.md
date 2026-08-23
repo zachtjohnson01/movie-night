@@ -56,7 +56,9 @@ Trade-offs of the JSONB-blob approach still hold: zero schema migrations to add 
 
 ## Recommendations ("For You")
 
-Deterministic, no LLM on the user path. `rankTopPicks` (`src/recommendations.ts`) scores eligible pool Candidates against the user's library via the pure `scoreCandidate` (`src/scoring.ts`, weighted RT/IMDb/CSM/studio/awards/director-affinity/writer-affinity, weights stored in the `weights` row). Admin pool management lives in `PoolAdmin.tsx`: expand the pool via Claude (`api/recommendations`, streaming), backfill studio/awards (`api/enrich`), fact-check a field (`api/verify`), bulk OMDB / Watchmode refresh, downvote, and soft-remove with a reason vocabulary.
+Deterministic, no LLM on the user path. `rankTopPicks` (`src/recommendations.ts`) scores eligible pool Candidates against the user's library via the pure `scoreCandidate` (`src/scoring.ts`, weighted RT/IMDb/CSM/studio/awards/director-affinity/writer-affinity, weights stored in the `weights` row).
+
+**Sourcing (what gets *into* the pool) is a separate problem from ranking.** `buildTasteProfile` (`src/taste.ts`, pure) turns the family's **watched** movies into a similarity profile: seed titles ordered best-loved first (favorites strictly dominate ratings) plus director/writer/studio lists ranked by summed affinity rather than alphabetically. `api/recommendations` builds its prompt around that profile — seed films first, an explicit neighbour-finding search strategy, and a required `similarTo` field so every suggestion is justified against a seed. The library is *not* just a ban list. If expansion starts returning generic "best family movies" duplicates again, check the `[pool-expand] ... grounded=` log line before touching the model. Admin pool management lives in `PoolAdmin.tsx`: expand the pool via Claude (`api/recommendations`, streaming), backfill studio/awards (`api/enrich`), fact-check a field (`api/verify`), bulk OMDB / Watchmode refresh, downvote, and soft-remove with a reason vocabulary.
 
 ## API (Vercel serverless, `api/`)
 
@@ -77,6 +79,7 @@ src/
 ├── useCandidatePool.ts     # global pool/reasons/weights load/subscribe/write + bulk refreshers
 ├── useAuth.ts              # Google OAuth + membership; useFamilies.ts / useFamilyMembers.ts
 ├── recommendations.ts      # rankTopPicks / expandPool; scoring.ts = pure scoreCandidate
+├── taste.ts                # buildTasteProfile — watched-library similarity profile for expandPool
 ├── enrich.ts / verify.ts   # clients for the owner-gated Anthropic endpoints
 ├── omdb.ts / watchmode.ts  # OMDB + Watchmode REST clients
 └── components/             # classic skin (Detail, WatchedList, Wishlist, Recommendations, PoolAdmin, …)

@@ -3,6 +3,7 @@ import { dedupKey, enrichCandidate, normalizeTitle, type CandidateOmdbPatch } fr
 import { DEFAULT_WEIGHTS, scoreCandidate, type ScoreContext, type ScoringWeights } from './scoring';
 import { supabase } from './supabase';
 import { parseNameList } from './format';
+import type { TasteProfile } from './taste';
 
 /**
  * Deterministic top-picks engine. Consumes the candidate pool (persisted in
@@ -96,6 +97,13 @@ type RawCandidateFromApi = {
   commonSenseAge: string | null;
   studio: string | null;
   awards: string | null;
+  /**
+   * Which watched film the model considers this a neighbour of. The endpoint
+   * requires it so every pick has to be justified against a seed instead of
+   * free-associated; it isn't persisted on the Candidate, and is declared here
+   * only to document the wire shape.
+   */
+  similarTo?: string | null;
   director?: string | null;
   writer?: string | null;
   directors?: string[] | null;
@@ -148,12 +156,16 @@ const OMDB_CONCURRENCY = 4;
  * The LLM over-delivers (the server returns more than `batchSize`) because
  * OMDB can't confirm every title; we enrich until `batchSize` verified
  * survivors are collected, then stop to save free-tier OMDB quota.
+ *
+ * `taste` (from `buildTasteProfile` in ./taste) is what makes the results
+ * *similar* to the family's watched films rather than a generic "best family
+ * movies" dump. Callers should always pass it.
  */
 export async function expandPool(
   poolTitles: string[],
   libraryTitles: string[],
   batchSize: number = 100,
-  libraryContext?: { directors: string[]; writers: string[]; studios: string[] },
+  taste?: TasteProfile,
   onProgress?: (p: ExpandProgress) => void,
 ): Promise<Candidate[]> {
   // The endpoint verifies this JWT server-side and rejects anyone not on
@@ -179,9 +191,12 @@ export async function expandPool(
       poolTitles,
       libraryTitles,
       batchSize,
-      directors: libraryContext?.directors ?? [],
-      writers: libraryContext?.writers ?? [],
-      studios: libraryContext?.studios ?? [],
+      taste,
+      // Legacy flat fields, kept so a request served by an older function
+      // deploy still gets a (weaker) taste signal rather than none.
+      directors: taste?.directors ?? [],
+      writers: taste?.writers ?? [],
+      studios: taste?.studios ?? [],
     }),
   });
 
@@ -224,7 +239,9 @@ export async function expandPool(
       let omdb: CandidateOmdbPatch | null = null;
       if (!ban.has(key)) {
         try {
-          omdb = await enrichCandidate(r.title);
+          // Pass the year through: it disambiguates remakes and rescues
+          // titles whose OMDB relevance ranking buries the real film.
+          omdb = await enrichCandidate(r.title, r.year);
         } catch {
           omdb = null;
         }

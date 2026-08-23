@@ -214,24 +214,53 @@ export function normalizeTitle(s: string): string {
     .trim();
 }
 
+/** Leading 4-digit year out of OMDB's `Year` field ("2019", "2019-2021"). */
+function resultYear(raw: string): number | null {
+  const m = /\d{4}/.exec(raw);
+  return m ? parseInt(m[0], 10) : null;
+}
+
 /**
  * Find a movie on OMDB by title and return its full patch. Used by the
- * bulk-link flow. Tries `?s=` broad search first, takes the top result,
- * then fetches the full detail response via `?i=`. Returns null if no
- * match is found or the top result isn't a close enough match to the
- * input title (not an error — the caller iterates over many titles and
- * wants to skip unmatched ones gracefully).
+ * bulk-link flow and by pool expansion. Tries `?s=` broad search first, then
+ * fetches the full detail response via `?i=`. Returns null if no match is
+ * found or nothing in the result set is a close enough match to the input
+ * title (not an error — the caller iterates over many titles and wants to
+ * skip unmatched ones gracefully).
+ *
+ * Two refinements over "just take results[0]", both aimed at raising the hit
+ * rate of pool expansion (every miss is a suggestion thrown away):
+ *
+ * 1. **Scan the whole result set, not just the top hit.** OMDB's relevance
+ *    ranking regularly puts a same-named documentary, sequel, or straight-to-
+ *    video knockoff above the real film. Bailing on results[0] discarded a
+ *    perfectly good match sitting at index 1.
+ * 2. **Prefer the release year when the caller knows it.** The LLM returns a
+ *    year alongside every title; using it disambiguates remakes ("The Lion
+ *    King" 1994 vs 2019) instead of silently linking the wrong film. A one-year
+ *    slop absorbs festival-vs-wide-release disagreements.
  */
 export async function linkByTitle(
   title: string,
+  year?: number | null,
 ): Promise<OmdbMoviePatch | null> {
   const results = await searchMovies(title);
   if (results.length === 0) return null;
-  const top = results[0];
-  // Reject obviously-wrong matches. Prevents Dog Man → Man Bites Dog.
-  if (!isCloseMatch(title, top.title)) return null;
+  // Reject obviously-wrong matches. Prevents Dog Man -> Man Bites Dog.
+  const close = results.filter((r) => isCloseMatch(title, r.title));
+  if (close.length === 0) return null;
+  const byYear =
+    year != null
+      ? close.find((r) => {
+          const y = resultYear(r.year);
+          return y != null && Math.abs(y - year) <= 1;
+        })
+      : undefined;
+  // No year match doesn't mean no match: the LLM's year can just be wrong.
+  // Fall back to OMDB's own relevance order among the close matches.
+  const chosen = byYear ?? close[0];
   try {
-    return await getMovieById(top.imdbId);
+    return await getMovieById(chosen.imdbId);
   } catch {
     return null;
   }
@@ -259,10 +288,11 @@ export type CandidateOmdbPatch = {
 
 export async function enrichCandidate(
   title: string,
+  year?: number | null,
 ): Promise<CandidateOmdbPatch | null> {
   if (!OMDB_KEY) return null;
   try {
-    const patch = await linkByTitle(title);
+    const patch = await linkByTitle(title, year);
     if (!patch) return null;
     return {
       imdbId: patch.imdbId,
