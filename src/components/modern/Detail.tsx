@@ -31,6 +31,9 @@ import {
 } from './palette';
 import ModernPoster from './ModernPoster';
 import ClassicDetail from '../Detail';
+import CreatorPills from '../CreatorPills';
+import ReleaseDate from '../ReleaseDate';
+import { useCreatorCatalog } from '../../creatorCatalog';
 import StreamingSection from '../StreamingSection';
 
 /*
@@ -120,6 +123,7 @@ function ModernView({
   onDelete: (movie: Movie) => void | Promise<void>;
   onSelectMovie?: (title: string) => void;
 }) {
+  const browse = useCreatorCatalog();
   const { c1, c2, accent } = posterFor(movie.title);
   const age = ageTone(movie.commonSenseAge);
   const [notes, setNotes] = useState(movie.notes ?? '');
@@ -502,7 +506,7 @@ function ModernView({
                     marginTop: 2,
                   }}
                 >
-                  {movie.production}
+                  <CreatorPills readOnly names={[movie.production]} onSelect={browse ? name => browse({role: 'studio', name, origin: movie}) : undefined} />
                 </div>
               </div>
             )}
@@ -537,6 +541,7 @@ function ModernView({
         </div>
       )}
 
+      <div style={{padding: '16px 20px 0'}}><ReleaseDate releaseDate={movie.releaseDate} /></div>
       {/* Directors / Writers */}
       {((movie.directors && movie.directors.length > 0) ||
         (movie.writers && movie.writers.length > 0)) && (
@@ -556,12 +561,14 @@ function ModernView({
               <ModernPillRow
                 label={movie.directors.length > 1 ? 'Directors' : 'Director'}
                 names={movie.directors}
+                onSelect={browse ? name => browse({role: 'director', name, origin: movie}) : undefined}
               />
             )}
             {movie.writers && movie.writers.length > 0 && (
               <ModernPillRow
                 label={movie.writers.length > 1 ? 'Writers' : 'Writer'}
                 names={movie.writers}
+                onSelect={browse ? name => browse({role: 'writer', name, origin: movie}) : undefined}
               />
             )}
           </div>
@@ -721,57 +728,8 @@ function ModernView({
   );
 }
 
-function ModernPillRow({
-  label,
-  names,
-}: {
-  label: string;
-  names: string[];
-}) {
-  return (
-    <div>
-      <div
-        style={{
-          fontFamily: SANS,
-          fontSize: 10,
-          color: INK_3,
-          letterSpacing: 1.5,
-          textTransform: 'uppercase',
-          fontWeight: 600,
-        }}
-      >
-        {label}
-      </div>
-      <div
-        style={{
-          marginTop: 6,
-          display: 'flex',
-          flexWrap: 'wrap',
-          gap: 6,
-        }}
-      >
-        {names.map((n) => (
-          <span
-            key={n}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              padding: '4px 10px',
-              borderRadius: 999,
-              background: BG,
-              border: `1px solid ${BORDER}`,
-              fontFamily: SANS,
-              fontSize: 12,
-              fontWeight: 600,
-              color: INK_2,
-            }}
-          >
-            {n}
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+function ModernPillRow({ label, names, onSelect }: { label: string; names: string[]; onSelect?: (name: string) => void }) {
+  return <div><div style={{fontFamily:SANS,fontSize:10,color:INK_3,letterSpacing:1.5,textTransform:'uppercase',fontWeight:600}}>{label}</div><div style={{marginTop:6}}><CreatorPills readOnly names={names} onSelect={onSelect} /></div></div>;
 }
 
 function ModernCrossoverBlock({

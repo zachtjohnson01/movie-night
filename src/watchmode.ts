@@ -14,6 +14,7 @@ const WATCHMODE_BASE = 'https://api.watchmode.com/v1';
 const WATCHMODE_KEY = import.meta.env.VITE_WATCHMODE_API_KEY;
 
 const SOURCE = 'watchmode';
+const CACHE_VERSION = 2;
 export const STREAMING_REGION = 'US';
 
 export const isStreamingConfigured = Boolean(WATCHMODE_KEY);
@@ -85,7 +86,9 @@ function loadCatalog(): Promise<Map<number, string | null>> {
 type WmSource = {
   source_id: number;
   name: string;
-  type: string; // 'sub' | 'free' | 'tve' | 'rent' | 'purchase'
+  type: string; // 'sub' | 'free' | 'tve' | 'rent' | 'buy' (legacy: 'purchase')
+  price?: number | null;
+  format?: string | null;
   region: string;
   web_url?: string | null;
   ios_url?: string | null;
@@ -100,20 +103,31 @@ function makeProvider(
     name: s.name,
     logo: logos.get(s.source_id) ?? null,
     link: s.web_url || s.ios_url || null,
+    price: typeof s.price === 'number' && Number.isFinite(s.price) && s.price >= 0 ? s.price : null,
+    currency: s.region === 'US' ? 'USD' : null,
+    format: s.format || null,
+    accessType: ((s.type === 'buy' || s.type === 'purchase') ? 'buy' : s.type) as StreamingProvider['accessType'],
   };
 }
 
-// Dedupe a bucket by source id, keeping the first (Watchmode lists a service
-// once per format/quality; we only want one tile per service).
+// Keep distinct quality, price and access offers from the same service.
 function dedupe(providers: StreamingProvider[]): StreamingProvider[] {
-  const seen = new Set<number>();
-  const out: StreamingProvider[] = [];
-  for (const p of providers) {
-    if (seen.has(p.id)) continue;
-    seen.add(p.id);
-    out.push(p);
+  const seen = new Set<string>();
+  return providers.filter((p) => {
+    const key = JSON.stringify([p.id, p.accessType, p.format, p.price, p.currency, p.link]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function offerPrice(provider: StreamingProvider): string {
+  if (provider.price == null || !Number.isFinite(provider.price) || provider.price < 0 || !provider.currency) return 'Check price';
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: provider.currency }).format(provider.price);
+  } catch {
+    return 'Check price';
   }
-  return out;
 }
 
 /**
@@ -140,7 +154,7 @@ export async function getStreamingByImdbId(imdbId: string): Promise<StreamingInf
     us.filter((s) => s.type === 'rent').map((s) => makeProvider(s, logos)),
   );
   const buy = dedupe(
-    us.filter((s) => s.type === 'purchase').map((s) => makeProvider(s, logos)),
+    us.filter((s) => (s.type === 'buy' || s.type === 'purchase')).map((s) => makeProvider(s, logos)),
   );
 
   return {
@@ -151,6 +165,7 @@ export async function getStreamingByImdbId(imdbId: string): Promise<StreamingInf
     buy,
     fetchedAt: now,
     source: SOURCE,
+    cacheVersion: CACHE_VERSION,
   };
 }
 
@@ -161,7 +176,7 @@ export async function getStreamingByImdbId(imdbId: string): Promise<StreamingInf
  */
 export function isStreamingStale(info: StreamingInfo | null | undefined, maxAgeDays = 7): boolean {
   if (!info?.fetchedAt) return true;
-  if (info.source !== SOURCE) return true;
+  if (info.source !== SOURCE || info.cacheVersion !== CACHE_VERSION) return true;
   const fetched = Date.parse(info.fetchedAt);
   if (!Number.isFinite(fetched)) return true;
   return Date.now() - fetched > maxAgeDays * 24 * 60 * 60 * 1000;

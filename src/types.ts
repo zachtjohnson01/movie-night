@@ -13,6 +13,11 @@ export type StreamingProvider = {
    * to an in-app search link, then the region-level `link`.
    */
   link?: string | null;
+  /** Reported per-title price; null/absent means unknown, never free. */
+  price?: number | null;
+  currency?: string | null;
+  format?: string | null;
+  accessType?: 'sub' | 'free' | 'tve' | 'rent' | 'buy';
 };
 
 /**
@@ -40,6 +45,8 @@ export type StreamingInfo = {
    * backward compat with pre-existing (TMDB) cached rows, which read as stale.
    */
   source?: string;
+  /** Version of cached offer fields; old caches refresh to obtain prices. */
+  cacheVersion?: number;
 };
 
 export type Movie = {
@@ -89,6 +96,8 @@ export type Movie = {
    * between movies with identical titles.
    */
   year: number | null;
+  /** Exact release date reported by OMDB; not region/window-specific. */
+  releaseDate?: string | null;
   /**
    * Movie poster URL. Filled in by OMDB when a movie is linked or
    * refreshed. Null for manually-entered movies — the UI shows a
@@ -190,6 +199,8 @@ export type Candidate = {
    */
   displayTitle?: string | null;
   year: number | null;
+  /** Exact release date reported by OMDB; not region/window-specific. */
+  releaseDate?: string | null;
   imdbId: string | null;
   imdb: string | null;
   rottenTomatoes: string | null;

@@ -1,3 +1,4 @@
+import ReleaseDate from './ReleaseDate';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import {
@@ -14,7 +15,7 @@ import {
 } from '../verify';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { expandPool, extractUnique, type ExpandProgress } from '../recommendations';
+import { expandPoolDetailed, extractUnique, type ExpandProgress, type ExpansionReport } from '../recommendations';
 import {
   findDuplicateGroups,
   applyMerge,
@@ -75,9 +76,9 @@ function loadExpandCount(): number {
 function expandStageLabel(p: ExpandProgress): string {
   switch (p.stage) {
     case 'requesting':
-      return 'Asking Claude for fresh titles…';
+      return 'Looking for new movies…';
     case 'enriching':
-      return `Verifying on OMDB — ${p.done}/${p.total} checked, ${p.kept} kept`;
+      return `Checking movie details — ${p.done}/${p.total} checked, ${p.kept} kept`;
     case 'saving':
       return 'Saving to the pool…';
     case 'done':
@@ -127,6 +128,10 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   const [editing, setEditing] = useState<Candidate | null>(null);
   const [active, setActive] = useState<Set<FilterKey>>(new Set());
   const [expanding, setExpanding] = useState(false);
+  const [comparison, setComparison] = useState<{ baseline?: ExpansionReport; enhanced?: ExpansionReport; baselineError?: string; enhancedError?: string; poolSize: number } | null>(null);
+  const [lastReport, setLastReport] = useState<ExpansionReport | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [focus, setFocus] = useState('balanced');
   const [expandError, setExpandError] = useState<string | null>(null);
   const [expandProgress, setExpandProgress] = useState<ExpandProgress | null>(null);
   // How many movies to request per expansion (editable; persisted).
@@ -134,6 +139,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   // Titles added by the most recent expansion, so the user can see exactly
   // what landed (empty array = ran but found nothing new).
   const [lastAdded, setLastAdded] = useState<string[] | null>(null);
+  const [lastSkipped, setLastSkipped] = useState(0);
+  const [sort, setSort] = useState<'fit' | 'title' | 'newest'>('fit');
 
   const adjustExpandCount = useCallback((next: number) => {
     setExpandCount(() => {
@@ -162,13 +169,14 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   );
 
   const runExpansion = useCallback(async () => {
-    if (expanding) return;
+    if (expanding || (pool.status !== 'synced' && pool.status !== 'empty')) return;
     setExpandError(null);
     setLastAdded(null);
+    setLastReport(null);
     setExpandProgress({ stage: 'requesting' });
     setExpanding(true);
     try {
-      const fresh = await expandPool(
+      const report = await expandPoolDetailed(
         pool.candidates.map((c) => c.title),
         libraryTitles,
         expandCount,
@@ -178,12 +186,14 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
           studios: libraryStudios,
         },
         setExpandProgress,
+        { mode: 'enhanced', focus, existingMovies: [...pool.candidates, ...movies] },
       );
-      if (fresh.length > 0) {
-        setExpandProgress({ stage: 'saving' });
-        await pool.appendCandidates(fresh);
-      }
-      setLastAdded(fresh.map((c) => c.title));
+      setLastReport(report);
+      const fresh = report.candidates;
+      setExpandProgress({ stage: 'saving' });
+      const added = fresh.length > 0 ? await pool.appendCandidates(fresh) : [];
+      setLastAdded(added.map((c) => c.title));
+      setLastSkipped(fresh.length - added.length);
     } catch (e) {
       setExpandError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -192,6 +202,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     }
   }, [
     expanding,
+    focus,
+    movies,
     expandCount,
     pool,
     libraryTitles,
@@ -200,11 +212,39 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     libraryStudios,
   ]);
 
+  async function runComparison() {
+    if (expanding || (pool.status !== 'synced' && pool.status !== 'empty')) return;
+    setExpanding(true);
+    setComparing(true);
+    setExpandError(null);
+    const snapshot = [...pool.candidates];
+    const library = [...libraryTitles];
+    const context = { directors: libraryDirectors, writers: libraryWriters, studios: libraryStudios };
+    const result: NonNullable<typeof comparison> = { poolSize: snapshot.length };
+    setComparison(result);
+    try {
+      for (const mode of ['baseline', 'enhanced'] as const) {
+        try {
+          result[mode] = await expandPoolDetailed(snapshot.map(c => c.title), library, expandCount, context, setExpandProgress,
+            { mode, focus, existingMovies: [...snapshot, ...movies] });
+        } catch (e) {
+          result[mode === 'baseline' ? 'baselineError' : 'enhancedError'] = e instanceof Error ? e.message : String(e);
+        }
+        setComparison({ ...result });
+      }
+    } finally {
+      setExpanding(false);
+      setComparing(false);
+      setExpandProgress(null);
+    }
+  }
+
   // Set of dedup keys that appear at least twice — used both for the
   // "Duplicates" filter chip and for the Eligible complement.
   const duplicateKeys = useMemo(() => {
     const counts = new Map<string, number>();
     for (const c of pool.candidates) {
+      if (c.removedAt != null || c.removedReason != null) continue;
       const k = dedupKey(c.title);
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
@@ -220,10 +260,9 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       const missingLink = c.imdbId == null;
       const duplicate = duplicateKeys.has(dedupKey(c.title));
       const tvShow = c.type != null && c.type !== 'movie';
-      const removed = c.removedAt != null;
-      const hasSignal = c.rottenTomatoes != null || c.imdb != null;
+      const removed = c.removedAt != null || c.removedReason != null;
       const eligible =
-        !missingLink && !duplicate && !tvShow && !removed && hasSignal;
+        !missingLink && !duplicate && !tvShow && !removed;
       return { eligible, missingLink, duplicate, tvShow, removed };
     },
     [duplicateKeys],
@@ -253,15 +292,19 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       i,
       fit: scoreCandidate(c),
     }));
-    scored.sort((a, b) => b.fit - a.fit || a.i - b.i);
+    scored.sort((a, b) => {
+      if (sort === 'title') return (a.c.displayTitle ?? a.c.title).localeCompare(b.c.displayTitle ?? b.c.title);
+      if (sort === 'newest') return b.c.addedAt.localeCompare(a.c.addedAt) || a.i - b.i;
+      return b.fit - a.fit || a.i - b.i;
+    });
     return scored;
-  }, [pool.candidates]);
+  }, [pool.candidates, sort]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
     const anyFilter = active.size > 0;
     return ranked.filter(({ c }) => {
-      if (q && !c.title.toLowerCase().includes(q)) return false;
+      if (q && ![c.title, c.displayTitle, c.year, c.studio].filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
       if (!anyFilter) return true;
       const cls = classify(c);
       // OR semantics across chips: a row is kept if it matches any
@@ -283,9 +326,9 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   }, []);
 
   return (
-    <div className="mx-auto max-w-xl pb-8">
+    <div className="mx-auto max-w-xl" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 2rem)' }}>
       <header
-        className="sticky top-0 z-20 px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
+        className="px-5 pb-4 bg-ink-950 border-b border-ink-800/60"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <div className="flex items-center gap-2">
@@ -314,94 +357,33 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
               Admin
             </div>
             <h1 className="mt-0.5 text-[22px] font-bold leading-tight tracking-tight">
-              Candidate pool
+              Manage pool
             </h1>
-            <div className="mt-1 text-[11px] text-ink-500 tabular-nums">
-              <span className="text-ink-300 font-semibold">
-                {pool.candidates.length}
-              </span>{' '}
-              total ·{' '}
-              <span className="text-ink-300 font-semibold">
-                {counts.eligible}
-              </span>{' '}
-              eligible
-              {counts.removed > 0 && (
-                <>
-                  {' · '}
-                  <span className="text-ink-300 font-semibold">
-                    {counts.removed}
-                  </span>{' '}
-                  removed
-                </>
-              )}
-            </div>
+            <p className="mt-1 text-sm text-ink-400">More possibilities for movie night.</p>
           </div>
         </div>
 
-        <div className="mt-3 relative">
-          <input
-            type="search"
-            inputMode="search"
-            autoCorrect="off"
-            autoCapitalize="off"
-            placeholder="Search candidates…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.currentTarget.blur();
-            }}
-            className="w-full h-12 rounded-2xl bg-ink-800 border border-ink-700 pl-11 pr-4 text-base placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60 focus:bg-ink-800"
-          />
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-500"
-          >
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-        </div>
 
-        <div className="mt-3 -mx-5 px-5 flex gap-2 overflow-x-auto">
-          {FILTER_ORDER.map((key) => {
-            const isActive = active.has(key);
-            const n = counts[key];
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => toggleFilter(key)}
-                aria-pressed={isActive}
-                className={`shrink-0 h-9 px-3.5 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border transition-colors ${
-                  isActive
-                    ? 'bg-amber-glow text-ink-950 border-amber-glow'
-                    : 'bg-ink-800 border-ink-700 text-ink-300 active:bg-ink-700'
-                }`}
-              >
-                <span>{FILTER_LABEL[key]}</span>
-                <span
-                  className={`text-[10px] font-mono tabular-nums ${
-                    isActive ? 'text-ink-950/70' : 'text-ink-500'
-                  }`}
-                >
-                  {n}
-                </span>
-              </button>
-            );
-          })}
-        </div>
       </header>
 
-      <div className="px-5 pt-4 pb-1 flex flex-col gap-1.5">
+      <section aria-label="Pool overview" className="grid grid-cols-3 gap-2 px-5 py-5">
+        {[['In the pool', pool.candidates.length], ['Eligible', counts.eligible], ['Removed', counts.removed]].map(([label, value]) => (
+          <div key={label} className="rounded-2xl border border-ink-800 bg-ink-900 px-3 py-3">
+            <div className="text-2xl font-bold tabular-nums text-ink-100">{value}</div>
+            <div className="mt-1 text-xs text-ink-400">{label}</div>
+          </div>
+        ))}
+      </section>
+
+      <section aria-labelledby="expand-heading" className="mx-5 rounded-2xl border border-amber-glow/25 bg-ink-900 p-4 flex flex-col gap-3">
+        <div>
+          <h2 id="expand-heading" className="text-lg font-bold text-ink-100">Find something new</h2>
+          <p className="mt-1 text-sm leading-relaxed text-ink-400">Discover movies to add to the shared pool.</p>
+        </div>
         {!expanding && (
           <div className="flex items-center justify-between gap-3 pb-0.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-ink-500">
-              Movies to add
+              Discovery target
             </span>
             <div className="flex items-center gap-2">
               <button
@@ -430,12 +412,12 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
         )}
         <button
           type="button"
-          disabled={expanding}
+          disabled={expanding || (pool.status !== 'synced' && pool.status !== 'empty')}
           onClick={() => void runExpansion()}
-          className={`w-full min-h-[44px] rounded-2xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+          className={`w-full min-h-[52px] rounded-2xl text-base font-bold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 ${
             expanding
               ? 'bg-ink-800 border border-ink-700 text-ink-400 cursor-default'
-              : 'bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700'
+              : 'bg-amber-glow text-ink-950 active:opacity-80'
           }`}
         >
           {expanding ? (
@@ -444,15 +426,32 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
                 aria-hidden
                 className="inline-block w-3 h-3 rounded-full border-2 border-amber-glow border-t-transparent animate-spin"
               />
-              Adding movies…
+              {comparing ? 'Comparing methods…' : 'Expanding pool…'}
             </>
           ) : (
-            <>Expand pool +{expandCount}</>
+            <>Expand pool</>
           )}
         </button>
 
+        <label className="text-sm text-ink-300">Discovery focus
+          <select value={focus} onChange={e => setFocus(e.target.value)} disabled={expanding} className="mt-1 w-full min-h-[44px] rounded-xl border border-ink-700 bg-ink-950 px-3 text-sm"><option value="balanced">Balanced catalog</option><option value="recent">Recent releases</option><option value="backfill">Backfill older movies</option></select>
+        </label>
+        <button type="button" disabled={expanding || (pool.status !== 'synced' && pool.status !== 'empty')} onClick={() => void runComparison()} className="min-h-[48px] rounded-xl border border-ink-700 bg-ink-800 text-sm font-semibold text-ink-200 disabled:opacity-50">Compare methods</button>
+        <p className="text-xs text-ink-400">Comparison checks both methods against the same pool snapshot without saving movies. It uses two discovery runs.</p>
+        {comparison && <div className="rounded-xl border border-ink-700 bg-ink-950 p-3 space-y-3" aria-label="Discovery comparison">
+          <h3 className="font-semibold text-ink-100">Before and after discovery</h3>
+          <p className="text-xs text-ink-400">Starting pool: {comparison.poolSize} rows. Candidates below have not been saved.</p>
+          {(['baseline', 'enhanced'] as const).map(mode => <div key={mode}>
+            <h4 className="text-sm font-semibold text-ink-200">{mode === 'baseline' ? 'Original method' : 'Enhanced method'}</h4>
+            {comparison[mode] ? <ExpansionSummary report={comparison[mode]!} /> : <p className="text-sm text-ink-400">{comparison[mode === 'baseline' ? 'baselineError' : 'enhancedError'] ?? 'Waiting for results…'}</p>}
+          </div>)}
+          {comparison.baseline && comparison.enhanced && <p className="text-sm text-amber-glow">Difference: {comparison.enhanced.verified - comparison.baseline.verified} verified candidates. {comparison.enhanced.status === 'partial' || comparison.baseline.status === 'partial' ? 'Incomplete run: do not treat this as a final benchmark.' : 'A single run; results can vary.'}</p>}
+        </div>}
+        {lastReport && !expanding && <ExpansionSummary report={lastReport} />}
+        <p className="text-xs leading-relaxed text-ink-400">Aim for up to {expandCount} movies. Actual additions depend on new matches.</p>
+
         {expanding && expandProgress && (
-          <div className="flex flex-col gap-1.5 pt-0.5">
+          <div className="flex flex-col gap-1.5 pt-0.5" role="status">
             <p className="text-center text-xs text-ink-300">
               {expandStageLabel(expandProgress)}
             </p>
@@ -460,6 +459,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
               <div
                 className="h-1 w-full rounded-full bg-ink-800 overflow-hidden"
                 role="progressbar"
+                aria-label="Movie details checked"
+                aria-valuemin={0}
                 aria-valuenow={expandProgress.done}
                 aria-valuemax={expandProgress.total}
               >
@@ -479,56 +480,125 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
         )}
 
         {expandError && (
-          <p className="text-center text-xs text-crimson-bright">
+          <p role="alert" className="rounded-xl border border-crimson-deep/60 bg-crimson-deep/10 p-3 text-sm text-crimson-bright">
             {expandError}
           </p>
         )}
 
-        {!expanding && lastAdded && (
-          lastAdded.length > 0 ? (
-            <div className="rounded-xl border border-ink-700 bg-ink-900 p-3">
-              <p className="text-xs font-semibold text-ink-100">
-                Added {lastAdded.length} movie{lastAdded.length === 1 ? '' : 's'}
-              </p>
-              <p className="mt-1 max-h-32 overflow-y-auto text-xs leading-relaxed text-ink-400">
-                {lastAdded.join(' · ')}
-              </p>
-            </div>
-          ) : (
-            <p className="text-center text-xs text-ink-400">
-              No new movies found this time — the pool may be saturated. Try
-              again to pull a different batch.
+        {!expanding && lastAdded !== null && (
+          <div role="status" className="rounded-xl border border-ink-700 bg-ink-950 p-3">
+            <p className="text-sm font-semibold text-ink-100">
+              {lastAdded.length > 0 ? `Added ${lastAdded.length} movie${lastAdded.length === 1 ? '' : 's'} to the pool` : 'No new movies added this time'}
             </p>
-          )
+            {lastSkipped > 0 && <p className="mt-1 text-sm text-ink-400">{lastSkipped} existing or duplicate matches skipped at save.</p>}
+            {lastAdded.length > 0 ? (
+              <details className="mt-1">
+                <summary className="min-h-[44px] flex items-center cursor-pointer text-sm font-semibold text-amber-glow">See added movies</summary>
+                <ul className="space-y-1 text-sm text-ink-300 break-words">{lastAdded.map((title) => <li key={title}>{title}</li>)}</ul>
+              </details>
+            ) : <p className="mt-1 text-sm text-ink-400">Try another batch to look for different matches.</p>}
+          </div>
         )}
-      </div>
+      </section>
 
-      <BulkOmdbSection pool={pool} />
+      <details className="mx-5 mt-3 rounded-2xl border border-ink-800 bg-ink-900">
+        <summary className="min-h-[52px] cursor-pointer px-4 py-3 text-sm font-semibold text-ink-200">Update &amp; tidy the pool</summary>
+        <p className="px-4 text-sm leading-relaxed text-ink-400">Refresh details and availability for existing titles, or review duplicates.</p>
+        <fieldset disabled={expanding} className="pb-3 disabled:opacity-50">
+          <BulkOmdbSection pool={pool} />
+          <BulkStreamingSection pool={pool} />
+          <FindDuplicatesSection pool={pool} movies={movies} />
+        </fieldset>
+      </details>
 
-      <BulkStreamingSection pool={pool} />
-
-      <FindDuplicatesSection pool={pool} movies={movies} />
-
-      <ul className="pt-2">
-        {visible.map(({ c, fit }, i) => (
-          <PoolRow
-            key={c.title}
-            c={c}
-            fit={fit}
-            rank={i + 1}
-            onEdit={() => setEditing(c)}
-            onToggleDownvote={() => void pool.toggleDownvote(c.title)}
+      <section aria-label="Browse pool" className="mt-5">
+        <div className="sticky top-0 z-20 px-5 pb-3 bg-ink-950/95 backdrop-blur-lg border-y border-ink-800/60" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}>
+        <div className="mt-3 relative">
+          <input
+            type="search"
+            inputMode="search"
+            autoCorrect="off"
+            autoCapitalize="off"
+            aria-label="Search pool"
+            placeholder="Search title, year or studio…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+            className="w-full h-12 rounded-2xl bg-ink-800 border border-ink-700 pl-11 pr-4 text-base placeholder:text-ink-500 focus:outline-none focus:border-amber-glow/60 focus:bg-ink-800"
           />
-        ))}
-      </ul>
-
-      {visible.length === 0 && (
-        <div className="px-6 pt-10 text-center text-ink-400 text-sm">
-          {query || active.size > 0
-            ? 'No candidates match the current filters.'
-            : 'Pool is empty.'}
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-5 h-5 text-ink-500"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
         </div>
-      )}
+
+        <div className="mt-3 -mx-5 px-5 flex gap-2 overflow-x-auto pb-1">
+          <button type="button" aria-pressed={active.size === 0} onClick={() => setActive(new Set())}
+            className={`shrink-0 min-h-[44px] px-4 rounded-full text-xs font-semibold border ${active.size === 0 ? 'bg-amber-glow text-ink-950 border-amber-glow' : 'bg-ink-800 text-ink-300 border-ink-700'}`}>All</button>
+          {FILTER_ORDER.map((key) => {
+            const isActive = active.has(key);
+            const n = counts[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => toggleFilter(key)}
+                aria-pressed={isActive}
+                className={`shrink-0 min-h-[44px] px-3.5 rounded-full text-xs font-semibold inline-flex items-center gap-1.5 border transition-colors ${
+                  isActive
+                    ? 'bg-amber-glow text-ink-950 border-amber-glow'
+                    : 'bg-ink-800 border-ink-700 text-ink-300 active:bg-ink-700'
+                }`}
+              >
+                <span>{FILTER_LABEL[key]}</span>
+                <span
+                  className={`text-[10px] font-mono tabular-nums ${
+                    isActive ? 'text-ink-950/70' : 'text-ink-500'
+                  }`}
+                >
+                  {n}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
+          <p className="text-sm text-ink-400" role="status">{visible.length} of {pool.candidates.length} titles</p>
+          <label className="flex items-center gap-2 text-sm text-ink-400">
+            Sort
+            <select aria-label="Sort movies" value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className="min-h-[44px] max-w-[180px] rounded-xl border border-ink-700 bg-ink-900 px-3 text-base text-ink-200">
+              <option value="fit">Best fit</option><option value="newest">Recently added</option><option value="title">Title A–Z</option>
+            </select>
+          </label>
+        </div>
+        {pool.status === 'loading' && <p role="status" className="px-5 py-8 text-sm text-ink-300">Loading the pool…</p>}
+        {pool.status === 'error' && <div role="alert" className="mx-5 rounded-xl border border-crimson-deep p-4 text-sm text-ink-200">The pool could not sync. These results may be out of date.<button type="button" onClick={pool.reload} className="mt-2 block min-h-[44px] font-semibold text-amber-glow">Try syncing again</button></div>}
+        <ul className="space-y-2 px-5">
+          {visible.map(({ c, fit }, i) => (
+            <PoolRow key={`${c.imdbId ?? c.title}-${i}`} c={c} fit={fit} rank={i + 1}
+              onEdit={() => setEditing(c)} onToggleDownvote={() => void pool.toggleDownvote(c.title)} />
+          ))}
+        </ul>
+        {visible.length === 0 && pool.status !== 'loading' && pool.status !== 'error' && (
+          <div className="mx-5 rounded-2xl border border-dashed border-ink-700 px-5 py-8 text-center">
+            <p className="font-semibold text-ink-200">{query || active.size > 0 ? 'No matching movies' : 'A world of movies starts here'}</p>
+            <p className="mt-2 text-sm text-ink-400">{query || active.size > 0 ? 'Try a different search or clear your filters.' : 'Use Expand pool to discover the first titles.'}</p>
+            {(query || active.size > 0) && <button type="button" onClick={() => { setQuery(''); setActive(new Set()); }} className="mt-3 min-h-[44px] px-4 text-sm font-semibold text-amber-glow">Clear search and filters</button>}
+          </div>
+        )}
+      </section>
 
       {editing && (
         <EditSheet
@@ -569,32 +639,18 @@ function PoolRow({
   const downvoted = !!c.downvoted;
   const removed = c.removedAt != null;
   return (
-    <li className="border-b border-ink-800/70">
+    <li className="rounded-2xl border border-ink-800 bg-ink-900">
       <div
-        className={`flex gap-3 px-4 py-3.5 ${
+        className={`flex gap-2 p-3 ${
           downvoted || removed ? 'opacity-60' : ''
         }`}
       >
         <button
           type="button"
           onClick={onEdit}
+          aria-label={`Edit ${c.displayTitle ?? c.title}`}
           className="flex-1 flex gap-3 text-left active:bg-ink-900 -mx-1 -my-1 px-1 py-1 rounded-lg transition-colors min-w-0"
         >
-          <div className="w-8 shrink-0 flex flex-col items-center pt-1 gap-0.5">
-            <div
-              className="font-display italic leading-none tracking-tight text-ink-300"
-              style={{
-                fontSize: rank <= 9 ? 24 : 20,
-                fontWeight: 400,
-                letterSpacing: -1,
-              }}
-            >
-              {rank}
-            </div>
-            <div className="text-[9px] font-mono text-ink-500 tabular-nums tracking-wider">
-              {fit}
-            </div>
-          </div>
 
           {c.poster ? (
             <img
@@ -612,16 +668,16 @@ function PoolRow({
           )}
 
           <div className="flex-1 min-w-0 flex flex-col gap-1">
-            <div className="flex items-baseline justify-between gap-2">
+            <div className="flex flex-col gap-1">
               <div
-                className={`text-[15px] font-semibold leading-tight truncate ${
+                className={`text-base font-semibold leading-snug break-words ${
                   removed ? 'text-ink-300 line-through' : 'text-ink-100'
                 }`}
               >
                 {c.displayTitle ?? c.title}
               </div>
               {c.year && (
-                <div className="text-[11px] font-mono text-ink-500 shrink-0 tabular-nums">
+                <div className="text-xs text-ink-400 tabular-nums">
                   {c.year}
                 </div>
               )}
@@ -630,7 +686,7 @@ function PoolRow({
             <div className="flex gap-2 items-center flex-wrap">
               {c.commonSenseAge && (
                 <span
-                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${ageBadgeClass(
+                  className={`text-xs font-bold px-1.5 py-0.5 rounded border ${ageBadgeClass(
                     c.commonSenseAge,
                   )}`}
                 >
@@ -638,7 +694,7 @@ function PoolRow({
                 </span>
               )}
               {c.rottenTomatoes && (
-                <span className="inline-flex items-baseline gap-1 text-[11px]">
+                <span className="inline-flex items-baseline gap-1 text-xs">
                   <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-500">
                     RT
                   </span>
@@ -648,7 +704,7 @@ function PoolRow({
                 </span>
               )}
               {c.imdb && (
-                <span className="inline-flex items-baseline gap-1 text-[11px]">
+                <span className="inline-flex items-baseline gap-1 text-xs">
                   <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-500">
                     IMDb
                   </span>
@@ -670,8 +726,11 @@ function PoolRow({
               )}
             </div>
 
+            <ReleaseDate releaseDate={c.releaseDate} />
+            {!c.imdb && !c.rottenTomatoes && <p className="text-xs text-ink-400">Ratings pending</p>}
+            <p className="text-xs text-ink-400">#{rank} · Fit {fit}</p>
             {c.studio && (
-              <div className="text-[10.5px] text-ink-500 font-medium truncate">
+              <div className="text-xs text-ink-400 font-medium truncate">
                 {c.studio}
               </div>
             )}
@@ -681,7 +740,7 @@ function PoolRow({
         <button
           type="button"
           onClick={onToggleDownvote}
-          aria-label={downvoted ? 'Remove downvote' : 'Downvote'}
+          aria-label={`${downvoted ? 'Remove downvote for' : 'Downvote'} ${c.displayTitle ?? c.title}`}
           aria-pressed={downvoted}
           className={`shrink-0 self-start w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${
             downvoted
@@ -718,6 +777,7 @@ function EditSheet({
   const [yearStr, setYearStr] = useState(
     candidate.year != null ? String(candidate.year) : '',
   );
+  const [releaseDate, setReleaseDate] = useState(candidate.releaseDate ?? null);
   const [age, setAge] = useState(candidate.commonSenseAge ?? '');
   const [studio, setStudio] = useState(candidate.studio ?? '');
   const [imdbIdInput, setImdbIdInput] = useState(candidate.imdbId ?? '');
@@ -777,6 +837,7 @@ function EditSheet({
       const patch = await getMovieById(result.imdbId);
       setTitle(patch.title);
       setDisplayTitleInput('');
+      setReleaseDate(patch.releaseDate ?? null);
       setYearStr(patch.year != null ? String(patch.year) : '');
       setImdbIdInput(patch.imdbId);
       setRtIdInput('');
@@ -816,6 +877,7 @@ function EditSheet({
     setRefreshError(null);
     try {
       const patch = await getMovieById(id);
+      setReleaseDate(patch.releaseDate ?? null);
       setYearStr(patch.year != null ? String(patch.year) : yearStr);
       setStudio(patch.production ?? studio);
       setRt(patch.rottenTomatoes ?? rt);
@@ -959,6 +1021,7 @@ function EditSheet({
       ...candidate,
       title: title.trim() || candidate.title,
       displayTitle: displayTitleInput.trim() || null,
+      releaseDate,
       year: Number.isFinite(parsedYear) ? parsedYear : null,
       commonSenseAge: age.trim() || null,
       studio: studio.trim() || null,
@@ -1072,6 +1135,7 @@ function EditSheet({
           />
         </div>
 
+        <ReleaseDate releaseDate={releaseDate} />
         {imdbIdInput.trim() && (
           <div className="mb-4">
             <button
@@ -1104,7 +1168,7 @@ function EditSheet({
               disabled={streamingBusy}
               className="w-full min-h-[44px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-60 flex items-center justify-center gap-2"
             >
-              {streamingBusy ? 'Refreshing…' : 'Refresh streaming'}
+              {streamingBusy ? 'Refreshing…' : 'Update where to watch'}
             </button>
             {streamingError ? (
               <p className="mt-1.5 text-[11px] text-crimson-bright">
@@ -1186,7 +1250,7 @@ function EditSheet({
                     <button
                       type="button"
                       onClick={() => applyVerifySuggestion(r)}
-                      className="mt-2 w-full min-h-[40px] rounded-xl bg-ink-800 border border-ink-700 text-xs font-semibold text-ink-100 active:bg-ink-700"
+                      className="mt-2 w-full min-h-[44px] rounded-xl bg-ink-800 border border-ink-700 text-xs font-semibold text-ink-100 active:bg-ink-700"
                     >
                       Apply
                     </button>
@@ -1197,14 +1261,14 @@ function EditSheet({
                 <button
                   type="button"
                   onClick={() => setVerifySuggestions(null)}
-                  className="min-h-[40px] rounded-xl bg-ink-800 border border-ink-700 text-xs font-semibold text-ink-300 active:bg-ink-700"
+                  className="min-h-[44px] rounded-xl bg-ink-800 border border-ink-700 text-xs font-semibold text-ink-300 active:bg-ink-700"
                 >
                   Dismiss
                 </button>
                 <button
                   type="button"
                   onClick={applyAllVerifySuggestions}
-                  className="min-h-[40px] rounded-xl bg-amber-glow text-ink-950 text-xs font-bold active:opacity-80"
+                  className="min-h-[44px] rounded-xl bg-amber-glow text-ink-950 text-xs font-bold active:opacity-80"
                 >
                   Apply all
                 </button>
@@ -1375,7 +1439,7 @@ function EditSheet({
               <button
                 type="button"
                 onClick={() => void onRestore()}
-                className="shrink-0 min-h-[40px] px-4 rounded-xl text-xs font-semibold bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700"
+                className="shrink-0 min-h-[44px] px-4 rounded-xl text-xs font-semibold bg-ink-800 border border-ink-700 text-ink-200 active:bg-ink-700"
               >
                 Restore
               </button>
@@ -1389,7 +1453,7 @@ function EditSheet({
                     type="button"
                     onClick={() => void handleRemove(r)}
                     disabled={busyReason != null}
-                    className={`min-h-[36px] px-3 rounded-full text-xs font-semibold border transition-colors ${
+                    className={`min-h-[44px] px-3 rounded-full text-xs font-semibold border transition-colors ${
                       busyReason === r
                         ? 'bg-ink-700 border-ink-600 text-ink-400 cursor-default'
                         : 'bg-ink-800 border-ink-700 text-ink-200 active:bg-ink-700'
@@ -2080,6 +2144,18 @@ function DupeStat({
   );
 }
 
+function ExpansionSummary({ report }: { report: ExpansionReport }) {
+  return <div className="text-sm text-ink-300 space-y-1">
+    <p>{report.api.rawGenerated ?? report.raw} generated · {report.raw} returned · {report.checked} checked · {report.verified} verified</p>
+    <p className="text-xs text-ink-400">{report.duplicates} duplicates skipped · {report.unmatched} unmatched · {report.errors} lookup errors</p>
+    {report.status === 'partial' && <p className="text-amber-glow">{report.api.completionObserved === false ? 'Original method does not report whether discovery completed; comparison is provisional.' : 'Incomplete results — one or more discovery or lookup steps did not finish successfully.'}</p>}
+    <details><summary className="min-h-[44px] flex items-center cursor-pointer text-amber-glow">See verified candidates</summary>
+      <ul className="space-y-1 break-words">{report.candidates.map(c => <li key={c.imdbId ?? `${c.title}:${c.year}`}>{c.title} ({c.year ?? 'Year unknown'})</li>)}</ul>
+    </details>
+    {!!report.api.sourceUrls?.length && <details><summary className="min-h-[44px] flex items-center cursor-pointer">Discovery sources</summary><ul>{report.api.sourceUrls.filter(url => /^https?:\/\//i.test(url)).map(url => <li key={url} className="break-all"><a href={url} target="_blank" rel="noreferrer" className="text-amber-glow">{url}</a></li>)}</ul></details>}
+  </div>;
+}
+
 function LayersIcon({ className }: { className?: string }) {
   return (
     <svg
@@ -2218,7 +2294,7 @@ function BulkOmdbSection({ pool }: { pool: CandidatePoolApi }) {
           onClick={() => setPhase('confirm')}
           className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
         >
-          Refresh OMDB metadata
+          Update movie details
           <span className="ml-1.5 text-ink-500 font-normal">
             ({linkedCount} linked)
           </span>
@@ -2230,7 +2306,7 @@ function BulkOmdbSection({ pool }: { pool: CandidatePoolApi }) {
   if (phase === 'confirm') {
     return (
       <div className="mx-4 mt-4 mb-2 p-4 rounded-2xl bg-ink-900 border border-ink-700">
-        <h3 className="text-base font-bold text-ink-100">Bulk refresh OMDB</h3>
+        <h3 className="text-base font-bold text-ink-100">Update movie details</h3>
         <p className="mt-1 text-sm text-ink-400 leading-relaxed">
           Re-fetches director, writer, ratings, poster, and awards from OMDB for
           all {linkedCount} linked candidates. Updates propagate to watched and
@@ -2353,7 +2429,7 @@ function BulkStreamingSection({ pool }: { pool: CandidatePoolApi }) {
           onClick={() => setPhase('confirm')}
           className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700"
         >
-          Refresh streaming
+          Update where to watch
           <span className="ml-1.5 text-ink-500 font-normal">
             ({linkedCount} linked)
           </span>

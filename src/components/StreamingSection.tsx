@@ -1,5 +1,5 @@
 import type { StreamingInfo, StreamingProvider } from '../types';
-import { appSearchUrl, hasStreamingProviders } from '../watchmode';
+import { appSearchUrl, hasStreamingProviders, offerPrice } from '../watchmode';
 
 /**
  * "Where to watch" card: provider logo tiles grouped into Stream / Rent / Buy,
@@ -28,6 +28,14 @@ export default function StreamingSection({
     { label: 'Buy', providers: streaming.buy },
   ].filter((g) => g.providers.length > 0);
 
+  const rentalLows = new Map<string, StreamingProvider>();
+  for (const p of streaming.rent) {
+    if (p.price == null || p.price < 0 || !Number.isFinite(p.price) || !p.currency) continue;
+    const key = `${p.currency}:${p.format ?? 'unspecified quality'}`;
+    if (!rentalLows.has(key) || p.price < rentalLows.get(key)!.price!) rentalLows.set(key, p);
+  }
+  const checked = Date.parse(streaming.fetchedAt);
+
   return (
     <div
       className={`${className} rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-4`}
@@ -38,16 +46,23 @@ export default function StreamingSection({
         </div>
         <span className="text-[10px] text-ink-600">via Watchmode</span>
       </div>
+      {rentalLows.size > 0 && (
+        <p className="text-sm text-ink-300">
+          Lowest reported rental: {Array.from(rentalLows.values()).map((p) =>
+            `${offerPrice(p)} (${p.format || 'quality unspecified'})`).join(' · ')}
+        </p>
+      )}
       {groups.map((g) => (
         <div key={g.label}>
           <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
             {g.label}
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
-            {g.providers.map((p) => (
+            {g.providers.map((p, index) => (
               <ProviderTile
-                key={p.id}
+                key={`${p.id}-${index}`}
                 provider={p}
+                paid={g.label !== 'Stream'}
                 fallbackLink={streaming.link}
                 searchTitle={searchTitle}
               />
@@ -55,16 +70,22 @@ export default function StreamingSection({
           </div>
         </div>
       ))}
+      <p className="text-xs text-ink-300">
+        {Number.isFinite(checked) ? `Checked ${new Date(checked).toLocaleDateString('en-US')}. ` : 'Last check unknown. '}
+        Prices and availability may change; confirm with the service.
+      </p>
     </div>
   );
 }
 
 function ProviderTile({
   provider,
+  paid,
   fallbackLink,
   searchTitle,
 }: {
   provider: StreamingProvider;
+  paid: boolean;
   fallbackLink: string | null;
   searchTitle?: string;
 }) {
@@ -91,7 +112,13 @@ function ProviderTile({
           {provider.name.slice(0, 2)}
         </div>
       )}
-      <span className="text-sm text-ink-100 font-medium">{provider.name}</span>
+      <span className="py-2 min-w-0">
+        <span className="block text-sm text-ink-100 font-medium">{provider.name}</span>
+        <span className="block text-xs text-ink-300">
+          {paid ? offerPrice(provider) : provider.accessType === 'sub' ? 'With subscription' : provider.accessType === 'free' ? 'Free · ads may apply' : provider.accessType === 'tve' ? 'TV provider sign-in' : 'Check access'}
+          {provider.format ? ` · ${provider.format}` : ''}
+        </span>
+      </span>
     </>
   );
   if (!link) return <div className={cls}>{inner}</div>;

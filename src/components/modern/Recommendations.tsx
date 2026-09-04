@@ -1,3 +1,4 @@
+import ReleaseDate from '../ReleaseDate';
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../../types';
 import type { CandidatePoolApi } from '../../useCandidatePool';
@@ -71,8 +72,8 @@ export default function ModernRecommendations({
   const libraryWriters = useMemo(() => extractUnique(movies.flatMap((m) => m.writers ?? [])), [movies]);
   const libraryStudios = useMemo(() => extractUnique(movies.map((m) => m.production)), [movies]);
   const effectiveCount = useMemo(
-    () => countEffectiveCandidates(pool.candidates),
-    [pool.candidates],
+    () => countEffectiveCandidates(pool.candidates, movies),
+    [pool.candidates, movies],
   );
 
   const runExpansion = useCallback(
@@ -516,6 +517,10 @@ function RecCard({
               {rec.commonSenseAge}
             </span>
           )}
+          <ReleaseDate releaseDate={rec.releaseDate} />
+          {!rec.rottenTomatoes && !rec.imdb && <span className="text-xs">Ratings pending</span>}
+          {!rec.commonSenseAge && <span className="text-xs">Age guidance unknown</span>}
+          {!rec.streaming && <span className="text-xs">Availability not checked</span>}
           {rec.rottenTomatoes && (
             <span
               style={{

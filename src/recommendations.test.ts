@@ -13,17 +13,18 @@ vi.mock('./supabase', () => ({
 // stub the network-bound OMDB enrichment.
 vi.mock('./omdb', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./omdb')>();
-  return { ...actual, enrichCandidate: vi.fn() };
+  return { ...actual, enrichCandidate: vi.fn(), enrichCandidateVerified: vi.fn() };
 });
 
 import {
   countEffectiveCandidates,
   expandPool,
+  expandPoolDetailed,
   extractUnique,
   rankTopPicks,
   type ExpandProgress,
 } from './recommendations';
-import { enrichCandidate, type CandidateOmdbPatch } from './omdb';
+import { enrichCandidateVerified as enrichCandidate, type OmdbMoviePatch } from './omdb';
 import { emptyMovie } from './format';
 import type { Candidate, Movie } from './types';
 
@@ -76,12 +77,12 @@ describe('rankTopPicks', () => {
     expect(picks).toHaveLength(0);
   });
 
-  it('drops candidates with no RT or IMDb signal', () => {
+  it('includes linked candidates with no RT or IMDb signal', () => {
     const picks = rankTopPicks(
       [cand({ title: 'NoSignal', imdbId: 'tt1', rottenTomatoes: null, imdb: null })],
       [],
     );
-    expect(picks).toHaveLength(0);
+    expect(picks).toHaveLength(1);
   });
 
   it('drops soft-removed candidates', () => {
@@ -121,7 +122,7 @@ describe('rankTopPicks', () => {
 });
 
 describe('countEffectiveCandidates', () => {
-  it('counts only linked, movie-type, rated, non-removed, non-duplicate rows', () => {
+  it('counts linked, movie-type, non-removed, non-duplicate rows regardless of ratings', () => {
     const list = [
       cand({ title: 'Good', imdbId: 'tt1' }),
       cand({ title: 'NoId', imdbId: null }),
@@ -129,7 +130,7 @@ describe('countEffectiveCandidates', () => {
       cand({ title: 'Series', imdbId: 'tt3', type: 'series' }),
       cand({ title: 'NoRating', imdbId: 'tt4', rottenTomatoes: null, imdb: null }),
     ];
-    expect(countEffectiveCandidates(list)).toBe(1);
+    expect(countEffectiveCandidates(list)).toBe(2);
   });
 
   it('excludes duplicate-title candidates from the count', () => {
@@ -141,8 +142,27 @@ describe('countEffectiveCandidates', () => {
   });
 });
 
+describe('unrated eligibility consistency', () => {
+  it('ranks and counts the same linked candidates while preserving removal, type and library exclusions', () => {
+    const list = [
+      cand({ title: 'New film', imdbId: 'tt36841161', year: 2026, imdb: null, rottenTomatoes: null, commonSenseAge: null }),
+      cand({ title: 'Removed timestamp', imdbId: 'tt2', removedAt: '2026-01-01' }),
+      cand({ title: 'Removed reason', imdbId: 'tt3', removedReason: 'not suitable' }),
+      cand({ title: 'Series', imdbId: 'tt4', type: 'series' }),
+      cand({ title: 'Already owned', imdbId: 'tt5', imdb: null, rottenTomatoes: null }),
+      cand({ title: 'Unlinked', imdbId: null }),
+    ];
+    const library = [watched('Already owned', 'tt5')];
+    const picks = rankTopPicks(list, library);
+    expect(picks.map(p => p.title)).toEqual(['New film']);
+    expect(countEffectiveCandidates(list, library)).toBe(picks.length);
+    expect(picks[0].commonSenseAge).toBeNull();
+  });
+});
+
 describe('expandPool', () => {
-  const omdbPatch = (title: string): CandidateOmdbPatch => ({
+  const omdbPatch = (title: string): OmdbMoviePatch => ({
+    title,
     imdbId: `tt-${title}`,
     year: 2020,
     imdb: '8.0',
@@ -169,8 +189,8 @@ describe('expandPool', () => {
             awards: null,
             director: null,
             writer: null,
-            rottenTomatoes: null,
-            imdb: null,
+            rottenTomatoes: '100%',
+            imdb: '9.9',
           })),
         }),
       }),
@@ -225,7 +245,7 @@ describe('expandPool', () => {
     // Early-stop: does not enrich all 21 titles once 5 have verified.
     expect(vi.mocked(enrichCandidate).mock.calls.length).toBeLessThan(20);
     // A pool title is filtered before it ever costs an OMDB lookup.
-    expect(enrichCandidate).not.toHaveBeenCalledWith('Owned');
+    expect(vi.mocked(enrichCandidate).mock.calls.some(([title]) => title === 'Owned')).toBe(false);
   });
 
   it('reports progress stages ending in done', async () => {
@@ -239,4 +259,24 @@ describe('expandPool', () => {
     expect(events.some((e) => e.stage === 'enriching')).toBe(true);
     expect(events[events.length - 1]).toEqual({ stage: 'done', added: 2 });
   });
+  it('separates unknown identities from service failures and never invents ratings', async () => {
+    stubApiTitles(['No match', 'Service failed', 'Verified']);
+    vi.mocked(enrichCandidate).mockImplementation(async title => {
+      if (title === 'No match') return null;
+      if (title === 'Service failed') throw new Error('Rate limited');
+      return { ...omdbPatch(title), imdb: null, rottenTomatoes: null };
+    });
+    const report = await expandPoolDetailed([], [], 100);
+    expect(report).toMatchObject({ raw: 3, checked: 3, unmatched: 1, errors: 1, verified: 1, status: 'partial' });
+    expect(report.candidates[0]).toMatchObject({ imdb: null, rottenTomatoes: null, commonSenseAge: null });
+  });
+  it('keeps same-title remakes separate when verified identities differ', async () => {
+    stubApiTitles(['Remake']);
+    vi.mocked(enrichCandidate).mockResolvedValue(omdbPatch('new'));
+    const report = await expandPoolDetailed(['Remake'], [], 10, undefined, undefined,
+      { existingMovies: [{ title: 'Remake', year: 1990, imdbId: 'old' }] });
+    expect(report.verified).toBe(1);
+    expect(enrichCandidate).toHaveBeenCalledWith('Remake', {year: 2020, imdbId: undefined});
+  });
+
 });
