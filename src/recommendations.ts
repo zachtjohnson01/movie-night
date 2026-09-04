@@ -1,5 +1,5 @@
 import type { Candidate, Movie } from './types';
-import { dedupKey, enrichCandidate, normalizeTitle, type CandidateOmdbPatch } from './omdb';
+import { dedupKey, enrichCandidate, enrichCandidateVerified, normalizeTitle, type CandidateOmdbPatch } from './omdb';
 import { DEFAULT_WEIGHTS, scoreCandidate, type ScoreContext, type ScoringWeights } from './scoring';
 import { supabase } from './supabase';
 import { parseNameList } from './format';
@@ -27,42 +27,28 @@ function buildLibrarySets(library: Movie[]) {
   };
 }
 
-// Drop candidates with no rating signal — LLM stubs that slip through when
-// OMDB enrichment fails. Also drop soft-removed rows (kept in the pool blob
-// for the ban list) and titles already in the user's library.
-function isEffective(c: Candidate, imdbIds: Set<string>, titles: Set<string>): boolean {
-  return (
-    (c.rottenTomatoes != null || c.imdb != null) &&
-    c.removedReason == null &&
-    !(c.imdbId && imdbIds.has(c.imdbId)) &&
-    !titles.has(normalizeTitle(c.title))
+// Identity and catalog validity determine eligibility; missing review scores
+// remain unknown and are handled by scoring, not a hidden exclusion gate.
+function eligibleCandidates(candidates: Candidate[], library: Movie[]): Candidate[] {
+  const { imdbIds, titles } = buildLibrarySets(library);
+  const live = candidates.filter(c => c.removedAt == null && c.removedReason == null);
+  const counts = new Map<string, number>();
+  for (const c of live) {
+    const key = dedupKey(c.title);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return live.filter(c =>
+    !!c.imdbId &&
+    (c.type == null || c.type === 'movie') &&
+    counts.get(dedupKey(c.title)) === 1 &&
+    !imdbIds.has(c.imdbId) &&
+    !titles.has(normalizeTitle(c.title)),
   );
 }
 
-/**
- * Count eligible candidates — same criteria as PoolAdmin's "Eligible" chip so
- * the For You header matches what the admin screen shows.
- */
-export function countEffectiveCandidates(candidates: Candidate[]): number {
-  // Only live rows count toward duplicate detection — otherwise a merge
-  // survivor still shares a dedupKey with its soft-removed twin and would be
-  // wrongly treated as a duplicate, undercounting the eligible pool.
-  const counts = new Map<string, number>();
-  for (const c of candidates) {
-    if (c.removedAt != null) continue;
-    const k = dedupKey(c.title);
-    counts.set(k, (counts.get(k) ?? 0) + 1);
-  }
-  const dupKeys = new Set<string>();
-  counts.forEach((n, k) => { if (n >= 2) dupKeys.add(k); });
-  return candidates.filter(
-    (c) =>
-      c.imdbId != null &&
-      !dupKeys.has(dedupKey(c.title)) &&
-      (c.type == null || c.type === 'movie') &&
-      c.removedAt == null &&
-      (c.rottenTomatoes != null || c.imdb != null),
-  ).length;
+/** Count the same eligible movies used for ranking, before the display limit. */
+export function countEffectiveCandidates(candidates: Candidate[], library: Movie[] = []): number {
+  return eligibleCandidates(candidates, library).length;
 }
 
 /**
@@ -74,12 +60,10 @@ export function rankTopPicks(
   limit: number = DEFAULT_LIMIT,
   weights: ScoringWeights = DEFAULT_WEIGHTS,
 ): RankedPick[] {
-  const { imdbIds, titles } = buildLibrarySets(library);
   const knownDirectors = extractUnique(library.flatMap((m) => m.directors ?? []));
   const knownWriters = extractUnique(library.flatMap((m) => m.writers ?? []));
   const ctx: ScoreContext = { knownDirectors, knownWriters };
-  const scored: RankedPick[] = candidates
-    .filter((c) => isEffective(c, imdbIds, titles))
+  const scored: RankedPick[] = eligibleCandidates(candidates, library)
     .map((c) => ({ ...c, fitScore: scoreCandidate(c, ctx, weights) }));
 
   // Sort descending by score, stable on ties (preserve pool insertion order).
@@ -92,6 +76,7 @@ export function rankTopPicks(
 
 type RawCandidateFromApi = {
   title: string;
+  imdbId?: string | null;
   year: number | null;
   commonSenseAge: string | null;
   studio: string | null;
@@ -149,126 +134,108 @@ const OMDB_CONCURRENCY = 4;
  * OMDB can't confirm every title; we enrich until `batchSize` verified
  * survivors are collected, then stop to save free-tier OMDB quota.
  */
+export type ExpansionMode = 'baseline' | 'enhanced';
+export type ExpansionOptions = {
+  mode?: ExpansionMode;
+  focus?: string;
+  existingMovies?: Array<{ title: string; year?: number | null; imdbId?: string | null }>;
+};
+export type ExpansionReport = {
+  mode: ExpansionMode;
+  candidates: Candidate[];
+  raw: number;
+  checked: number;
+  unmatched: number;
+  errors: number;
+  duplicates: number;
+  verified: number;
+  status: 'complete' | 'partial';
+  api: { requested?: number; candidateTarget?: number; returned?: number; rawGenerated?: number; skippedExisting?: number; duplicatesWithinBatch?: number; elapsedMs?: number; status?: string; completionObserved?: boolean; sourceUrls?: string[]; focus?: string };
+};
+
 export async function expandPool(
-  poolTitles: string[],
-  libraryTitles: string[],
-  batchSize: number = 100,
+  poolTitles: string[], libraryTitles: string[], batchSize = 100,
   libraryContext?: { directors: string[]; writers: string[]; studios: string[] },
   onProgress?: (p: ExpandProgress) => void,
 ): Promise<Candidate[]> {
-  // The endpoint verifies this JWT server-side and rejects anyone not on
-  // the admin allowlist — without a live session we can't even try.
-  if (!supabase) {
-    throw new Error('Auth is not configured — cannot expand pool.');
-  }
+  return (await expandPoolDetailed(poolTitles, libraryTitles, batchSize, libraryContext, onProgress)).candidates;
+}
+
+export async function expandPoolDetailed(
+  poolTitles: string[], libraryTitles: string[], batchSize = 100,
+  libraryContext?: { directors: string[]; writers: string[]; studios: string[] },
+  onProgress?: (p: ExpandProgress) => void,
+  options: ExpansionOptions = {},
+): Promise<ExpansionReport> {
+  if (!supabase) throw new Error('Auth is not configured — cannot expand pool.');
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
-  if (!token) {
-    throw new Error('Sign in required to expand the pool.');
-  }
-
+  if (!token) throw new Error('Sign in required to expand the pool.');
+  const mode = options.mode ?? 'enhanced';
   onProgress?.({ stage: 'requesting' });
-
   const resp = await fetch('/api/recommendations', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      poolTitles,
-      libraryTitles,
-      batchSize,
-      directors: libraryContext?.directors ?? [],
-      writers: libraryContext?.writers ?? [],
-      studios: libraryContext?.studios ?? [],
-    }),
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ poolTitles, libraryTitles, batchSize, mode, focus: options.focus,
+      existingMovies: options.existingMovies,
+      directors: libraryContext?.directors ?? [], writers: libraryContext?.writers ?? [], studios: libraryContext?.studios ?? [] }),
   });
-
   if (!resp.ok) {
     const body = await resp.json().catch(() => ({ error: resp.statusText }));
     const base = body.error || `HTTP ${resp.status}`;
     throw new Error(body.detail ? `${base} — ${body.detail}` : base);
   }
-
-  const data = (await resp.json()) as { items: RawCandidateFromApi[] };
+  const data = await resp.json() as { items?: RawCandidateFromApi[]; metrics?: ExpansionReport['api'] };
   const raw = Array.isArray(data.items) ? data.items : [];
-  if (raw.length === 0) {
-    onProgress?.({ stage: 'done', added: 0 });
-    return [];
-  }
-
-  // Never re-add a title already in the pool or the library. Kept titles are
-  // added to this set too, so an intra-batch duplicate (the LLM naming the
-  // same film twice) is skipped rather than seeded twice. `seenImdbIds` catches
-  // the same film reached via two different title spellings that OMDB resolves
-  // to one id; appendCandidates does the final imdbId dedupe against the pool.
-  const ban = new Set<string>();
-  for (const t of poolTitles) ban.add(t.toLowerCase());
-  for (const t of libraryTitles) ban.add(t.toLowerCase());
-  const seenImdbIds = new Set<string>();
-
-  const now = new Date().toISOString();
-  const total = raw.length;
-  const out: Candidate[] = [];
-  let done = 0;
+  const report: ExpansionReport = { mode, candidates: [], raw: raw.length, checked: 0, unmatched: 0, errors: 0, duplicates: 0, verified: 0, status: 'complete', api: data.metrics ?? {} };
+  const titleBan = new Set([...poolTitles, ...libraryTitles].map(normalizeTitle));
+  const knownIds = new Set((options.existingMovies ?? []).flatMap(m => m.imdbId ? [m.imdbId.toLowerCase()] : []));
+  const knownIdentities = new Set((options.existingMovies ?? []).map(m => `${normalizeTitle(m.title)}:${m.year ?? ''}`));
+  const queued = new Set<string>();
+  const seenIds = new Set<string>();
   let cursor = 0;
-  onProgress?.({ stage: 'enriching', done: 0, total, kept: 0 });
-
-  // Throttled workers share a cursor into `raw`. Each stops pulling new
-  // titles once `out` holds a full batch of OMDB-verified survivors.
+  const now = new Date().toISOString();
   const worker = async () => {
-    while (cursor < raw.length && out.length < batchSize) {
+    while (cursor < raw.length && report.candidates.length < batchSize) {
       const r = raw[cursor++];
-      const key = r.title.toLowerCase();
-      let omdb: CandidateOmdbPatch | null = null;
-      if (!ban.has(key)) {
-        try {
-          omdb = await enrichCandidate(r.title);
-        } catch {
-          omdb = null;
-        }
+      const title = normalizeTitle(r.title);
+      const identity = `${title}:${r.year ?? ''}`;
+      const key = mode === 'baseline' ? title : identity;
+      const existing = mode === 'baseline' || !options.existingMovies ? titleBan.has(title) : knownIdentities.has(identity);
+      if (existing || queued.has(key)) { report.duplicates++; continue; }
+      queued.add(key);
+      let omdb: CandidateOmdbPatch | null;
+      report.checked++;
+      try {
+        omdb = mode === 'baseline' ? await enrichCandidate(r.title) : await enrichCandidateVerified(r.title, { year: r.year, imdbId: r.imdbId });
+      } catch {
+        report.errors++;
+        onProgress?.({ stage: 'enriching', done: report.checked, total: raw.length, kept: report.candidates.length });
+        continue;
       }
-      done++;
-      // OMDB gates the pool: searchMovies is type-filtered to films, so a
-      // null enrichment means OMDB couldn't confirm this title as a movie.
-      // Drop it rather than let an LLM-hallucinated TV show slip in unlinked.
-      const idKey = omdb ? omdb.imdbId.toLowerCase() : null;
-      if (
-        omdb &&
-        !ban.has(key) &&
-        !(idKey && seenImdbIds.has(idKey)) &&
-        out.length < batchSize
-      ) {
-        ban.add(key);
-        if (idKey) seenImdbIds.add(idKey);
-        // Merge rules: OMDB wins for RT / IMDb / awards / year / poster /
-        // imdbId. LLM wins for CSM age (OMDB has none) and studio (OMDB's
-        // Production is usually "N/A" on the free tier).
-        out.push({
-          title: r.title,
-          year: omdb.year ?? r.year,
-          imdbId: omdb.imdbId,
-          imdb: omdb.imdb ?? r.imdb,
-          rottenTomatoes: omdb.rottenTomatoes ?? r.rottenTomatoes,
-          commonSenseAge: r.commonSenseAge,
-          studio: r.studio ?? omdb.production ?? null,
-          awards: omdb.awards ?? r.awards,
-          directors: omdb.directors ?? parseNameList(r.directors ?? r.director),
-          writers: omdb.writers ?? parseNameList(r.writers ?? r.writer),
-          poster: omdb.poster ?? null,
-          addedAt: now,
-          type: omdb.type,
+      if (!omdb) report.unmatched++;
+      else if (seenIds.has(omdb.imdbId.toLowerCase()) || knownIds.has(omdb.imdbId.toLowerCase())) report.duplicates++;
+      else if (report.candidates.length < batchSize) {
+        seenIds.add(omdb.imdbId.toLowerCase());
+        report.candidates.push({
+          title: r.title, year: omdb.year ?? r.year, imdbId: omdb.imdbId,
+          releaseDate: omdb.releaseDate ?? null,
+          imdb: mode === 'baseline' ? omdb.imdb ?? r.imdb : omdb.imdb,
+          rottenTomatoes: mode === 'baseline' ? omdb.rottenTomatoes ?? r.rottenTomatoes : omdb.rottenTomatoes,
+          commonSenseAge: mode === 'baseline' ? r.commonSenseAge : null,
+          studio: omdb.production ?? (mode === 'baseline' ? r.studio : null),
+          awards: mode === 'baseline' ? omdb.awards ?? r.awards : omdb.awards,
+          directors: omdb.directors ?? (mode === 'baseline' ? parseNameList(r.directors ?? r.director) : null),
+          writers: omdb.writers ?? (mode === 'baseline' ? parseNameList(r.writers ?? r.writer) : null),
+          poster: omdb.poster, addedAt: now, type: omdb.type,
         });
       }
-      onProgress?.({ stage: 'enriching', done, total, kept: out.length });
+      onProgress?.({ stage: 'enriching', done: report.checked, total: raw.length, kept: report.candidates.length });
     }
   };
-
-  await Promise.all(
-    Array.from({ length: Math.min(OMDB_CONCURRENCY, raw.length) }, worker),
-  );
-
-  onProgress?.({ stage: 'done', added: out.length });
-  return out;
+  await Promise.all(Array.from({ length: Math.min(OMDB_CONCURRENCY, raw.length) }, worker));
+  report.verified = report.candidates.length;
+  if (report.errors || (report.api.status && report.api.status !== 'complete')) report.status = 'partial';
+  onProgress?.({ stage: 'done', added: report.verified });
+  return report;
 }

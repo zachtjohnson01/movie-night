@@ -3,6 +3,7 @@ import WatchedList from './components/WatchedList';
 import Wishlist from './components/Wishlist';
 import Recommendations from './components/Recommendations';
 import Detail from './components/Detail';
+import CreatorCatalog from './components/CreatorCatalog';
 import TabBar, { type Tab } from './components/TabBar';
 import ModernWatchedList from './components/modern/WatchedList';
 import ModernWishlist from './components/modern/Wishlist';
@@ -149,6 +150,7 @@ export default function App() {
     onAppendCandidates: pool.appendCandidates,
   });
   const [tab, setTab] = useState<Tab>('watched');
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [modal, setModal] = useState<ModalScreen | null>(null);
   const [showBulkLink, setShowBulkLink] = useState(false);
   const [enhanceScope, setEnhanceScope] = useState<
@@ -300,13 +302,14 @@ export default function App() {
   // Back button).
   useSwipeBack(
     useMemo(() => {
+      if (catalogOpen) return null;
       if (modal !== null) return () => setModal(null);
       if (route.kind === 'movie') {
         const slug = route.slug;
         return () => pushPath(pathFromRoute({ kind: 'family', slug }));
       }
       return null;
-    }, [modal, route]),
+    }, [modal, route, catalogOpen]),
   );
 
   function openMovie(title: string) {
@@ -479,6 +482,7 @@ export default function App() {
     const candidateTitle = modal.candidateTitle;
     const CandidateDetail = isModern ? ModernDetail : Detail;
     return (
+      <CreatorCatalog pool={pool.candidates} library={movies} familySlug={currentSlug} onOpenChange={setCatalogOpen} modern={isModern}>
       <CandidateDetail
         mode="candidate"
         movie={modal.template}
@@ -500,12 +504,14 @@ export default function App() {
           openMovie(title);
         }}
       />
+      </CreatorCatalog>
     );
   }
 
   if (selected) {
     const DetailComponent = isModern ? ModernDetail : Detail;
     return (
+      <CreatorCatalog pool={pool.candidates} library={movies} familySlug={currentSlug} onOpenChange={setCatalogOpen} modern={isModern}>
       <DetailComponent
         mode="existing"
         movie={selected}
@@ -518,6 +524,7 @@ export default function App() {
         onDelete={handleDelete}
         onSelectMovie={openMovie}
       />
+      </CreatorCatalog>
     );
   }
 

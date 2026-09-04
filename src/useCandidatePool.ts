@@ -480,6 +480,7 @@ export function useCandidatePool(): CandidatePoolApi {
             directors: patch.directors ?? prev.directors,
             writers: patch.writers ?? prev.writers,
             year: patch.year ?? prev.year,
+            releaseDate: patch.releaseDate !== undefined ? patch.releaseDate : prev.releaseDate,
             type: patch.type ?? prev.type,
             omdbRefreshedAt: new Date().toISOString(),
           };

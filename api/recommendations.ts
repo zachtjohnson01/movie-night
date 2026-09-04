@@ -90,7 +90,12 @@ async function authenticate(req: VercelRequest): Promise<AuthResult> {
  * -> { items: RawCandidate[], rawCount: number }
  */
 
-type RawCandidate = {
+export type DiscoveryFocus = 'balanced' | 'recent' | 'backfill';
+
+export type RawCandidate = {
+  imdbId: string | null;
+  evidenceUrl: string | null;
+  commonSenseSourceUrl: string | null;
   title: string;
   year: number | null;
   commonSenseAge: string | null;
@@ -117,64 +122,45 @@ const overRequestCount = (batchSize: number) =>
 // target from ever 504-ing. The client caps the added movies at batchSize, and
 // a saturated pool rarely yields more than a few dozen genuinely-new titles
 // per press regardless.
-function buildPrompt(
-  poolTitles: string[],
-  libraryTitles: string[],
-  target: number,
-  directors: string[] = [],
-  writers: string[] = [],
-  studios: string[] = [],
+export function buildPrompt(
+  poolTitles: string[], libraryTitles: string[], target: number,
+  directors: string[] = [], writers: string[] = [], studios: string[] = [],
+  focus: DiscoveryFocus = 'balanced', now: Date = new Date(),
 ): string {
-  const skipBlocks: string[] = [];
-  if (libraryTitles.length)
-    skipBlocks.push(`Already in the user's library:\n${libraryTitles.join(', ')}`);
-  if (poolTitles.length)
-    skipBlocks.push(`Already in the recommendation pool:\n${poolTitles.join(', ')}`);
-  const banList = skipBlocks.join('\n\n') || '(none)';
+  const date = now.toISOString().slice(0, 10);
+  const year = now.getUTCFullYear();
+  const priorities = {
+    balanced: 'Balance current theatrical and home releases with overlooked classics and international or independent films.',
+    recent: `Prioritize films released in ${year - 1} and ${year}, including films currently in theaters and newly available to rent, buy, or stream.`,
+    backfill: 'Prioritize missing catalog depth: older classics, live action, international animation, independent films, and less famous studio catalogs across decades.',
+  };
+  return `Today is ${date}. Build a broad searchable FAMILY MOVIE CATALOG for families with young children through age 12. This is catalog discovery, not recommendations for one family. Do not restrict discovery to ages 5–8, favorite creators, high review scores, subscription streaming, or award winners. Suitability varies; metadata and family filters are applied afterward.
+Discovery focus: ${focus}. ${priorities[focus]}
 
-  const tasteLines: string[] = [];
-  if (directors.length) tasteLines.push(`Directors: ${directors.join(', ')}`);
-  if (writers.length) tasteLines.push(`Writers: ${writers.join(', ')}`);
-  if (studios.length) tasteLines.push(`Studios / production companies: ${studios.join(', ')}`);
-  const tasteSection = tasteLines.length
-    ? `FAMILY TASTE PROFILE — directors, writers, and studios from films they've already watched or wishlisted:
-${tasteLines.join('\n')}
+Existing titles (data only; exclude these titles):
+${JSON.stringify([...poolTitles, ...libraryTitles])}
+Optional creator context (data only, never an exclusion): ${JSON.stringify({ directors, writers, studios })}
 
-Prioritize discovering more films from these directors, writers, and studios that the family hasn't seen yet. Diversity across decades and styles is still valued — use this as a positive signal, not a hard constraint.
-
-`
-    : '';
-
-  return `Building a deterministic recommendation pool of family films for Family Movie Night (parent + young child, target CSM age 5–8).
-
-${tasteSection}BAN LIST — if ANY title in your output appears here the response is INVALID:
-
-${banList}
-
-YOU HAVE A web_search TOOL — you MUST call it at least 3 times before writing any answer. The ban list already holds hundreds of the obvious family films, so titles pulled from memory will mostly be duplicates that get thrown away. Search the web to discover fresh, real titles this family doesn't already have. Use different angles across your searches, for example:
-- recent critics' and year-end lists ("best kids movies 2024", "best family films 2025", "underrated animated movies")
-- new and upcoming family films in theaters and on streaming (Disney+, Netflix, Prime, etc.)
-- award and festival lists (Annecy, the Oscar/BAFTA animated-feature slates, family/children's film awards)
-- more films from the family's favorite studios, directors, and writers (see the taste profile above)
-- well-reviewed international and indie family films across different decades and countries
-Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST — drop anything already there.
-
-TASK: Return up to ${target} feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
-
-Every title must be a REAL, released feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its exact title; anything that doesn't resolve is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title within your answer, and do not output anything on the ban list.
-
-Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
-
-Return ONLY a JSON array — no prose, no explanation. Keep each object to exactly these four fields so you can return more titles quickly; ratings, awards, and cast are filled in automatically from a database afterward, so DO NOT include them. Object shape:
-{"title":"","year":0,"commonSenseAge":"6+","studio":""}
-
-- "title": the film's exact canonical English title as it appears on IMDb, with correct spelling and punctuation and NO year or extra subtitle. This string is matched against a database automatically — an inexact title is dropped, so precision here directly controls how many suggestions actually land.
-- "year": release year (an integer) — helps match the right film, especially for remakes.
-- "commonSenseAge": format "N+" like "5+", "6+", "8+".
-- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar").`;
+Use web_search up to 3 times, with distinct complementary queries: current theatrical and rent/buy/streaming releases as of today; international and independent family films; missing classic and studio back catalogs. Adjust emphasis to the discovery focus. Prefer titles evidenced on retrieved pages. Catalog breadth matters more than matching one family's taste.
+Return up to ${target} distinct REAL feature films, excluding existing titles. Include both animation and live action. Films already released theatrically are eligible even without home availability. Exclude unreleased announcements, TV series, episodes, and shorts. New releases with few or no ratings are eligible. Do not invent films, ratings, ages, or availability. A short supported list is preferable to fabricated padding. Do not claim an exhaustive catalog.
+Return ONLY a JSON array with objects:
+{"title":"Exact canonical title","year":2026,"imdbId":null,"evidenceUrl":null,"commonSenseAge":null,"commonSenseSourceUrl":null,"studio":null}
+Use the actual release year; preserve subtitles that are part of the canonical title. imdbId must be a sourced IMDb title ID (tt followed by digits) or null. evidenceUrl must be a retrieved page supporting the film identity, otherwise null. commonSenseAge may be an N+ value ONLY if an actual Common Sense Media movie review supports it; provide that review URL in commonSenseSourceUrl. Otherwise both age fields MUST be null. Never infer an age from MPAA rating, genre, plot, or memory. Do not invent source URLs. Scores and other metadata are verified separately.`;
 }
 
-function parseCandidates(text: string): RawCandidate[] {
+function safeUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try { const url = new URL(value); return ['https:', 'http:'].includes(url.protocol) ? url.href : null; } catch { return null; }
+}
+
+function csmSource(value: unknown): string | null {
+  const url = safeUrl(value);
+  if (!url) return null;
+  const parsed = new URL(url);
+  return /^(www\.)?commonsensemedia\.org$/.test(parsed.hostname) && parsed.pathname.startsWith('/movie-reviews/') ? url : null;
+}
+
+export function parseCandidates(text: string): RawCandidate[] {
   if (!text) return [];
   let t = text.trim();
   t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
@@ -231,6 +217,283 @@ function parseCandidates(text: string): RawCandidate[] {
         )
         .map((r) => ({
           title: String(r.title).trim(),
+          imdbId: typeof r.imdbId === 'string' && /^tt\d{7,10}$/.test(r.imdbId) ? r.imdbId : null,
+          evidenceUrl: safeUrl(r.evidenceUrl),
+          commonSenseSourceUrl: csmSource(r.commonSenseSourceUrl),
+          year:
+            typeof r.year === 'number'
+              ? r.year
+              : parseInt(String(r.year ?? ''), 10) || null,
+          commonSenseAge: csmSource(r.commonSenseSourceUrl) && typeof r.commonSenseAge === 'string' && /^\d{1,2}\+$/.test(r.commonSenseAge) ? r.commonSenseAge : null,
+          studio: r.studio ? String(r.studio).trim() : null,
+          awards:
+            r.awards && String(r.awards).trim()
+              ? String(r.awards).trim()
+              : null,
+          director:
+            r.director && String(r.director).trim()
+              ? String(r.director).trim()
+              : null,
+          writer:
+            r.writer && String(r.writer).trim()
+              ? String(r.writer).trim()
+              : null,
+          rottenTomatoes: r.rottenTomatoes ? String(r.rottenTomatoes) : null,
+          imdb: r.imdb ? String(r.imdb) : null,
+        }));
+      if (normalized.length) return normalized.filter(c => c.title.length > 0);
+    } catch {
+      // try next candidate
+    }
+  }
+  return [];
+}
+
+// An observed URL establishes retrieval provenance, not the truth of its content
+// or whether the model copied the review age correctly. Further verification is
+// required before describing these model-supplied values as authoritative.
+export function retainObservedEvidence(candidate: RawCandidate, sourceUrls: string[]): RawCandidate {
+  const observed = new Set(sourceUrls.map(safeUrl).filter(Boolean));
+  const commonSenseSourceUrl = candidate.commonSenseSourceUrl && observed.has(candidate.commonSenseSourceUrl) ? candidate.commonSenseSourceUrl : null;
+  return {
+    ...candidate,
+    evidenceUrl: candidate.evidenceUrl && observed.has(candidate.evidenceUrl) ? candidate.evidenceUrl : null,
+    commonSenseSourceUrl,
+    commonSenseAge: commonSenseSourceUrl ? candidate.commonSenseAge : null,
+  };
+}
+
+// Cap the number of web searches per expansion. Each search costs money and
+// adds latency; a few across the query angles in the prompt is plenty, and
+// keeping this low is part of staying under Vercel's 60s function limit.
+const WEB_SEARCH_MAX_USES = 3;
+
+// Hard wall-clock budget for the whole model call, kept safely under Vercel's
+// 60s function limit. On expiry we abort the stream and return whatever titles
+// have arrived (parseCandidates recovers a truncated array) — so a slow run
+// degrades to "fewer titles" instead of a gateway 504.
+const GENERATION_DEADLINE_MS = 30_000;
+
+/**
+ * Ask Claude (Sonnet 5) for a batch of candidate films, grounded in live web
+ * search rather than parametric memory — the pool is large enough that
+ * memory-only suggestions are almost all duplicates. Streams the response
+ * (large JSON output + a big model need streaming to dodge HTTP timeouts) and
+ * resumes across `pause_turn` boundaries, which the server-side web-search
+ * loop can emit. Returns the concatenated assistant text; parseCandidates
+ * pulls the JSON array out of it.
+ */
+export type GenerationResult = { text: string; status: 'complete' | 'time_limit' | 'incomplete' | 'error'; sourceUrls: string[]; webSearchRequests: number | null };
+
+export async function generateCandidates(
+  apiKey: string,
+  prompt: string,
+): Promise<GenerationResult> {
+  const client = new Anthropic({ apiKey, maxRetries: 0 });
+  const tools = [
+    // Basic web search (no server-side dynamic-filtering code execution) — it's
+    // markedly faster per query than web_search_20260209, which matters for the
+    // wall-clock budget. Sonnet 5 supports it fine.
+    { type: 'web_search_20250305', name: 'web_search', max_uses: WEB_SEARCH_MAX_USES },
+  ] as Anthropic.Messages.ToolUnion[];
+
+  const messages: Anthropic.Messages.MessageParam[] = [
+    { role: 'user', content: prompt },
+  ];
+
+  // Abort the whole thing at the deadline so the function always returns before
+  // Vercel's limit — no more 504s. Whatever streamed by then is kept.
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), GENERATION_DEADLINE_MS);
+
+  let text = '';
+  let status: GenerationResult['status'] = 'incomplete';
+  const sourceUrls = new Set<string>();
+  let webSearchRequests: number | null = null;
+  try {
+    // At most two rounds: a `pause_turn` means the server-side search loop hit
+    // its iteration cap mid-flight — echo the partial assistant turn back and
+    // let it continue. The final (non-paused) message carries the JSON.
+    for (let round = 0; round < 2; round++) {
+      const stream = client.messages.stream(
+        {
+          model: 'claude-sonnet-5',
+          // Bound output cost. Larger targets may produce a partial list;
+          // the response reports truncation rather than promising the target.
+          max_tokens: 8000,
+          thinking: { type: 'disabled' },
+          tools,
+          messages,
+        },
+        { signal: controller.signal },
+      );
+      // Accumulate deltas so a mid-generation abort still yields the titles
+      // produced so far (parseCandidates recovers the truncated JSON tail).
+      let roundText = '';
+      stream.on('text', (delta) => {
+        roundText += delta;
+      });
+
+      let message: Anthropic.Messages.Message;
+      try {
+        message = await stream.finalMessage();
+      } catch {
+        status = controller.signal.aborted ? 'time_limit' : 'error';
+        // Deadline (or network) abort — keep whatever this round streamed.
+        if (roundText) text = roundText;
+        break;
+      }
+      const usage = message.usage as unknown as { server_tool_use?: { web_search_requests?: number } };
+      const count = usage.server_tool_use?.web_search_requests;
+      if (typeof count === 'number') webSearchRequests = (webSearchRequests ?? 0) + count;
+      const collectUrls = (value: unknown): void => {
+        if (!value || typeof value !== 'object') return;
+        if (Array.isArray(value)) { value.forEach(collectUrls); return; }
+        for (const [key, child] of Object.entries(value)) {
+          if (key === 'url') { const url = safeUrl(child); if (url) sourceUrls.add(url); }
+          else if (typeof child === 'object') collectUrls(child);
+        }
+      };
+      collectUrls(message.content);
+      text = message.content
+        .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('');
+      if (message.stop_reason !== 'pause_turn') {
+        status = message.stop_reason === 'end_turn' ? 'complete' : 'incomplete';
+        break;
+      }
+      // A continuation may complete text but must not spend another search budget.
+      tools.length = 0;
+      messages.push({ role: 'assistant', content: message.content });
+    }
+  } catch {
+    status = controller.signal.aborted ? 'time_limit' : 'error';
+  } finally {
+    clearTimeout(deadline);
+  }
+  if (status === 'complete' && !parseCandidates(text).length && !/^\s*(?:```json\s*)?\[\s*\]\s*(?:```)?\s*$/.test(text)) status = 'incomplete';
+  return { text, status, sourceUrls: [...sourceUrls], webSearchRequests };
+}
+
+
+// Frozen pre-enhancement discovery behavior for an authenticated comparison.
+// Kept inline because this deployment drops imported api helper modules.
+type BaselineCandidate = Omit<RawCandidate, 'imdbId' | 'evidenceUrl' | 'commonSenseSourceUrl'>;
+export function buildBaselinePrompt(
+  poolTitles: string[],
+  libraryTitles: string[],
+  target: number,
+  directors: string[] = [],
+  writers: string[] = [],
+  studios: string[] = [],
+): string {
+  const skipBlocks: string[] = [];
+  if (libraryTitles.length)
+    skipBlocks.push(`Already in the user's library:\n${libraryTitles.join(', ')}`);
+  if (poolTitles.length)
+    skipBlocks.push(`Already in the recommendation pool:\n${poolTitles.join(', ')}`);
+  const banList = skipBlocks.join('\n\n') || '(none)';
+
+  const tasteLines: string[] = [];
+  if (directors.length) tasteLines.push(`Directors: ${directors.join(', ')}`);
+  if (writers.length) tasteLines.push(`Writers: ${writers.join(', ')}`);
+  if (studios.length) tasteLines.push(`Studios / production companies: ${studios.join(', ')}`);
+  const tasteSection = tasteLines.length
+    ? `FAMILY TASTE PROFILE — directors, writers, and studios from films they've already watched or wishlisted:
+${tasteLines.join('\n')}
+
+Prioritize discovering more films from these directors, writers, and studios that the family hasn't seen yet. Diversity across decades and styles is still valued — use this as a positive signal, not a hard constraint.
+
+`
+    : '';
+
+  return `Building a deterministic recommendation pool of family films for Family Movie Night (parent + young child, target CSM age 5–8).
+
+${tasteSection}BAN LIST — if ANY title in your output appears here the response is INVALID:
+
+${banList}
+
+YOU HAVE A web_search TOOL — you MUST call it at least 3 times before writing any answer. The ban list already holds hundreds of the obvious family films, so titles pulled from memory will mostly be duplicates that get thrown away. Search the web to discover fresh, real titles this family doesn't already have. Use different angles across your searches, for example:
+- recent critics' and year-end lists ("best kids movies 2024", "best family films 2025", "underrated animated movies")
+- new and upcoming family films in theaters and on streaming (Disney+, Netflix, Prime, etc.)
+- award and festival lists (Annecy, the Oscar/BAFTA animated-feature slates, family/children's film awards)
+- more films from the family's favorite studios, directors, and writers (see the taste profile above)
+- well-reviewed international and indie family films across different decades and countries
+Prefer titles you actually saw on a page over ones you merely recall, and cross-check every candidate against the BAN LIST — drop anything already there.
+
+TASK: Return up to ${target} feature-length family films NOT on the ban list — a mix of animated and live-action, major-studio and indie/international, across multiple decades. Freshness and quality beat hitting the number: a shorter list of genuinely new, real, well-regarded films is far better than a padded one with repeats or invented titles. The user's scoring model weights RT + IMDb most heavily, then CSM age, then studio pedigree, then awards.
+
+Every title must be a REAL, released feature film that exists in IMDb — no made-up titles, no TV series, no shorts. Each suggestion is looked up in a movie database by its exact title; anything that doesn't resolve is silently discarded, so a wrong or invented title is a wasted slot. Do not repeat a title within your answer, and do not output anything on the ban list.
+
+Prefer films rated CSM 5–8. CSM 9+ is only worth including if the film is a genuine masterpiece. CSM ≤4 is fine but shouldn't dominate.
+
+Return ONLY a JSON array — no prose, no explanation. Keep each object to exactly these four fields so you can return more titles quickly; ratings, awards, and cast are filled in automatically from a database afterward, so DO NOT include them. Object shape:
+{"title":"","year":0,"commonSenseAge":"6+","studio":""}
+
+- "title": the film's exact canonical English title as it appears on IMDb, with correct spelling and punctuation and NO year or extra subtitle. This string is matched against a database automatically — an inexact title is dropped, so precision here directly controls how many suggestions actually land.
+- "year": release year (an integer) — helps match the right film, especially for remakes.
+- "commonSenseAge": format "N+" like "5+", "6+", "8+".
+- "studio": the lead production company (e.g. "Studio Ghibli", "Pixar").`;
+}
+
+export function parseBaselineCandidates(text: string): BaselineCandidate[] {
+  if (!text) return [];
+  let t = text.trim();
+  t = t.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+  const start = t.indexOf('[');
+  if (start === -1) return [];
+
+  const candidates: string[] = [];
+  const end = t.lastIndexOf(']');
+  if (end > start) candidates.push(t.slice(start, end + 1));
+
+  // Recover truncated JSON by finding the last complete `}` at depth 1.
+  const body = t.slice(start + 1);
+  let depthObj = 0;
+  let depthArr = 0;
+  let inStr = false;
+  let esc = false;
+  let lastComplete = -1;
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (esc) {
+      esc = false;
+      continue;
+    }
+    if (ch === '\\') {
+      esc = true;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (ch === '{') depthObj++;
+    else if (ch === '}') {
+      depthObj--;
+      if (depthObj === 0 && depthArr === 0) lastComplete = i;
+    } else if (ch === '[') depthArr++;
+    else if (ch === ']') depthArr--;
+  }
+  if (lastComplete >= 0) {
+    candidates.push('[' + body.slice(0, lastComplete + 1) + ']');
+  }
+
+  for (const slice of candidates) {
+    try {
+      const arr = JSON.parse(slice);
+      if (!Array.isArray(arr)) continue;
+      const normalized: BaselineCandidate[] = arr
+        .filter(
+          (r: unknown): r is Record<string, unknown> =>
+            !!r &&
+            typeof r === 'object' &&
+            typeof (r as Record<string, unknown>).title === 'string',
+        )
+        .map((r) => ({
+          title: String(r.title).trim(),
           year:
             typeof r.year === 'number'
               ? r.year
@@ -260,27 +523,7 @@ function parseCandidates(text: string): RawCandidate[] {
   return [];
 }
 
-// Cap the number of web searches per expansion. Each search costs money and
-// adds latency; a few across the query angles in the prompt is plenty, and
-// keeping this low is part of staying under Vercel's 60s function limit.
-const WEB_SEARCH_MAX_USES = 3;
-
-// Hard wall-clock budget for the whole model call, kept safely under Vercel's
-// 60s function limit. On expiry we abort the stream and return whatever titles
-// have arrived (parseCandidates recovers a truncated array) — so a slow run
-// degrades to "fewer titles" instead of a gateway 504.
-const GENERATION_DEADLINE_MS = 30_000;
-
-/**
- * Ask Claude (Sonnet 5) for a batch of candidate films, grounded in live web
- * search rather than parametric memory — the pool is large enough that
- * memory-only suggestions are almost all duplicates. Streams the response
- * (large JSON output + a big model need streaming to dodge HTTP timeouts) and
- * resumes across `pause_turn` boundaries, which the server-side web-search
- * loop can emit. Returns the concatenated assistant text; parseCandidates
- * pulls the JSON array out of it.
- */
-async function generateCandidates(
+export async function generateBaselineCandidates(
   apiKey: string,
   prompt: string,
 ): Promise<string> {
@@ -349,6 +592,7 @@ async function generateCandidates(
   return text;
 }
 
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -379,34 +623,64 @@ export default async function handler(
     Array.isArray(v) ? v.filter((t: unknown): t is string => typeof t === 'string') : [];
   const poolTitles: string[] = filterStrings(body.poolTitles);
   const libraryTitles: string[] = filterStrings(body.libraryTitles);
+  const existingMovies: Array<{ title: string; imdbId: string | null }> = Array.isArray(body.existingMovies)
+    ? body.existingMovies.filter((v: unknown): v is { title: string; imdbId?: unknown } => !!v && typeof v === 'object' && typeof (v as { title?: unknown }).title === 'string')
+      .map((v: { title: string; imdbId?: unknown }) => ({ title: v.title, imdbId: typeof v.imdbId === 'string' && /^tt\d{7,10}$/.test(v.imdbId) ? v.imdbId : null }))
+    : [];
   const directors: string[] = filterStrings(body.directors);
   const writers: string[] = filterStrings(body.writers);
   const studios: string[] = filterStrings(body.studios);
   const batchSize: number =
     typeof body.batchSize === 'number' && body.batchSize > 0
-      ? Math.min(body.batchSize, 100)
+      ? Math.min(Math.ceil(body.batchSize), 100)
       : 100;
 
-  const prompt = buildPrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios);
+  const mode = body.mode === 'baseline' ? 'baseline' : 'enhanced';
+  const focus: DiscoveryFocus = body.focus === 'recent' || body.focus === 'backfill' ? body.focus : 'balanced';
+  const candidateTarget = mode === 'baseline' ? batchSize : overRequestCount(batchSize);
+  const prompt = mode === 'baseline'
+    ? buildBaselinePrompt(poolTitles, libraryTitles, batchSize, directors, writers, studios)
+    : buildPrompt(poolTitles, libraryTitles, candidateTarget, directors, writers, studios, focus);
 
+  const started = Date.now();
   try {
-    const text = await generateCandidates(ANTHROPIC_API_KEY, prompt);
-    const parsed = parseCandidates(text);
+    const result: GenerationResult = mode === 'baseline'
+      ? { text: await generateBaselineCandidates(ANTHROPIC_API_KEY, prompt), status: 'incomplete', sourceUrls: [], webSearchRequests: null }
+      : await generateCandidates(ANTHROPIC_API_KEY, prompt);
+    // The legacy generator does not expose its completion reason or search usage.
+    // Do not imply that an empty legacy result means the catalog is exhausted.
+    const parsed = mode === 'baseline' ? parseBaselineCandidates(result.text) : parseCandidates(result.text).map(c => retainObservedEvidence(c, result.sourceUrls));
 
     // Server-side dedupe against the ban list as belt-and-suspenders;
     // client also dedupes before writing to Supabase.
     const banSet = new Set<string>();
     for (const t of poolTitles) banSet.add(t.toLowerCase());
     for (const t of libraryTitles) banSet.add(t.toLowerCase());
-    const deduped = parsed.filter(
-      (c) => !banSet.has(c.title.toLowerCase()),
-    );
+    // Retain title bans until all edit/remove paths are identity-keyed: allowing
+    // two remakes with one title today could make updates target the wrong film.
+    const existingIds = new Set<string>();
+    if (mode !== 'baseline') for (const movie of existingMovies) {
+      banSet.add(movie.title.trim().toLowerCase());
+      if (movie.imdbId) existingIds.add(movie.imdbId);
+    }
+    let skippedExisting = 0;
+    let duplicatesWithinBatch = 0;
+    const seen = new Set<string>();
+    const deduped = parsed.filter(c => {
+      const key = c.title.trim().toLowerCase();
+      if (banSet.has(key) || ('imdbId' in c && typeof c.imdbId === 'string' && existingIds.has(c.imdbId))) { skippedExisting++; return false; }
+      if (mode !== 'baseline' && seen.has(key)) { duplicatesWithinBatch++; return false; }
+      seen.add(key);
+      return true;
+    });
+    const items = deduped.slice(0, overRequestCount(batchSize));
 
     // Return the full over-requested batch (not just batchSize): the client
     // enriches these against OMDB and keeps the first batchSize that verify,
     // so it needs the extras to absorb titles OMDB can't confirm.
     return res.json({
-      items: deduped.slice(0, overRequestCount(batchSize)),
+      items,
+      metrics: { mode, completionObserved: mode !== 'baseline', rawGenerated: parsed.length, skippedExisting, duplicatesWithinBatch, elapsedMs: Date.now() - started, requested: batchSize, candidateTarget, returned: items.length, status: result.status, sourceUrls: result.sourceUrls, webSearchRequests: result.webSearchRequests, focus },
       rawCount: parsed.length,
     });
   } catch (e) {

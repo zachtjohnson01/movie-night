@@ -6,10 +6,11 @@ import PoolAdmin from './PoolAdmin';
 import type { Candidate } from '../types';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { DEFAULT_WEIGHTS } from '../scoring';
-import { expandPool } from '../recommendations';
-vi.mock('../recommendations', async (original) => ({ ...await original<typeof import('../recommendations')>(), expandPool: vi.fn() }));
+import { expandPoolDetailed, type ExpansionReport } from '../recommendations';
+vi.mock('../recommendations', async (original) => ({ ...await original<typeof import('../recommendations')>(), expandPoolDetailed: vi.fn() }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 const movie = (title: string, extra: Partial<Candidate> = {}): Candidate => ({title, year: 2024, imdbId: title, imdb: '8', rottenTomatoes: null, commonSenseAge: '6+', studio: null, awards: null, poster: null, addedAt: '2026-01-01', ...extra});
+const report = (candidates: Candidate[]): ExpansionReport => ({mode:'enhanced',candidates,raw:candidates.length,checked:candidates.length,unmatched:0,errors:0,duplicates:0,verified:candidates.length,status:'complete',api:{}});
 function pool(candidates = [movie('Coco'), movie('Paddington', {studio:'StudioCanal'})]): CandidatePoolApi {
   return { candidates, status:'synced', weights:DEFAULT_WEIGHTS, reasons:[], appendCandidates:vi.fn(async next => next), updateCandidate:vi.fn(), replaceCandidates:vi.fn(), toggleDownvote:vi.fn(), removeCandidate:vi.fn(), restoreCandidate:vi.fn(), updateWeights:vi.fn(), reload:vi.fn(), bulkRefreshOmdb:vi.fn(), bulkRefreshStreaming:vi.fn() };
 }
@@ -25,7 +26,7 @@ describe('Manage pool', () => {
   });
   it('reports only persisted additions and skipped duplicates', async () => {
     const p=pool();
-    vi.mocked(expandPool).mockResolvedValue([movie('New'), movie('Coco')]);
+    vi.mocked(expandPoolDetailed).mockResolvedValue(report([movie('New'), movie('Coco')]));
     vi.mocked(p.appendCandidates).mockResolvedValue([movie('New')]);
     render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
     fireEvent.click(screen.getByRole('button',{name:'Expand pool'}));
@@ -34,7 +35,7 @@ describe('Manage pool', () => {
   });
   it('never shows success when persistence fails', async () => {
     const p=pool();
-    vi.mocked(expandPool).mockResolvedValue([movie('New')]);
+    vi.mocked(expandPoolDetailed).mockResolvedValue(report([movie('New')]));
     vi.mocked(p.appendCandidates).mockRejectedValue(new Error('Save failed'));
     render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
     fireEvent.click(screen.getByRole('button',{name:'Expand pool'}));
@@ -48,12 +49,36 @@ describe('Manage pool', () => {
     expect(screen.getAllByRole('button',{name:/^Edit /})[0]).toHaveAccessibleName('Edit Newest');
   });
   it('disables repeat expansion until the first save completes', async () => {
-    let finish!: (c: Candidate[]) => void;
-    vi.mocked(expandPool).mockImplementation(() => new Promise(resolve => { finish=resolve; }));
+    let finish!: (c: ExpansionReport) => void;
+    vi.mocked(expandPoolDetailed).mockImplementation(() => new Promise(resolve => { finish=resolve; }));
     render(<PoolAdmin pool={pool()} movies={[]} onBack={() => {}} />);
     fireEvent.click(screen.getByRole('button',{name:'Expand pool'}));
     expect(screen.getByRole('button',{name:'Expanding pool…'})).toBeDisabled();
-    finish([]);
+    finish(report([]));
     await waitFor(() => expect(screen.getByRole('button',{name:'Expand pool'})).toBeEnabled());
   });
+  it('compares from identical inputs without saving either result', async () => {
+    const p = pool();
+    vi.mocked(expandPoolDetailed).mockResolvedValueOnce({...report([movie('Original')]),mode:'baseline'}).mockResolvedValueOnce(report([movie('Enhanced'),movie('Another')]));
+    render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
+    fireEvent.click(screen.getByRole('button', {name:'Compare methods'}));
+    await screen.findByText(/Difference: 1 verified candidates/);
+    expect(p.appendCandidates).not.toHaveBeenCalled();
+    const calls = vi.mocked(expandPoolDetailed).mock.calls;
+    expect(calls[0].slice(0,4)).toEqual(calls[1].slice(0,4));
+    expect(calls[0][5]?.mode).toBe('baseline');
+    expect(calls[1][5]?.mode).toBe('enhanced');
+  });
+
+  it('still runs enhanced comparison after the baseline service fails', async () => {
+    const p = pool();
+    vi.mocked(expandPoolDetailed).mockRejectedValueOnce(new Error('Baseline unavailable')).mockResolvedValueOnce(report([movie('Enhanced')]));
+    render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
+    fireEvent.click(screen.getByRole('button', {name:'Compare methods'}));
+    await screen.findByText('Baseline unavailable');
+    await screen.findByText('Enhanced (2024)');
+    expect(p.appendCandidates).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Difference:/)).toBeNull();
+  });
+
 });

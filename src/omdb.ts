@@ -1,3 +1,4 @@
+import { parseReleaseDate } from './releaseDate';
 import { parseNameList } from './format';
 import type { Movie } from './types';
 
@@ -22,6 +23,7 @@ type OmdbSearchResponse =
       Search: Array<{
         Title: string;
         Year: string;
+      Released?: string;
         imdbID: string;
         Type: string;
         Poster: string;
@@ -37,6 +39,7 @@ type OmdbDetailResponse =
       Response: 'True';
       Title: string;
       Year: string;
+      Released?: string;
       imdbID: string;
       imdbRating: string; // "8.2" or "N/A"
       Ratings: Array<{ Source: string; Value: string }>;
@@ -58,6 +61,7 @@ export type OmdbMoviePatch = {
   title: string;
   imdbId: string;
   year: number | null;
+  releaseDate?: string | null;
   imdb: string | null;
   rottenTomatoes: string | null;
   poster: string | null;
@@ -247,6 +251,7 @@ export async function linkByTitle(
 export type CandidateOmdbPatch = {
   imdbId: string;
   year: number | null;
+  releaseDate?: string | null;
   imdb: string | null;
   rottenTomatoes: string | null;
   poster: string | null;
@@ -267,6 +272,7 @@ export async function enrichCandidate(
     return {
       imdbId: patch.imdbId,
       year: patch.year,
+      releaseDate: patch.releaseDate,
       imdb: patch.imdb,
       rottenTomatoes: patch.rottenTomatoes,
       poster: patch.poster,
@@ -281,9 +287,39 @@ export async function enrichCandidate(
   }
 }
 
+/** Strict discovery matching. Service errors remain visible to run metrics. */
+export async function enrichCandidateVerified(
+  title: string,
+  hints: { year?: number | null; imdbId?: string | null } = {},
+): Promise<OmdbMoviePatch | null> {
+  const matches = (patch: OmdbMoviePatch) =>
+    patch.type === 'movie' &&
+    dedupKey(patch.title.replace(/&/g, 'and')) === dedupKey(title.replace(/&/g, 'and')) &&
+    (hints.year == null || (patch.year != null && Math.abs(patch.year - hints.year) <= 1));
+  if (hints.imdbId && /^tt\d+$/.test(hints.imdbId)) {
+    try {
+      const patch = await getMovieById(hints.imdbId);
+      if (matches(patch)) return patch;
+    } catch (error) {
+      if (!(error instanceof OmdbError) || error.kind !== 'not-found') throw error;
+    }
+  }
+  const data = await omdbGet<OmdbDetailResponse>({
+    t: title,
+    ...(hints.year != null ? { y: String(hints.year) } : {}),
+  });
+  if (data.Response === 'False') {
+    if (/not found/i.test(data.Error)) return null;
+    throw new OmdbError(data.Error || 'Movie verification failed', 'unknown');
+  }
+  const patch = extractPatch(data);
+  return matches(patch) ? patch : null;
+}
+
 function extractPatch(data: {
   Title: string;
   Year: string;
+  Released?: string;
   imdbID: string;
   imdbRating: string;
   Ratings: Array<{ Source: string; Value: string }>;
@@ -300,6 +336,7 @@ function extractPatch(data: {
     title: data.Title,
     imdbId: data.imdbID,
     year: Number.isFinite(year) ? year : null,
+    releaseDate: parseReleaseDate(data.Released),
     imdb: data.imdbRating && data.imdbRating !== 'N/A' ? data.imdbRating : null,
     rottenTomatoes: rt ? rt.Value : null,
     poster: data.Poster && data.Poster !== 'N/A' ? data.Poster : null,

@@ -30,6 +30,8 @@ import MovieSearchCombobox from './MovieSearchCombobox';
 import MoviePoster from './MoviePoster';
 import StatLink from './StatLink';
 import CreatorPills from './CreatorPills';
+import ReleaseDate from './ReleaseDate';
+import { useCreatorCatalog } from '../creatorCatalog';
 import { verifyField, type VerifyResult } from '../verify';
 
 type Props =
@@ -75,6 +77,7 @@ function applyPatchOverwrite(movie: Movie, patch: OmdbMoviePatch): Movie {
     ...movie,
     title: patch.title,
     imdbId: patch.imdbId,
+    releaseDate: patch.releaseDate === undefined ? movie.releaseDate : patch.releaseDate,
     year: patch.year,
     imdb: patch.imdb ?? movie.imdb,
     rottenTomatoes: patch.rottenTomatoes ?? movie.rottenTomatoes,
@@ -108,6 +111,7 @@ function applyPatchFill(movie: Movie, patch: OmdbMoviePatch): Movie {
     ...movie,
     title: patch.title,
     imdbId: movie.imdbId ?? patch.imdbId,
+    releaseDate: movie.releaseDate ?? patch.releaseDate,
     year: movie.year ?? patch.year,
     imdb: movie.imdb ?? patch.imdb,
     rottenTomatoes: movie.rottenTomatoes ?? patch.rottenTomatoes,
@@ -644,6 +648,7 @@ function ViewMode(props: ViewModeProps) {
         <StatLink label="IMDb" value={movie.imdb} href={imdbUrl(movie)} />
       </div>
 
+      <ReleaseDate releaseDate={movie.releaseDate} />
       <StudioAwardsBlock movie={movie} />
 
       <StreamingSection
@@ -1199,6 +1204,7 @@ function WatchedDateEditor({
 }
 
 function StudioAwardsBlock({ movie }: { movie: Movie }) {
+  const browse = useCreatorCatalog();
   return (
     <div className="mt-5 rounded-2xl bg-ink-900/70 border border-ink-800 p-4 space-y-3">
       <div>
@@ -1206,7 +1212,7 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
           {movie.directors && movie.directors.length > 1 ? 'Directors' : 'Director'}
         </div>
         <div className="mt-1 leading-snug">
-          <CreatorPills readOnly names={movie.directors} />
+          <CreatorPills readOnly names={movie.directors} onSelect={browse ? name => browse({role: 'director', name, origin: movie}) : undefined} />
         </div>
       </div>
       <div>
@@ -1214,7 +1220,7 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
           {movie.writers && movie.writers.length > 1 ? 'Writers' : 'Writer'}
         </div>
         <div className="mt-1 leading-snug">
-          <CreatorPills readOnly names={movie.writers} />
+          <CreatorPills readOnly names={movie.writers} onSelect={browse ? name => browse({role: 'writer', name, origin: movie}) : undefined} />
         </div>
       </div>
       {movie.production && (
@@ -1223,7 +1229,7 @@ function StudioAwardsBlock({ movie }: { movie: Movie }) {
             Studio
           </div>
           <div className="mt-1 text-sm text-ink-200 leading-snug">
-            {movie.production}
+            <CreatorPills readOnly names={[movie.production]} onSelect={browse ? name => browse({role: 'studio', name, origin: movie}) : undefined} />
           </div>
         </div>
       )}

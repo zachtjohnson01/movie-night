@@ -1,3 +1,4 @@
+import ReleaseDate from './ReleaseDate';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import {
@@ -14,7 +15,7 @@ import {
 } from '../verify';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { scoreCandidate } from '../scoring';
-import { expandPool, extractUnique, type ExpandProgress } from '../recommendations';
+import { expandPoolDetailed, extractUnique, type ExpandProgress, type ExpansionReport } from '../recommendations';
 import {
   findDuplicateGroups,
   applyMerge,
@@ -127,6 +128,10 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   const [editing, setEditing] = useState<Candidate | null>(null);
   const [active, setActive] = useState<Set<FilterKey>>(new Set());
   const [expanding, setExpanding] = useState(false);
+  const [comparison, setComparison] = useState<{ baseline?: ExpansionReport; enhanced?: ExpansionReport; baselineError?: string; enhancedError?: string; poolSize: number } | null>(null);
+  const [lastReport, setLastReport] = useState<ExpansionReport | null>(null);
+  const [comparing, setComparing] = useState(false);
+  const [focus, setFocus] = useState('balanced');
   const [expandError, setExpandError] = useState<string | null>(null);
   const [expandProgress, setExpandProgress] = useState<ExpandProgress | null>(null);
   // How many movies to request per expansion (editable; persisted).
@@ -167,10 +172,11 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     if (expanding || (pool.status !== 'synced' && pool.status !== 'empty')) return;
     setExpandError(null);
     setLastAdded(null);
+    setLastReport(null);
     setExpandProgress({ stage: 'requesting' });
     setExpanding(true);
     try {
-      const fresh = await expandPool(
+      const report = await expandPoolDetailed(
         pool.candidates.map((c) => c.title),
         libraryTitles,
         expandCount,
@@ -180,7 +186,10 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
           studios: libraryStudios,
         },
         setExpandProgress,
+        { mode: 'enhanced', focus, existingMovies: [...pool.candidates, ...movies] },
       );
+      setLastReport(report);
+      const fresh = report.candidates;
       setExpandProgress({ stage: 'saving' });
       const added = fresh.length > 0 ? await pool.appendCandidates(fresh) : [];
       setLastAdded(added.map((c) => c.title));
@@ -193,6 +202,8 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     }
   }, [
     expanding,
+    focus,
+    movies,
     expandCount,
     pool,
     libraryTitles,
@@ -201,11 +212,39 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     libraryStudios,
   ]);
 
+  async function runComparison() {
+    if (expanding || (pool.status !== 'synced' && pool.status !== 'empty')) return;
+    setExpanding(true);
+    setComparing(true);
+    setExpandError(null);
+    const snapshot = [...pool.candidates];
+    const library = [...libraryTitles];
+    const context = { directors: libraryDirectors, writers: libraryWriters, studios: libraryStudios };
+    const result: NonNullable<typeof comparison> = { poolSize: snapshot.length };
+    setComparison(result);
+    try {
+      for (const mode of ['baseline', 'enhanced'] as const) {
+        try {
+          result[mode] = await expandPoolDetailed(snapshot.map(c => c.title), library, expandCount, context, setExpandProgress,
+            { mode, focus, existingMovies: [...snapshot, ...movies] });
+        } catch (e) {
+          result[mode === 'baseline' ? 'baselineError' : 'enhancedError'] = e instanceof Error ? e.message : String(e);
+        }
+        setComparison({ ...result });
+      }
+    } finally {
+      setExpanding(false);
+      setComparing(false);
+      setExpandProgress(null);
+    }
+  }
+
   // Set of dedup keys that appear at least twice — used both for the
   // "Duplicates" filter chip and for the Eligible complement.
   const duplicateKeys = useMemo(() => {
     const counts = new Map<string, number>();
     for (const c of pool.candidates) {
+      if (c.removedAt != null || c.removedReason != null) continue;
       const k = dedupKey(c.title);
       counts.set(k, (counts.get(k) ?? 0) + 1);
     }
@@ -221,10 +260,9 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       const missingLink = c.imdbId == null;
       const duplicate = duplicateKeys.has(dedupKey(c.title));
       const tvShow = c.type != null && c.type !== 'movie';
-      const removed = c.removedAt != null;
-      const hasSignal = c.rottenTomatoes != null || c.imdb != null;
+      const removed = c.removedAt != null || c.removedReason != null;
       const eligible =
-        !missingLink && !duplicate && !tvShow && !removed && hasSignal;
+        !missingLink && !duplicate && !tvShow && !removed;
       return { eligible, missingLink, duplicate, tvShow, removed };
     },
     [duplicateKeys],
@@ -388,13 +426,28 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
                 aria-hidden
                 className="inline-block w-3 h-3 rounded-full border-2 border-amber-glow border-t-transparent animate-spin"
               />
-              Expanding pool…
+              {comparing ? 'Comparing methods…' : 'Expanding pool…'}
             </>
           ) : (
             <>Expand pool</>
           )}
         </button>
 
+        <label className="text-sm text-ink-300">Discovery focus
+          <select value={focus} onChange={e => setFocus(e.target.value)} disabled={expanding} className="mt-1 w-full min-h-[44px] rounded-xl border border-ink-700 bg-ink-950 px-3 text-sm"><option value="balanced">Balanced catalog</option><option value="recent">Recent releases</option><option value="backfill">Backfill older movies</option></select>
+        </label>
+        <button type="button" disabled={expanding || (pool.status !== 'synced' && pool.status !== 'empty')} onClick={() => void runComparison()} className="min-h-[48px] rounded-xl border border-ink-700 bg-ink-800 text-sm font-semibold text-ink-200 disabled:opacity-50">Compare methods</button>
+        <p className="text-xs text-ink-400">Comparison checks both methods against the same pool snapshot without saving movies. It uses two discovery runs.</p>
+        {comparison && <div className="rounded-xl border border-ink-700 bg-ink-950 p-3 space-y-3" aria-label="Discovery comparison">
+          <h3 className="font-semibold text-ink-100">Before and after discovery</h3>
+          <p className="text-xs text-ink-400">Starting pool: {comparison.poolSize} rows. Candidates below have not been saved.</p>
+          {(['baseline', 'enhanced'] as const).map(mode => <div key={mode}>
+            <h4 className="text-sm font-semibold text-ink-200">{mode === 'baseline' ? 'Original method' : 'Enhanced method'}</h4>
+            {comparison[mode] ? <ExpansionSummary report={comparison[mode]!} /> : <p className="text-sm text-ink-400">{comparison[mode === 'baseline' ? 'baselineError' : 'enhancedError'] ?? 'Waiting for results…'}</p>}
+          </div>)}
+          {comparison.baseline && comparison.enhanced && <p className="text-sm text-amber-glow">Difference: {comparison.enhanced.verified - comparison.baseline.verified} verified candidates. {comparison.enhanced.status === 'partial' || comparison.baseline.status === 'partial' ? 'Incomplete run: do not treat this as a final benchmark.' : 'A single run; results can vary.'}</p>}
+        </div>}
+        {lastReport && !expanding && <ExpansionSummary report={lastReport} />}
         <p className="text-xs leading-relaxed text-ink-400">Aim for up to {expandCount} movies. Actual additions depend on new matches.</p>
 
         {expanding && expandProgress && (
@@ -673,6 +726,7 @@ function PoolRow({
               )}
             </div>
 
+            <ReleaseDate releaseDate={c.releaseDate} />
             {!c.imdb && !c.rottenTomatoes && <p className="text-xs text-ink-400">Ratings pending</p>}
             <p className="text-xs text-ink-400">#{rank} · Fit {fit}</p>
             {c.studio && (
@@ -723,6 +777,7 @@ function EditSheet({
   const [yearStr, setYearStr] = useState(
     candidate.year != null ? String(candidate.year) : '',
   );
+  const [releaseDate, setReleaseDate] = useState(candidate.releaseDate ?? null);
   const [age, setAge] = useState(candidate.commonSenseAge ?? '');
   const [studio, setStudio] = useState(candidate.studio ?? '');
   const [imdbIdInput, setImdbIdInput] = useState(candidate.imdbId ?? '');
@@ -782,6 +837,7 @@ function EditSheet({
       const patch = await getMovieById(result.imdbId);
       setTitle(patch.title);
       setDisplayTitleInput('');
+      setReleaseDate(patch.releaseDate ?? null);
       setYearStr(patch.year != null ? String(patch.year) : '');
       setImdbIdInput(patch.imdbId);
       setRtIdInput('');
@@ -821,6 +877,7 @@ function EditSheet({
     setRefreshError(null);
     try {
       const patch = await getMovieById(id);
+      setReleaseDate(patch.releaseDate ?? null);
       setYearStr(patch.year != null ? String(patch.year) : yearStr);
       setStudio(patch.production ?? studio);
       setRt(patch.rottenTomatoes ?? rt);
@@ -964,6 +1021,7 @@ function EditSheet({
       ...candidate,
       title: title.trim() || candidate.title,
       displayTitle: displayTitleInput.trim() || null,
+      releaseDate,
       year: Number.isFinite(parsedYear) ? parsedYear : null,
       commonSenseAge: age.trim() || null,
       studio: studio.trim() || null,
@@ -1077,6 +1135,7 @@ function EditSheet({
           />
         </div>
 
+        <ReleaseDate releaseDate={releaseDate} />
         {imdbIdInput.trim() && (
           <div className="mb-4">
             <button
@@ -2083,6 +2142,18 @@ function DupeStat({
       </span>
     </span>
   );
+}
+
+function ExpansionSummary({ report }: { report: ExpansionReport }) {
+  return <div className="text-sm text-ink-300 space-y-1">
+    <p>{report.api.rawGenerated ?? report.raw} generated · {report.raw} returned · {report.checked} checked · {report.verified} verified</p>
+    <p className="text-xs text-ink-400">{report.duplicates} duplicates skipped · {report.unmatched} unmatched · {report.errors} lookup errors</p>
+    {report.status === 'partial' && <p className="text-amber-glow">{report.api.completionObserved === false ? 'Original method does not report whether discovery completed; comparison is provisional.' : 'Incomplete results — one or more discovery or lookup steps did not finish successfully.'}</p>}
+    <details><summary className="min-h-[44px] flex items-center cursor-pointer text-amber-glow">See verified candidates</summary>
+      <ul className="space-y-1 break-words">{report.candidates.map(c => <li key={c.imdbId ?? `${c.title}:${c.year}`}>{c.title} ({c.year ?? 'Year unknown'})</li>)}</ul>
+    </details>
+    {!!report.api.sourceUrls?.length && <details><summary className="min-h-[44px] flex items-center cursor-pointer">Discovery sources</summary><ul>{report.api.sourceUrls.filter(url => /^https?:\/\//i.test(url)).map(url => <li key={url} className="break-all"><a href={url} target="_blank" rel="noreferrer" className="text-amber-glow">{url}</a></li>)}</ul></details>}
+  </div>;
 }
 
 function LayersIcon({ className }: { className?: string }) {

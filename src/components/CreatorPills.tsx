@@ -18,6 +18,7 @@ import { parseNameList } from '../format';
 type Props =
   | {
       readOnly: true;
+      onSelect?: (name: string) => void;
       names: string[] | null;
     }
   | {
@@ -38,9 +39,7 @@ export default function CreatorPills(props: Props) {
     return (
       <div className="flex flex-wrap gap-1.5">
         {props.names.map((name) => (
-          <span key={name} className={PILL_CLASS}>
-            {name}
-          </span>
+          props.onSelect ? <button type="button" key={name} onClick={() => props.onSelect?.(name)} className={`${PILL_CLASS} min-h-[44px] px-3 active:bg-ink-700`} aria-label={`Browse films by ${name}`}>{name}</button> : <span key={name} className={PILL_CLASS}>{name}</span>
         ))}
       </div>
     );

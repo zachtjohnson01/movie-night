@@ -1,3 +1,4 @@
+import ReleaseDate from './ReleaseDate';
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
@@ -54,8 +55,8 @@ export default function Recommendations({
   );
 
   const effectiveCount = useMemo(
-    () => countEffectiveCandidates(pool.candidates),
-    [pool.candidates],
+    () => countEffectiveCandidates(pool.candidates, movies),
+    [pool.candidates, movies],
   );
 
   const libraryTitles = useMemo(
@@ -331,6 +332,10 @@ function RecRow({
               {rec.commonSenseAge}
             </span>
           )}
+          <ReleaseDate releaseDate={rec.releaseDate} />
+          {!rec.rottenTomatoes && !rec.imdb && <span className="text-xs">Ratings pending</span>}
+          {!rec.commonSenseAge && <span className="text-xs">Age guidance unknown</span>}
+          {!rec.streaming && <span className="text-xs">Availability not checked</span>}
           {rec.rottenTomatoes && (
             <span className="inline-flex items-baseline gap-1 text-[11px]">
               <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-500">

@@ -286,6 +286,7 @@ export function candidateToTemplate(c: Candidate): Movie {
     imdb: c.imdb,
     imdbId: c.imdbId,
     year: c.year,
+    releaseDate: c.releaseDate,
     poster: c.poster,
     omdbRefreshedAt: c.omdbRefreshedAt ?? null,
     watched: false,
