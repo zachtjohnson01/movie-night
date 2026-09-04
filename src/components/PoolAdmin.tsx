@@ -1617,19 +1617,21 @@ function DuplicateReview({
   // shift, so default back to "merge in everything else".
   const selectKeeper = useCallback((i: number) => {
     setKeeperIdx(i);
-    setExcluded(new Set());
+    setExcluded(prev => { const next = new Set(prev); next.delete(i); return next; });
   }, []);
 
-  const toggleExclude = useCallback((i: number) => {
-    setExcluded((prev) => {
-      const next = new Set(prev);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
-  }, []);
+  const toggleExclude = (i: number) => {
+    const next = new Set(excluded);
+    if (next.has(i)) next.delete(i);
+    else next.add(i);
+    if (i === keeperIdx && next.has(i) && group) {
+      const replacement = group.members.findIndex((_, memberIndex) => !next.has(memberIndex));
+      if (replacement >= 0) setKeeperIdx(replacement);
+    }
+    setExcluded(next);
+  };
 
-  const keeper = group ? group.members[keeperIdx] : null;
+  const keeper = group && !excluded.has(keeperIdx) ? group.members[keeperIdx] : null;
   const victims = group
     ? group.members.filter((_, i) => i !== keeperIdx && !excluded.has(i))
     : [];
@@ -1801,39 +1803,26 @@ function DuplicateReview({
 
               <div className="relative">
                 <div
-                  className={`grid gap-3 ${
-                    group.members.length === 2
-                      ? 'grid-cols-2 items-stretch'
-                      : 'grid-cols-1'
-                  }`}
+                  className="grid gap-3 grid-cols-1"
                 >
                   {group.members.map((c, i) => {
-                    const isKeeper = i === keeperIdx;
+                    const isKeeper = i === keeperIdx && !excluded.has(i);
                     return (
                       <DupeCard
                         key={i}
                         c={c}
                         selected={isKeeper}
-                        included={!isKeeper && !excluded.has(i)}
+                        included={!excluded.has(i)}
                         inLibrary={isInLibrary(c)}
                         onSelect={() => selectKeeper(i)}
                         onToggleInclude={
-                          group.members.length > 2 && !isKeeper
-                            ? () => toggleExclude(i)
-                            : undefined
+                          () => toggleExclude(i)
                         }
                       />
                     );
                   })}
                 </div>
-                {group.members.length === 2 && (
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-ink-950 border border-ink-700 flex items-center justify-center text-[9px] font-bold uppercase tracking-wider text-ink-400"
-                  >
-                    vs
-                  </div>
-                )}
+
               </div>
 
               {idConflicts.length > 0 && (
@@ -1897,7 +1886,7 @@ function DuplicateReview({
               </button>
               <button
                 type="button"
-                disabled={busy || victims.length === 0}
+                disabled={busy || !keeper || victims.length === 0}
                 onClick={() => void handleMerge()}
                 className={`min-h-[48px] rounded-2xl text-sm font-bold active:opacity-80 disabled:opacity-50 flex items-center justify-center gap-2 ${
                   idConflicts.length > 0
@@ -1954,7 +1943,7 @@ function DupeCard({
   onSelect: () => void;
   onToggleInclude?: () => void;
 }) {
-  const separate = onToggleInclude != null && !selected && !included;
+  const separate = onToggleInclude != null && !included;
   const badge = selected ? 'Keep' : separate ? 'Separate' : 'Merge in';
 
   return (
@@ -2002,7 +1991,7 @@ function DupeCard({
             </div>
           )}
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold text-ink-100 leading-tight pr-16 truncate">
+            <div className="text-sm font-semibold text-ink-100 leading-snug pt-6 break-words">
               {c.displayTitle ?? c.title}
             </div>
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-ink-500">
@@ -2054,7 +2043,7 @@ function DupeCard({
         </div>
       </button>
 
-      {onToggleInclude && !selected && (
+      {onToggleInclude && (
         <button
           type="button"
           onClick={onToggleInclude}
@@ -2068,10 +2057,10 @@ function DupeCard({
           {included ? (
             <>
               <CheckIcon className="w-3 h-3" />
-              Merging in
+              Included in merge
             </>
           ) : (
-            <>Left separate</>
+            <>Keep separate</>
           )}
         </button>
       )}
