@@ -342,8 +342,8 @@ export default function WatchedList({
                         Watched date unknown
                       </span>
                     )}
-                    <ReleaseDate releaseDate={m.releaseDate} compact />
                   </div>
+                  <ReleaseDate releaseDate={m.releaseDate} labeled />
                   <MetricsRow movie={m} />
                 </div>
                 {m.commonSenseAge && (
