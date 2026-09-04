@@ -54,6 +54,10 @@ describe('filterNewCandidates', () => {
     expect(out[0].title).toBe('Up');
   });
 
+  it('dedupes unlinked titles within a batch', () => {
+    expect(filterNewCandidates([], [cand({ title: 'New' }), cand({ title: 'new' })])).toHaveLength(1);
+  });
+
   it('keeps genuinely new candidates', () => {
     const existing = [cand({ title: 'Owned', imdbId: 'tt-owned' })];
     const next = [

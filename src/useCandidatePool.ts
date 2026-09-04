@@ -36,6 +36,7 @@ export function filterNewCandidates(
     if (id && (existingIds.has(id) || seenIds.has(id))) return false;
     if (existingTitles.has(c.title.toLowerCase())) return false;
     if (id) seenIds.add(id);
+    existingTitles.add(c.title.toLowerCase());
     return true;
   });
 }
@@ -45,7 +46,7 @@ export type CandidatePoolApi = {
   status: PoolStatus;
   reasons: string[];
   weights: ScoringWeights;
-  appendCandidates: (next: Candidate[]) => Promise<void>;
+  appendCandidates: (next: Candidate[]) => Promise<Candidate[]>;
   updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
   replaceCandidates: (next: Candidate[]) => Promise<void>;
   toggleDownvote: (title: string) => Promise<void>;
@@ -247,27 +248,30 @@ export function useCandidatePool(): CandidatePoolApi {
 
   const reload = useCallback(() => setReloadTick((t) => t + 1), []);
 
-  const appendCandidates = useCallback(async (next: Candidate[]) => {
-    if (!supabase || next.length === 0) return;
+  const appendCandidates = useCallback(async (next: Candidate[]): Promise<Candidate[]> => {
+    if (next.length === 0) return [];
+    if (!supabase) throw new Error('The pool is offline. Connect before adding movies.');
     const fresh = filterNewCandidates(latestRef.current, next);
-    if (fresh.length === 0) return;
-
+    if (fresh.length === 0) return [];
     const merged = [...latestRef.current, ...fresh];
-    setCandidates(merged);
-    setStatus('synced');
 
-    // The global pool row is created by the migration and stays around
-    // forever, so plain UPDATE-by-(family_id IS NULL, kind) is enough —
-    // no need for upsert any more.
-    const { error } = await supabase
+    // Require a returned row: a filtered-out UPDATE can otherwise look successful.
+    // Publish local additions only after persistence succeeds.
+    const { data, error } = await supabase
       .from(MOVIE_NIGHT_TABLE)
       .update({ movies: merged })
       .is('family_id', null)
-      .eq('kind', 'pool');
-    if (error) {
-      console.error('[useCandidatePool] append failed', error);
+      .eq('kind', 'pool')
+      .select('movies')
+      .single();
+    if (error || !data || !Array.isArray(data.movies)) {
       setStatus('error');
+      throw new Error('Movies could not be saved. Sync the pool and try again.');
     }
+    latestRef.current = data.movies as Candidate[];
+    setCandidates(latestRef.current);
+    setStatus('synced');
+    return fresh;
   }, []);
 
   // Optimistically applies `next`, then persists it. Returns `false` (and

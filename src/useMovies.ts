@@ -222,7 +222,7 @@ export function useMovies({
   familyId: string | null;
   candidates: Candidate[];
   onUpdateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
-  onAppendCandidates: (next: Candidate[]) => Promise<void>;
+  onAppendCandidates: (next: Candidate[]) => Promise<unknown>;
 }): MoviesApi {
   const [entries, setEntries] = useState<LibraryEntry[]>([]);
   const [status, setStatus] = useState<SyncStatus>(
