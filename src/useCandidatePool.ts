@@ -1,3 +1,4 @@
+import { normalizeHistorySettings, historySettingsError, type HistorySettings } from './historyRecommendations';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Candidate } from './types';
 import {
@@ -46,6 +47,8 @@ export type CandidatePoolApi = {
   status: PoolStatus;
   reasons: string[];
   weights: ScoringWeights;
+  historySettings?: HistorySettings;
+  updateHistorySettings?: (next: HistorySettings) => Promise<void>;
   appendCandidates: (next: Candidate[]) => Promise<Candidate[]>;
   updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
   replaceCandidates: (next: Candidate[] | ((current: Candidate[]) => Candidate[])) => Promise<void>;
@@ -77,6 +80,7 @@ export type CandidatePoolApi = {
 export function useCandidatePool(): CandidatePoolApi {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [reasons, setReasons] = useState<string[]>([]);
+  const [historySettings, setHistorySettings] = useState<HistorySettings | undefined>();
   const [weights, setWeights] = useState<ScoringWeights>(DEFAULT_WEIGHTS);
   const [status, setStatus] = useState<PoolStatus>(
     isSupabaseConfigured ? 'loading' : 'local',
@@ -86,8 +90,6 @@ export function useCandidatePool(): CandidatePoolApi {
   latestRef.current = candidates;
   const reasonsRef = useRef<string[]>([]);
   reasonsRef.current = reasons;
-  const weightsRef = useRef<ScoringWeights>(DEFAULT_WEIGHTS);
-  weightsRef.current = weights;
 
   useEffect(() => {
     if (!supabase) return;
@@ -156,7 +158,8 @@ export function useCandidatePool(): CandidatePoolApi {
 
       // Scoring weights — non-fatal; falls back to DEFAULT_WEIGHTS.
       if (!weightsRes.error && weightsRes.data?.movies) {
-        const raw = weightsRes.data.movies as Partial<ScoringWeights>;
+        const raw = weightsRes.data.movies as Partial<ScoringWeights> & {historySettings?: HistorySettings};
+        setHistorySettings(raw?.historySettings ? normalizeHistorySettings(raw.historySettings) : undefined);
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
           setWeights(normalizeWeights({ ...DEFAULT_WEIGHTS, ...raw }));
         }
@@ -228,6 +231,7 @@ export function useCandidatePool(): CandidatePoolApi {
           } | null;
           if (!row || row.family_id != null) return;
           const next = row.movies;
+          setHistorySettings((next as {historySettings?: HistorySettings})?.historySettings ? normalizeHistorySettings((next as {historySettings: HistorySettings}).historySettings) : undefined);
           if (next && typeof next === 'object' && !Array.isArray(next)) {
             setWeights(
               normalizeWeights({
@@ -430,25 +434,28 @@ export function useCandidatePool(): CandidatePoolApi {
     [writePool],
   );
 
-  const updateWeights = useCallback(async (next: ScoringWeights) => {
-    if (!supabase) return;
-    const total = Object.values(next).reduce((a, b) => a + b, 0);
-    if (total !== 100) {
-      throw new Error(`Weights must sum to 100 (got ${total})`);
-    }
-    const previous = weightsRef.current;
-    setWeights(next);
-    const { error } = await supabase
-      .from(MOVIE_NIGHT_TABLE)
-      .update({ movies: next })
-      .is('family_id', null)
-      .eq('kind', 'weights');
-    if (error) {
-      console.error('[useCandidatePool] weights write failed', error);
-      setWeights(previous);
-      throw error;
-    }
+  // Compare-and-swap the shared settings object so the two editors cannot
+  // overwrite each other's changes or silently report an unpersisted save.
+  const saveSettings = useCallback(async (patch: Partial<ScoringWeights> | {historySettings: HistorySettings}) => {
+    if (!supabase) throw new Error('Sign in and connect before saving settings.');
+    const {data,error} = await supabase.from(MOVIE_NIGHT_TABLE).select('movies').is('family_id',null).eq('kind','weights').single();
+    if (error || !data) throw error ?? new Error('Recommendation settings are unavailable.');
+    const next = {...data.movies,...patch};
+    const result = await supabase.from(MOVIE_NIGHT_TABLE).update({movies:next}).is('family_id',null).eq('kind','weights').eq('movies',JSON.stringify(data.movies)).select('movies');
+    if (result.error) throw result.error;
+    if (result.data?.length !== 1) throw new Error('Settings changed elsewhere. Reload and try again.');
+    setWeights(normalizeWeights(next));
+    setHistorySettings(next.historySettings ? normalizeHistorySettings(next.historySettings) : undefined);
   }, []);
+  const updateWeights = useCallback(async (next: ScoringWeights) => {
+    if (Object.values(next).reduce((a,b)=>a+b,0) !== 100) throw new Error('Weights must sum to 100.');
+    await saveSettings(next);
+  }, [saveSettings]);
+  const updateHistorySettings = useCallback(async (next: HistorySettings) => {
+    const error = historySettingsError(next);
+    if (error) throw new Error(error);
+    await saveSettings({historySettings: normalizeHistorySettings(next)});
+  }, [saveSettings]);
 
   const bulkRefreshOmdb = useCallback(
     async (
@@ -549,6 +556,8 @@ export function useCandidatePool(): CandidatePoolApi {
     status,
     reasons,
     weights,
+    historySettings,
+    updateHistorySettings,
     appendCandidates,
     updateCandidate,
     replaceCandidates,
@@ -569,7 +578,8 @@ export function useCandidatePool(): CandidatePoolApi {
  * the largest weight to absorb rounding so the sum lands at 100. Otherwise
  * assume the stored values are already on the new scale and pass through.
  */
-function normalizeWeights(w: ScoringWeights): ScoringWeights {
+function normalizeWeights(raw: ScoringWeights): ScoringWeights {
+  const w = Object.fromEntries(Object.keys(DEFAULT_WEIGHTS).map(key => [key, raw[key as keyof ScoringWeights] ?? DEFAULT_WEIGHTS[key as keyof ScoringWeights]])) as ScoringWeights;
   const values = Object.values(w);
   const allFractional = values.every((v) => v <= 1);
   if (!allFractional) return w;

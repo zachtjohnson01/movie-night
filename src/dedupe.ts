@@ -1,3 +1,4 @@
+import { titleAliasEvidence, type TitleAliasEvidence } from './titleAliasEvidence';
 import type { Candidate } from './types';
 import { dedupKey } from './omdb';
 
@@ -26,6 +27,7 @@ export type DuplicateGroup = {
   sharesImdbId: boolean;
   /** Whole group has one confirmed IMDb identity and no conflicting years. */
   confirmedIdentity?: boolean;
+  aliasEvidence?: TitleAliasEvidence[];
 };
 
 /**
@@ -130,7 +132,7 @@ export function findDuplicateGroups(candidates: Candidate[]): DuplicateGroup[] {
   for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
     const a = [live[i].title, live[i].displayTitle].filter((v): v is string => !!v);
     const b = [live[j].title, live[j].displayTitle].filter((v): v is string => !!v);
-    if (a.some(x => b.some(y => possibleTitleVariant(x, y)))) union(i, j);
+    if (a.some(x => b.some(y => possibleTitleVariant(x, y) || titleAliasEvidence(x, y)))) union(i, j);
   }
 
   const byRoot = new Map<number, number[]>();
@@ -150,7 +152,14 @@ export function findDuplicateGroups(candidates: Candidate[]): DuplicateGroup[] {
       .filter((x): x is string => x != null);
     const sharesImdbId = new Set(ids).size < ids.length;
     const confirmedIdentity = ids.length === members.length && new Set(ids).size === 1 && new Set(members.map(m => m.year).filter(y => y != null)).size <= 1;
-    groups.push({ key: dedupKey(members[0].title), members, sharesImdbId, confirmedIdentity });
+    const evidence = new Map<string, TitleAliasEvidence>();
+    for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+      for (const a of [members[i].title, members[i].displayTitle]) for (const b of [members[j].title, members[j].displayTitle]) {
+        const match = a && b ? titleAliasEvidence(a, b) : undefined;
+        if (match) evidence.set(match.sourceUrl, match);
+      }
+    }
+    groups.push({ aliasEvidence: [...evidence.values()], key: dedupKey(members[0].title), members, sharesImdbId, confirmedIdentity });
   });
 
   // Strong-signal groups (shared IMDb id) first, then alphabetical by key —
