@@ -13,8 +13,7 @@ for (const [skin, Component] of [['classic', Classic], ['modern', Modern]] as co
   const movie = {...emptyMovie(true), id:'a', title:'Example', watched:true, favorite:true, dateWatched:'2026-09-04', releaseDate:'2000-01-02'};
   render(<Component movies={[movie]} canWrite={false} isOwner={false} onSelect={()=>{}} onAdd={()=>{}} onBulkLink={()=>{}} onEnhanceAll={()=>{}}/>);
   expect(screen.getAllByText('Watched Sep 4, 2026').length).toBeGreaterThan(0);
-  expect(screen.getAllByLabelText('Release date · Jan 2, 2000').length).toBeGreaterThan(0);
-  expect(screen.getAllByText('1/2/00').length).toBeGreaterThan(0);
+  expect(screen.getAllByText('Released Jan 2, 2000').length).toBeGreaterThan(0);
  });
  it(`${skin} does not invent an original release date`, () => {
   render(<Component movies={[{...emptyMovie(true), id:'b', title:'Unknown', watched:true}]} canWrite={false} isOwner={false} onSelect={()=>{}} onAdd={()=>{}} onBulkLink={()=>{}} onEnhanceAll={()=>{}}/>);

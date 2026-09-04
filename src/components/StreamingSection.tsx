@@ -45,9 +45,13 @@ export default function StreamingSection({
           <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
             {g.label}
           </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {g.providers.map((p,index) => <ProviderTile key={`${p.id}-${index}`} provider={p} paid={g.label !== 'Stream'} kind={g.label} fallbackLink={streaming.link} searchTitle={searchTitle} />)}
-          </div>
+          {g.label === 'Stream' ? <div className="mt-2 flex flex-wrap gap-2">
+            {g.providers.map((p,index) => <ProviderTile key={`${p.id}-${index}`} provider={p} paid={false} kind={g.label} fallbackLink={streaming.link} searchTitle={searchTitle} />)}
+          </div> : <div className="mt-2 space-y-2">
+            {groupProviders(g.providers).map((offers,index) => <div key={index} role="group" aria-label={`${offers[0].name} ${g.label.toLowerCase()} offers`} className="grid gap-2" style={{gridTemplateColumns:`repeat(${offers.length}, minmax(0, 1fr))`}}>
+              {offers.map((p,i) => <ProviderTile key={i} provider={p} paid kind={g.label} fallbackLink={streaming.link} searchTitle={searchTitle} />)}
+            </div>)}
+          </div>}
         </div>
       ))}
       <p className="text-xs text-ink-300">
@@ -78,7 +82,7 @@ function ProviderTile({
     (searchTitle ? appSearchUrl(provider.name, searchTitle) : null) ||
     fallbackLink;
 
-  const cls =
+  const cls = paid ? 'min-h-[44px] min-w-0 flex flex-col items-center gap-1 rounded-xl bg-ink-800 border border-ink-700 p-2 text-center active:bg-ink-700' :
     'min-h-[44px] inline-flex items-center gap-2 rounded-xl bg-ink-800 border border-ink-700 pl-1.5 pr-3 active:bg-ink-700';
   const inner = (
     <>
@@ -94,11 +98,11 @@ function ProviderTile({
           {provider.name.slice(0, 2)}
         </div>
       )}
-      <span className="py-2 min-w-0">
-        <span className="block text-sm text-ink-100 font-medium">{provider.name}</span>
+      <span className={paid ? "min-w-0 w-full" : "py-2 min-w-0"}>
+        <span className={paid ? "block text-[10px] leading-tight text-ink-100 font-medium break-words" : "block text-sm text-ink-100 font-medium"}>{provider.name}</span>
         <span className="block text-xs text-ink-300">
           {paid ? offerPrice(provider) : provider.accessType === 'sub' ? 'With subscription' : provider.accessType === 'free' ? 'Free · ads may apply' : provider.accessType === 'tve' ? 'TV provider sign-in' : 'Check access'}
-          {provider.format ? ` · ${provider.format}` : ''}
+          {provider.format && (paid ? <span className="block text-[10px]">{provider.format}</span> : ` · ${provider.format}`)}
         </span>
       </span>
     </>
@@ -109,4 +113,13 @@ function ProviderTile({
       {inner}
     </a>
   );
+}
+
+function groupProviders(providers: StreamingProvider[]): StreamingProvider[][] {
+  const groups = new Map<string, StreamingProvider[]>();
+  for (const provider of providers) {
+    const key = String(provider.id ?? provider.name.toLowerCase());
+    groups.set(key, [...(groups.get(key) ?? []), provider]);
+  }
+  return [...groups.values()];
 }

@@ -413,12 +413,16 @@ export default function ModernWishlist({
                   fontSize: 10,
                   color: INK_3,
                   marginTop: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  flexWrap: 'wrap',
                 }}
               >
                 {m.rottenTomatoes && `🍅 ${m.rottenTomatoes}`}
                 {m.rottenTomatoes && m.imdb && ' · '}
                 {m.imdb && `★ ${m.imdb}`}
-                <span className="ml-2"><ReleaseDate compact releaseDate={m.releaseDate} /></span>
+                <ReleaseDate compact releaseDate={m.releaseDate} />
               </div>
             </button>
           ))}

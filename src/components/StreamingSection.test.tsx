@@ -30,6 +30,9 @@ it('shows separate format cards with their own prices and links',()=>{
  const formats=['SD','HD','4K'];
  render(<StreamingSection streaming={{region:'US',link:null,fetchedAt:'2026-09-04',stream:[],buy:[],rent:formats.map((format,index)=>offer({name:'Amazon',format,price:19.98,currency:'USD',logo:'https://example.com/logo.png',link:`https://example.com/${index}`}))}}/>);
  expect(screen.getAllByText('Amazon')).toHaveLength(3);
+ const row = screen.getByRole('group', {name:'Amazon rent offers'});
+ expect(row.querySelectorAll('a')).toHaveLength(3);
+ expect(row.style.gridTemplateColumns).toBe('repeat(3, minmax(0, 1fr))');
  formats.forEach((format,index)=>expect(screen.getByRole('link',{name:`Amazon rent ${format}: $19.98`}).getAttribute('href')).toBe(`https://example.com/${index}`));
 });
 it('keeps providers separate and falls back safely when deep link is absent',()=>{

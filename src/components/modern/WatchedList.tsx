@@ -400,7 +400,6 @@ export default function ModernWatchedList({
                   >
                     <div style={{ position: 'relative' }}>
                       <ModernPoster movie={m} size={108} />
-                      {m.releaseDate && <div className="absolute bottom-1 left-1 rounded bg-ink-950/90 px-1.5 py-1"><ReleaseDate releaseDate={m.releaseDate} compact /></div>}
                     </div>
                     <div
                       style={{
@@ -427,6 +426,7 @@ export default function ModernWatchedList({
                         Watched {formatDate(m.dateWatched)}
                       </div>
                     )}
+                    <ReleaseDate releaseDate={m.releaseDate} labeled />
                   </button>
                 ))}
               </div>
@@ -569,7 +569,9 @@ function ListRow({
               Watched date unknown
             </span>
           )}
-          <ReleaseDate releaseDate={m.releaseDate} compact />
+        </div>
+        <ReleaseDate releaseDate={m.releaseDate} labeled />
+        <div style={{display: 'flex', alignItems: 'center', gap: 10, marginTop: 3}}>
           {m.rottenTomatoes && (
             <span
               style={{
