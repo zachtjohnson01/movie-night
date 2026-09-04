@@ -11,7 +11,7 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 it.each([{Component:Wishlist,name:'classic'},{Component:ModernWishlist,name:'modern'}])('shows exact future date in $name Up Next and opens unchanged queued movie',({Component})=>{
  const movie={...emptyMovie(false),title:'Future movie',year:2999,releaseDate:'2999-10-23'};const onSelect=vi.fn();
  render(<Component {...props} movies={[movie]} onSelect={onSelect}/>);
- expect(screen.getByText('Upcoming · Oct 23, 2999')).toBeInTheDocument();
+ expect(screen.getByLabelText('Upcoming · Oct 23, 2999')).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:/Future movie/}));
  expect(onSelect).toHaveBeenCalledWith(movie);expect(movie.watched).toBe(false);
 });

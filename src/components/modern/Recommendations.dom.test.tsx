@@ -23,7 +23,7 @@ describe.each([['modern', ModernRecommendations], ['classic', Recommendations]] 
   it('shows an upcoming label only when a full future release date is present', () => {
     const futurePool = { ...pool, candidates: [{ ...candidate, releaseDate: '2099-09-18' }] } as CandidatePoolApi;
     render(<Component movies={[]} pool={futurePool} isOwner={false} reloadMovies={() => {}} onSelectPick={() => {}} />);
-    expect(screen.getByText(/Upcoming/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Upcoming/)).toBeInTheDocument();
     expect(screen.queryByText(/watch now/i)).toBeNull();
   });
 

@@ -52,7 +52,7 @@ export default function CreatorCatalog({ pool, library, familySlug, children, on
       </div>
       <div className="min-h-0 overflow-y-auto overscroll-contain touch-pan-y" style={{WebkitOverflowScrolling:'touch'}}>
       {layer.movie ? <Detail key={layer.movie.imdbId ?? `${layer.movie.title}:${layer.movie.year}`} mode="candidate" movie={layer.movie} canWrite={false} familySlug={familySlug} onBack={back} onAddToWishlist={() => {}} onMarkWatchedTonight={() => {}} onMarkWatchedUndated={() => {}} /> : <section className="p-5">
-        <CatalogAwards films={[layer.selection.origin, ...matches]} />
+        <CatalogAwards films={matches} />
         {matches.length === 0 ? <p className="py-8 text-ink-300">No other matching films are in the catalog yet.</p> : <ul className="mt-4 divide-y divide-ink-800">{matches.map(movie => <li key={movie.imdbId ?? `${movie.title}:${movie.year}`}>
           <CatalogMovieCard movie={movie} modern={modern} onSelect={() => setLayers(current => current.map((item,i) => i === current.length - 1 ? {...item,movie} : item))} />
         </li>)}</ul>}

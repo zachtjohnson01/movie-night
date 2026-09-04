@@ -126,7 +126,7 @@ export default function Recommendations({
   return (
     <div className="mx-auto max-w-xl">
       <header
-        className="sticky top-0 z-20 px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
+        className="px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -335,7 +335,7 @@ function RecRow({
               {rec.commonSenseAge}
             </span>
           )}
-          <ReleaseDate releaseDate={rec.releaseDate} />
+          <ReleaseDate compact releaseDate={rec.releaseDate} />
           {!rec.rottenTomatoes && !rec.imdb && <span className="text-xs">Ratings pending</span>}
           {!rec.commonSenseAge && <span className="text-xs">Age guidance unknown</span>}
           {!rec.streaming && <span className="text-xs">Availability not checked</span>}

@@ -214,37 +214,13 @@ function ModernView({
         paddingBottom: 60,
       }}
     >
-      {/* Gradient hero */}
-      <div
-        style={{
-          position: 'relative',
-          height: 260,
-          background: `linear-gradient(180deg, ${c1} 0%, ${c2} 65%, ${BG} 100%)`,
-          overflow: 'hidden',
-        }}
-      >
-        <div
-          aria-hidden
-          style={{ position: 'absolute', inset: 0, opacity: 0.3 }}
-        >
-          <svg
-            width="100%"
-            height="100%"
-            viewBox="0 0 400 260"
-            preserveAspectRatio="xMidYMid slice"
-          >
-            <circle cx="330" cy="80" r="75" fill={accent} opacity="0.6" />
-            <circle cx="60" cy="200" r="105" fill={accent} opacity="0.35" />
-          </svg>
-        </div>
+      <div style={{ position: 'sticky', top: 0, zIndex: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: 'calc(env(safe-area-inset-top) + 8px) 16px 8px', background: BG, borderBottom: `1px solid ${BORDER}` }}>
         <button
           type="button"
           onClick={onBack}
           aria-label="Back"
           style={{
-            position: 'absolute',
-            top: 'calc(env(safe-area-inset-top) + 12px)',
-            left: 16,
+            position: 'relative',
             zIndex: 2,
             width: 38,
             height: 38,
@@ -273,9 +249,7 @@ function ModernView({
         </button>
         <div
           style={{
-            position: 'absolute',
-            top: 'calc(env(safe-area-inset-top) + 12px)',
-            right: 16,
+            position: 'relative',
             zIndex: 2,
             display: 'flex',
             gap: 8,
@@ -348,6 +322,30 @@ function ModernView({
               {share.copied ? 'Link copied' : ''}
             </span>
           </button>
+        </div>
+      </div>
+      {/* Gradient hero */}
+      <div
+        style={{
+          position: 'relative',
+          height: 260,
+          background: `linear-gradient(180deg, ${c1} 0%, ${c2} 65%, ${BG} 100%)`,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          aria-hidden
+          style={{ position: 'absolute', inset: 0, opacity: 0.3 }}
+        >
+          <svg
+            width="100%"
+            height="100%"
+            viewBox="0 0 400 260"
+            preserveAspectRatio="xMidYMid slice"
+          >
+            <circle cx="330" cy="80" r="75" fill={accent} opacity="0.6" />
+            <circle cx="60" cy="200" r="105" fill={accent} opacity="0.35" />
+          </svg>
         </div>
         <div
           style={{

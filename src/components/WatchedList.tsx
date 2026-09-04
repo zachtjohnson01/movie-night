@@ -10,6 +10,7 @@ import {
 } from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
+import ReleaseDate from './ReleaseDate';
 
 type Props = {
   movies: Movie[];
@@ -99,7 +100,7 @@ export default function WatchedList({
   return (
     <div className="mx-auto max-w-xl">
       <header
-        className="sticky top-0 z-20 px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
+        className="px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -331,16 +332,17 @@ export default function WatchedList({
                   <div className="text-base font-semibold leading-snug truncate">
                     {getDisplayTitle(m)}
                   </div>
-                  <div className="mt-1 text-sm">
+                  <div className="mt-1 flex items-center gap-2 text-xs">
                     {m.dateWatched ? (
                       <span className="text-ink-300">
-                        {formatDate(m.dateWatched)}
+                        Watched {formatDate(m.dateWatched)}
                       </span>
                     ) : (
                       <span className="text-amber-glow/70 italic font-medium">
-                        Date unknown
+                        Watched date unknown
                       </span>
                     )}
+                    <ReleaseDate releaseDate={m.releaseDate} compact />
                   </div>
                   <MetricsRow movie={m} />
                 </div>
