@@ -1,3 +1,5 @@
+import { useHistoryRecommendations } from '../../useHistoryRecommendations';
+import HistoryRecommendationStatus from '../HistoryRecommendationStatus';
 import ReleaseDate from '../ReleaseDate';
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../../types';
@@ -6,7 +8,6 @@ import {
   countEffectiveCandidates,
   expandPool,
   extractUnique,
-  rankTopPicks,
   type RankedPick,
 } from '../../recommendations';
 import { DEFAULT_WEIGHTS, type ScoringWeights } from '../../scoring';
@@ -31,6 +32,7 @@ type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
   isOwner: boolean;
+  familyKey?: string;
   onSelectPick: (c: Candidate) => void;
 };
 
@@ -42,6 +44,7 @@ export default function ModernRecommendations({
   movies,
   pool,
   isOwner,
+  familyKey,
   onSelectPick,
 }: Props) {
   useLayoutEffect(() => {
@@ -63,10 +66,8 @@ export default function ModernRecommendations({
   >({ kind: 'idle' });
   const [error, setError] = useState<string | null>(null);
 
-  const picks = useMemo(
-    () => rankTopPicks(pool.candidates, movies, TOP_N, pool.weights),
-    [pool.candidates, movies, pool.weights],
-  );
+  const historyResult = useHistoryRecommendations(pool.candidates, movies, pool.weights, isOwner, familyKey, TOP_N);
+  const picks = historyResult.picks;
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
   const libraryDirectors = useMemo(() => extractUnique(movies.flatMap((m) => m.directors ?? [])), [movies]);
   const libraryWriters = useMemo(() => extractUnique(movies.flatMap((m) => m.writers ?? [])), [movies]);
@@ -189,12 +190,13 @@ export default function ModernRecommendations({
           ) : (
             <span>
               from {effectiveCount} candidates
-              {isOwner && <> · {describeWeights(pool.weights ?? DEFAULT_WEIGHTS)}</>}
+              {isOwner && <> · Preset: {describeWeights(pool.weights ?? DEFAULT_WEIGHTS)}</>}
             </span>
           )}
         </div>
       </div>
 
+      <HistoryRecommendationStatus result={historyResult} isOwner={isOwner} />
       <div style={{ marginTop: 18 }}>
         {loading && (
           <>

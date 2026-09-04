@@ -28,12 +28,6 @@ export default function StreamingSection({
     { label: 'Buy', providers: streaming.buy },
   ].filter((g) => g.providers.length > 0);
 
-  const rentalLows = new Map<string, StreamingProvider>();
-  for (const p of streaming.rent) {
-    if (p.price == null || p.price < 0 || !Number.isFinite(p.price) || !p.currency) continue;
-    const key = `${p.currency}:${p.format ?? 'unspecified quality'}`;
-    if (!rentalLows.has(key) || p.price < rentalLows.get(key)!.price!) rentalLows.set(key, p);
-  }
   const checked = Date.parse(streaming.fetchedAt);
 
   return (
@@ -46,27 +40,13 @@ export default function StreamingSection({
         </div>
         <span className="text-[10px] text-ink-600">via Watchmode</span>
       </div>
-      {rentalLows.size > 0 && (
-        <p className="text-sm text-ink-300">
-          Lowest reported rental: {Array.from(rentalLows.values()).map((p) =>
-            `${offerPrice(p)} (${p.format || 'quality unspecified'})`).join(' · ')}
-        </p>
-      )}
       {groups.map((g) => (
         <div key={g.label}>
           <div className="text-[10px] uppercase tracking-[0.18em] text-ink-500 font-semibold">
             {g.label}
           </div>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {g.providers.map((p, index) => (
-              <ProviderTile
-                key={`${p.id}-${index}`}
-                provider={p}
-                paid={g.label !== 'Stream'}
-                fallbackLink={streaming.link}
-                searchTitle={searchTitle}
-              />
-            ))}
+          <div className={g.label === 'Stream' ? 'mt-2 flex flex-wrap gap-2' : 'mt-2 space-y-2'}>
+            {g.label === 'Stream' ? g.providers.map((p,index) => <ProviderTile key={`${p.id}-${index}`} provider={p} paid={false} fallbackLink={streaming.link} searchTitle={searchTitle} />) : groupProviders(g.providers).map(offers => <ProviderRow key={offers[0].id} providers={offers} kind={g.label} fallbackLink={streaming.link} searchTitle={searchTitle} />)}
           </div>
         </div>
       ))}
@@ -127,4 +107,45 @@ function ProviderTile({
       {inner}
     </a>
   );
+}
+
+function groupProviders(providers: StreamingProvider[]): StreamingProvider[][] {
+  const groups = new Map<string, StreamingProvider[]>();
+  for (const provider of providers) {
+    const key = String(provider.id ?? provider.name.toLowerCase());
+    groups.set(key, [...(groups.get(key) ?? []), provider]);
+  }
+  return [...groups.values()];
+}
+
+function ProviderRow({ providers, kind, fallbackLink, searchTitle }: {
+  providers: StreamingProvider[]; kind: string; fallbackLink: string | null; searchTitle?: string;
+}) {
+  const provider = providers[0];
+  // Group equal prices but preserve separate format links, even when a
+  // provider sends a different purchase URL for each format.
+  const prices = new Map<string, StreamingProvider[]>();
+  for (const offer of providers) {
+    const price = offerPrice(offer);
+    const bucket = prices.get(price) ?? [];
+    if (!bucket.some(p => p.format === offer.format && p.link === offer.link)) bucket.push(offer);
+    prices.set(price, bucket);
+  }
+  return <div role="group" aria-label={`${provider.name} ${kind.toLowerCase()} offers`} className="flex w-full min-w-0 items-start gap-3 rounded-xl border border-ink-700 bg-ink-800 p-3">
+    <div className="w-20 shrink-0 min-w-0">
+      {provider.logo && <img src={provider.logo} alt="" loading="lazy" className="h-9 w-9 rounded-lg" />}
+      <span className="mt-1 block text-xs font-semibold leading-snug text-ink-100 break-words">{provider.name}</span>
+    </div>
+    <div className="min-w-0 flex-1 space-y-1">
+      {[...prices].map(([price,offers]) => <div key={price} className="min-w-0">
+        <span className="block text-sm font-semibold tabular-nums text-ink-100">{price}</span>
+        <div className="flex flex-wrap gap-1">{offers.map((offer,index) => {
+          const link = offer.link || (searchTitle ? appSearchUrl(offer.name,searchTitle) : null) || fallbackLink;
+          const format = offer.format || 'View offer';
+          const cls = 'min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg border border-ink-700 px-2 text-xs text-amber-glow active:bg-ink-700 break-words';
+          return link ? <a key={index} href={link} target="_blank" rel="noopener noreferrer" aria-label={`${provider.name} ${kind.toLowerCase()} ${format}: ${price}`} className={cls}>{format}</a> : <span key={index} className={cls}>{format}</span>;
+        })}</div>
+      </div>)}
+    </div>
+  </div>;
 }

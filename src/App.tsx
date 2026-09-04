@@ -370,9 +370,9 @@ export default function App() {
     setModal(null);
   }
 
-  async function handleMarkCandidateWatchedTonight(template: Movie) {
+  async function handleMarkCandidateWatchedTonight(template: Movie, date: string | null = todayIso()) {
     if (!canWrite) return;
-    await addMovie({ ...template, watched: true, dateWatched: todayIso() });
+    await addMovie({ ...template, watched: true, dateWatched: date });
     setTab('watched');
     setModal(null);
   }
@@ -580,6 +580,7 @@ export default function App() {
             )}
             {tab === 'recs' && canWrite && (
               <ModernRecommendations
+                familyKey={currentSlug}
                 movies={movies}
                 pool={pool}
                 isOwner={effectiveIsOwner}
@@ -613,6 +614,7 @@ export default function App() {
             )}
             {tab === 'recs' && canWrite && (
               <Recommendations
+                familyKey={currentSlug}
                 movies={movies}
                 pool={pool}
                 isOwner={effectiveIsOwner}

@@ -18,12 +18,16 @@ it('opens full-catalog results and movie preview then returns without discarding
  fireEvent.change(screen.getByLabelText('Unsaved notes'),{target:{value:'Still writing'}});
  fireEvent.click(screen.getByRole('button',{name:'Browse films by Jane Doe'}));
  expect(screen.getByRole('dialog')).toBeInTheDocument();
+ expect(document.body.style.position).toBe('fixed');
+ expect(document.documentElement.style.overflow).toBe('hidden');
  expect(screen.getByRole('button',{name:/Other film/})).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:/Other film/}));
  expect(screen.getByText('Other film detail preview')).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Back to results'}));
  expect(screen.getByRole('button',{name:/Other film/})).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button',{name:'Close catalog'}));
+ expect(document.body.style.position).toBe('');
+ expect(document.documentElement.style.overflow).toBe('');
  expect(screen.getByLabelText('Unsaved notes')).toHaveValue('Still writing');
 });
 it('shows a clear empty catalog state',()=>{

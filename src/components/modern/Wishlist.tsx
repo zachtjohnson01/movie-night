@@ -15,6 +15,7 @@ import {
   SANS,
 } from './palette';
 import ModernPoster from './ModernPoster';
+import ReleaseDate from '../ReleaseDate';
 import Fab from './Fab';
 
 type Props = {
@@ -418,6 +419,7 @@ export default function ModernWishlist({
                 {m.rottenTomatoes && m.imdb && ' · '}
                 {m.imdb && `★ ${m.imdb}`}
               </div>
+              <ReleaseDate releaseDate={m.releaseDate} />
             </button>
           ))}
         </div>

@@ -61,7 +61,7 @@ describe('Manage pool', () => {
     const p = pool();
     vi.mocked(expandPoolDetailed).mockResolvedValueOnce({...report([movie('Original')]),mode:'baseline'}).mockResolvedValueOnce(report([movie('Enhanced'),movie('Another')]));
     render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
-    fireEvent.click(screen.getByRole('button', {name:'Compare methods'}));
+    fireEvent.click(screen.getByRole('button', {name:'Compare old vs new'}));
     await screen.findByText(/Difference: 1 verified candidates/);
     expect(p.appendCandidates).not.toHaveBeenCalled();
     const calls = vi.mocked(expandPoolDetailed).mock.calls;
@@ -74,11 +74,31 @@ describe('Manage pool', () => {
     const p = pool();
     vi.mocked(expandPoolDetailed).mockRejectedValueOnce(new Error('Baseline unavailable')).mockResolvedValueOnce(report([movie('Enhanced')]));
     render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
-    fireEvent.click(screen.getByRole('button', {name:'Compare methods'}));
+    fireEvent.click(screen.getByRole('button', {name:'Compare old vs new'}));
     await screen.findByText('Baseline unavailable');
     await screen.findByText('Enhanced (2024)');
     expect(p.appendCandidates).not.toHaveBeenCalled();
     expect(screen.queryByText(/Difference:/)).toBeNull();
+  });
+
+  it('reuses catalog details and keeps downvote separate from opening the editor', () => {
+    const p = pool([movie('Family movie', { poster: 'https://example.com/poster.jpg', studio: 'Film Studio', awards: '2 wins', releaseDate: '2099-09-18', rottenTomatoes: '95%' })]);
+    const { container } = render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
+    const edit = screen.getByRole('button', {name: 'Edit Family movie'});
+    expect(edit).toHaveTextContent('Film Studio');
+    expect(edit).toHaveTextContent('2 wins');
+    expect(edit).toHaveTextContent('Upcoming');
+    expect(edit).toHaveTextContent('95%');
+    expect(edit.querySelector('img')).not.toBeNull();
+    const downvote = screen.getByRole('button', {name: 'Downvote Family movie'});
+    expect(downvote).toHaveClass('w-11', 'h-11');
+    expect(container.querySelector('button button')).toBeNull();
+    fireEvent.click(downvote);
+    expect(p.toggleDownvote).toHaveBeenCalledWith('Family movie');
+    expect(p.removeCandidate).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', {name:'Save'})).toBeNull();
+    fireEvent.click(edit);
+    expect(screen.getByRole('button', {name:'Save'})).toBeInTheDocument();
   });
 
 });

@@ -30,6 +30,7 @@ import MovieSearchCombobox from './MovieSearchCombobox';
 import MoviePoster from './MoviePoster';
 import StatLink from './StatLink';
 import CreatorPills from './CreatorPills';
+import MarkWatched from './MarkWatched';
 import ReleaseDate from './ReleaseDate';
 import { useCreatorCatalog } from '../creatorCatalog';
 import { verifyField, type VerifyResult } from '../verify';
@@ -65,7 +66,7 @@ type Props =
       downvoted?: boolean;
       onBack: () => void;
       onAddToWishlist: (movie: Movie) => void | Promise<void>;
-      onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
+      onMarkWatchedTonight: (movie: Movie, date?: string | null) => void | Promise<void>;
       onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
       onToggleDownvote?: () => void | Promise<void>;
       onSelectMovie?: (title: string) => void;
@@ -337,12 +338,12 @@ export default function Detail(props: Props) {
     }
   }
 
-  async function markWatchedTonight() {
+  async function markWatchedTonight(date: string | null = todayIso()) {
     if (props.mode !== 'existing') return;
     await props.onUpdate({
       ...movie,
       watched: true,
-      dateWatched: todayIso(),
+      dateWatched: date,
     });
   }
 
@@ -541,7 +542,7 @@ export default function Detail(props: Props) {
             library={props.library}
             onSelectMovie={props.onSelectMovie}
             onAddToWishlist={() => props.onAddToWishlist(props.movie)}
-            onMarkWatchedTonight={() => props.onMarkWatchedTonight(props.movie)}
+            onMarkWatchedTonight={(date) => props.onMarkWatchedTonight(props.movie, date)}
             onMarkWatchedUndated={() => props.onMarkWatchedUndated(props.movie)}
             downvoted={!!props.downvoted}
             onToggleDownvote={props.onToggleDownvote ?? null}
@@ -562,7 +563,7 @@ type ViewModeProps = {
       variant: 'existing';
       isWatched: boolean;
       isOwner: boolean;
-      onMarkWatchedTonight: () => void;
+      onMarkWatchedTonight: (date: string | null) => void | Promise<void>;
       onMarkWatchedUndated: () => void;
       onSaveNotes: (notes: string) => void;
       onUpdate: (updated: Movie) => void | Promise<void>;
@@ -577,7 +578,7 @@ type ViewModeProps = {
   | {
       variant: 'candidate';
       onAddToWishlist: () => void;
-      onMarkWatchedTonight: () => void;
+      onMarkWatchedTonight: (date: string | null) => void | Promise<void>;
       onMarkWatchedUndated: () => void;
       downvoted: boolean;
       onToggleDownvote: (() => void) | null;
@@ -776,20 +777,7 @@ function ViewMode(props: ViewModeProps) {
         ) : (
           canWrite && (
             <section className="mt-10 space-y-3">
-              <button
-                type="button"
-                onClick={props.onMarkWatchedTonight}
-                className="w-full min-h-[60px] rounded-2xl bg-crimson-deep text-white text-lg font-semibold tracking-wide shadow-lg shadow-crimson-deep/20 active:bg-crimson-bright active:opacity-95"
-              >
-                Mark as watched tonight ({formatDate(todayIso())})
-              </button>
-              <button
-                type="button"
-                onClick={props.onMarkWatchedUndated}
-                className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
-              >
-                Mark watched · date unknown
-              </button>
+              <MarkWatched onSave={props.onMarkWatchedTonight} />
             </section>
           )
         ))}
@@ -803,20 +791,7 @@ function ViewMode(props: ViewModeProps) {
           >
             Add to queue
           </button>
-          <button
-            type="button"
-            onClick={props.onMarkWatchedTonight}
-            className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
-          >
-            Mark watched tonight ({formatDate(todayIso())})
-          </button>
-          <button
-            type="button"
-            onClick={props.onMarkWatchedUndated}
-            className="w-full min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-ink-200 font-semibold active:bg-ink-700"
-          >
-            Mark watched · date unknown
-          </button>
+          <MarkWatched onSave={props.onMarkWatchedTonight} />
           {props.onToggleDownvote && (
             <button
               type="button"

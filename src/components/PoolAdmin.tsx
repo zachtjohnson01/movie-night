@@ -1,8 +1,10 @@
+import CatalogMovieCard from './CatalogMovieCard';
 import ReleaseDate from './ReleaseDate';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import {
   ageBadgeClass,
+  candidateToTemplate,
   formatRelativeTime,
   formatRtScore,
   parseNameList,
@@ -290,7 +292,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
     const scored = pool.candidates.map((c, i) => ({
       c,
       i,
-      fit: scoreCandidate(c),
+      fit: scoreCandidate(c, { knownDirectors: libraryDirectors, knownWriters: libraryWriters }, pool.weights),
     }));
     scored.sort((a, b) => {
       if (sort === 'title') return (a.c.displayTitle ?? a.c.title).localeCompare(b.c.displayTitle ?? b.c.title);
@@ -298,7 +300,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       return b.fit - a.fit || a.i - b.i;
     });
     return scored;
-  }, [pool.candidates, sort]);
+  }, [pool.candidates, sort, pool.weights, libraryDirectors, libraryWriters]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -434,9 +436,9 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
         </button>
 
         <label className="text-sm text-ink-300">Discovery focus
-          <select value={focus} onChange={e => setFocus(e.target.value)} disabled={expanding} className="mt-1 w-full min-h-[44px] rounded-xl border border-ink-700 bg-ink-950 px-3 text-sm"><option value="balanced">Balanced catalog</option><option value="recent">Recent releases</option><option value="backfill">Backfill older movies</option></select>
+          <select value={focus} onChange={e => setFocus(e.target.value)} disabled={expanding} className="mt-1 w-full h-[52px] rounded-xl border border-ink-700 bg-ink-950 px-3 text-base"><option value="balanced">Balanced catalog</option><option value="recent">Recent releases</option><option value="backfill">Backfill older movies</option></select>
         </label>
-        <button type="button" disabled={expanding || (pool.status !== 'synced' && pool.status !== 'empty')} onClick={() => void runComparison()} className="min-h-[48px] rounded-xl border border-ink-700 bg-ink-800 text-sm font-semibold text-ink-200 disabled:opacity-50">Compare methods</button>
+        <button type="button" disabled={expanding || (pool.status !== 'synced' && pool.status !== 'empty')} onClick={() => void runComparison()} className="min-h-[52px] rounded-xl border border-ink-700 bg-ink-800 text-sm font-semibold text-ink-200 disabled:opacity-50">Compare old vs new</button>
         <p className="text-xs text-ink-400">Comparison checks both methods against the same pool snapshot without saving movies. It uses two discovery runs.</p>
         {comparison && <div className="rounded-xl border border-ink-700 bg-ink-950 p-3 space-y-3" aria-label="Discovery comparison">
           <h3 className="font-semibold text-ink-100">Before and after discovery</h3>
@@ -637,112 +639,20 @@ function PoolRow({
   onToggleDownvote: () => void;
 }) {
   const downvoted = !!c.downvoted;
-  const removed = c.removedAt != null;
+  const removed = c.removedAt != null || c.removedReason != null;
   return (
-    <li className="rounded-2xl border border-ink-800 bg-ink-900">
-      <div
-        className={`flex gap-2 p-3 ${
-          downvoted || removed ? 'opacity-60' : ''
-        }`}
-      >
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={`Edit ${c.displayTitle ?? c.title}`}
-          className="flex-1 flex gap-3 text-left active:bg-ink-900 -mx-1 -my-1 px-1 py-1 rounded-lg transition-colors min-w-0"
-        >
-
-          {c.poster ? (
-            <img
-              src={c.poster}
-              alt=""
-              className="w-[52px] h-[78px] rounded-md object-cover border border-ink-700 shrink-0 bg-ink-800"
-              loading="lazy"
-            />
-          ) : (
-            <div className="w-[52px] h-[78px] rounded-md bg-ink-800 border border-ink-700 shrink-0 flex items-center justify-center">
-              <span className="text-lg font-bold text-ink-600 select-none">
-                {(c.displayTitle ?? c.title).charAt(0).toUpperCase()}
-              </span>
-            </div>
-          )}
-
-          <div className="flex-1 min-w-0 flex flex-col gap-1">
-            <div className="flex flex-col gap-1">
-              <div
-                className={`text-base font-semibold leading-snug break-words ${
-                  removed ? 'text-ink-300 line-through' : 'text-ink-100'
-                }`}
-              >
-                {c.displayTitle ?? c.title}
-              </div>
-              {c.year && (
-                <div className="text-xs text-ink-400 tabular-nums">
-                  {c.year}
-                </div>
-              )}
-            </div>
-
-            <div className="flex gap-2 items-center flex-wrap">
-              {c.commonSenseAge && (
-                <span
-                  className={`text-xs font-bold px-1.5 py-0.5 rounded border ${ageBadgeClass(
-                    c.commonSenseAge,
-                  )}`}
-                >
-                  {c.commonSenseAge}
-                </span>
-              )}
-              {c.rottenTomatoes && (
-                <span className="inline-flex items-baseline gap-1 text-xs">
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-500">
-                    RT
-                  </span>
-                  <span className="text-ink-300 font-semibold tabular-nums">
-                    {c.rottenTomatoes}
-                  </span>
-                </span>
-              )}
-              {c.imdb && (
-                <span className="inline-flex items-baseline gap-1 text-xs">
-                  <span className="text-[9px] font-semibold uppercase tracking-wider text-ink-500">
-                    IMDb
-                  </span>
-                  <span className="text-ink-300 font-semibold tabular-nums">
-                    {c.imdb}
-                  </span>
-                </span>
-              )}
-              {removed && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright uppercase tracking-wider">
-                  Removed
-                  {c.removedReason ? `: ${c.removedReason}` : ''}
-                </span>
-              )}
-              {downvoted && !removed && (
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border border-crimson-deep/60 text-crimson-bright uppercase tracking-wider">
-                  Downvoted
-                </span>
-              )}
-            </div>
-
-            <ReleaseDate releaseDate={c.releaseDate} />
-            {!c.imdb && !c.rottenTomatoes && <p className="text-xs text-ink-400">Ratings pending</p>}
-            <p className="text-xs text-ink-400">#{rank} · Fit {fit}</p>
-            {c.studio && (
-              <div className="text-xs text-ink-400 font-medium truncate">
-                {c.studio}
-              </div>
-            )}
-          </div>
-        </button>
-
+    <li className="rounded-2xl border border-ink-800 bg-ink-900 overflow-hidden">
+      <div className={`flex items-start gap-1 px-2 ${downvoted || removed ? 'opacity-60' : ''}`}>
+        <div className="min-w-0 flex-1">
+          <CatalogMovieCard movie={candidateToTemplate(c)} onSelect={onEdit} ariaLabel={`Edit ${c.displayTitle ?? c.title}`} />
+        </div>
         <button
           type="button"
           onClick={onToggleDownvote}
           aria-label={`${downvoted ? 'Remove downvote for' : 'Downvote'} ${c.displayTitle ?? c.title}`}
           aria-pressed={downvoted}
-          className={`shrink-0 self-start w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${
+          title="Downvoting lowers recommendation rank; it does not remove the movie."
+          className={`shrink-0 mt-3 w-11 h-11 rounded-full flex items-center justify-center border transition-colors ${
             downvoted
               ? 'bg-crimson-deep/20 border-crimson-deep text-crimson-bright'
               : 'bg-ink-800 border-ink-700 text-ink-400 active:bg-ink-700'
@@ -750,6 +660,11 @@ function PoolRow({
         >
           <ThumbsDownIcon filled={downvoted} />
         </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 border-t border-ink-800 px-4 py-2 text-xs text-ink-400">
+        <span>#{rank} · Fit {fit}</span>
+        {removed && <span className="text-crimson-bright">Removed{c.removedReason ? `: ${c.removedReason}` : ''}</span>}
+        {downvoted && !removed && <span className="text-crimson-bright">Downvoted</span>}
       </div>
     </li>
   );
@@ -2145,10 +2060,30 @@ function DupeStat({
 }
 
 function ExpansionSummary({ report }: { report: ExpansionReport }) {
+  const reasons: Record<string, string> = {
+    deadline: 'Discovery reached its 30-second time limit. Titles returned before the cutoff were checked.',
+    network: 'The discovery service connection failed before it finished.',
+    rate_limit: 'The discovery provider rate limit was reached. Try again later.',
+    service_auth: 'The discovery provider rejected the service credentials. An administrator needs to check configuration.',
+    provider_error: 'The discovery provider returned a service error before finishing.',
+    model_output_limit: 'Discovery reached its response-size limit before finishing the candidate list.',
+    search_continuation_limit: 'Discovery reached its bounded search continuation limit.',
+    invalid_output: 'Discovery returned an incomplete or invalid candidate list. Recoverable titles were checked.',
+    model_refusal: 'The discovery model declined this request.',
+    model_stopped: 'The discovery model stopped before completing its answer.',
+    service_error: 'The discovery service failed before returning results.',
+    legacy_completion_unknown: 'Original method does not report whether discovery completed; comparison is provisional.',
+  };
+  const reason = report.api.completionObserved === false ? reasons.legacy_completion_unknown : reasons[report.api.reason ?? ''];
   return <div className="text-sm text-ink-300 space-y-1">
     <p>{report.api.rawGenerated ?? report.raw} generated · {report.raw} returned · {report.checked} checked · {report.verified} verified</p>
     <p className="text-xs text-ink-400">{report.duplicates} duplicates skipped · {report.unmatched} unmatched · {report.errors} lookup errors</p>
-    {report.status === 'partial' && <p className="text-amber-glow">{report.api.completionObserved === false ? 'Original method does not report whether discovery completed; comparison is provisional.' : 'Incomplete results — one or more discovery or lookup steps did not finish successfully.'}</p>}
+    {report.status === 'partial' && <p className="text-amber-glow">{reason ?? (report.errors ? 'Some movie database checks failed; their categories are shown below.' : 'Discovery did not report a completion reason for this run.')}</p>}
+    {!!report.lookupErrors?.network && <p className="text-xs text-amber-glow">{report.lookupErrors.network} movie database connection errors.</p>}
+    {!!report.lookupErrors?.notConfigured && <p className="text-xs text-amber-glow">{report.lookupErrors.notConfigured} movie database checks could not run because the service is not configured.</p>}
+    {!!report.lookupErrors?.notFound && <p className="text-xs text-ink-400">{report.lookupErrors.notFound} movie database records were not found.</p>}
+    {!!report.lookupErrors?.unknown && <p className="text-xs text-amber-glow">{report.lookupErrors.unknown} movie database errors had no recognized category.</p>}
+    {report.api.runId && <p className="text-xs text-ink-500 break-all">Run reference: {report.api.runId}</p>}
     <details><summary className="min-h-[44px] flex items-center cursor-pointer text-amber-glow">See verified candidates</summary>
       <ul className="space-y-1 break-words">{report.candidates.map(c => <li key={c.imdbId ?? `${c.title}:${c.year}`}>{c.title} ({c.year ?? 'Year unknown'})</li>)}</ul>
     </details>
