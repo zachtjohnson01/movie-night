@@ -18,7 +18,7 @@ export default function CatalogMovieCard({ movie, onSelect, modern = false, aria
     <div className="min-w-0 flex-1 space-y-2">
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-[15px] font-semibold leading-snug text-ink-100 break-words">{getDisplayTitle(movie)}</span>
-        <span className="shrink-0 font-mono text-xs text-ink-500">{movie.year ?? 'Year unknown'}</span>
+        <span className="shrink-0 font-mono text-xs text-ink-500">{movie.releaseDate ? <ReleaseDate compact releaseDate={movie.releaseDate} /> : movie.year ?? 'Year unknown'}</span>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {movie.commonSenseAge ? <span className={`rounded border px-2 py-0.5 text-xs font-bold ${modern ? '' : ageBadgeClass(movie.commonSenseAge)}`}
@@ -29,7 +29,6 @@ export default function CatalogMovieCard({ movie, onSelect, modern = false, aria
       {!movie.imdb && !movie.rottenTomatoes && <p className="text-xs text-ink-400">Ratings pending</p>}
       {movie.production && <p className="text-xs font-medium text-ink-400 break-words" style={modern ? {color:INK_2}:undefined}>{movie.production}</p>}
       {movie.awards && <p className="text-xs text-amber-glow/85 break-words">{movie.awards}</p>}
-      <ReleaseDate releaseDate={movie.releaseDate} />
     </div>
   </button>;
 }

@@ -24,6 +24,7 @@ import {
 } from './palette';
 import ModernPoster from './ModernPoster';
 import Fab from './Fab';
+import ReleaseDate from '../ReleaseDate';
 
 type SortKey = 'watched-desc' | 'watched-asc' | 'year-desc' | 'year-asc';
 
@@ -397,7 +398,10 @@ export default function ModernWatchedList({
                       color: INK,
                     }}
                   >
-                    <ModernPoster movie={m} size={108} />
+                    <div style={{ position: 'relative' }}>
+                      <ModernPoster movie={m} size={108} />
+                      {m.releaseDate && <div className="absolute bottom-1 left-1 rounded bg-ink-950/90 px-1.5 py-1"><ReleaseDate releaseDate={m.releaseDate} compact /></div>}
+                    </div>
                     <div
                       style={{
                         fontFamily: SANS,
@@ -420,7 +424,7 @@ export default function ModernWatchedList({
                           marginTop: 2,
                         }}
                       >
-                        {formatDate(m.dateWatched)}
+                        Watched {formatDate(m.dateWatched)}
                       </div>
                     )}
                   </button>
@@ -551,7 +555,7 @@ function ListRow({
             <span
               style={{ fontFamily: SANS, fontSize: 12, color: INK_3 }}
             >
-              {formatDate(m.dateWatched)}
+              Watched {formatDate(m.dateWatched)}
             </span>
           ) : (
             <span
@@ -562,9 +566,10 @@ function ListRow({
                 fontStyle: 'italic',
               }}
             >
-              date unknown
+              Watched date unknown
             </span>
           )}
+          <ReleaseDate releaseDate={m.releaseDate} compact />
           {m.rottenTomatoes && (
             <span
               style={{

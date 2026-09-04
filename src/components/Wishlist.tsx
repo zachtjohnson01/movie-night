@@ -74,7 +74,7 @@ export default function Wishlist({
   return (
     <div className="mx-auto max-w-xl">
       <header
-        className="sticky top-0 z-20 px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
+        className="px-5 pb-3 bg-ink-950/92 backdrop-blur-lg border-b border-ink-800/60"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <div className="flex items-start justify-between gap-3">
@@ -292,7 +292,6 @@ export default function Wishlist({
                       {getDisplayTitle(m)}
                     </div>
                     <MetricsRow movie={m} />
-                    <ReleaseDate releaseDate={m.releaseDate} />
                   </div>
                   {m.commonSenseAge && (
                     <span
@@ -314,15 +313,16 @@ export default function Wishlist({
 }
 
 function MetricsRow({ movie: m }: { movie: Movie }) {
-  if (!m.rottenTomatoes && !m.imdb && !m.production && !m.awards) {
+  if (!m.rottenTomatoes && !m.imdb && !m.production && !m.awards && !m.releaseDate) {
     return (
       <div className="mt-1.5 text-xs text-ink-600 italic">no ratings</div>
     );
   }
   return (
     <div className="mt-1.5 space-y-1">
-      {(m.rottenTomatoes || m.imdb) && (
-        <div className="flex items-center gap-x-3 gap-y-0.5 flex-wrap text-sm">
+      {(m.rottenTomatoes || m.imdb || m.releaseDate) && (
+        <div className="flex items-center gap-x-2 gap-y-0.5 flex-wrap text-sm">
+          <ReleaseDate compact releaseDate={m.releaseDate} />
           {m.rottenTomatoes && (
             <span className="inline-flex items-baseline gap-1">
               <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-500">

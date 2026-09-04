@@ -48,7 +48,7 @@ export type CandidatePoolApi = {
   weights: ScoringWeights;
   appendCandidates: (next: Candidate[]) => Promise<Candidate[]>;
   updateCandidate: (originalTitle: string, updated: Candidate) => Promise<void>;
-  replaceCandidates: (next: Candidate[]) => Promise<void>;
+  replaceCandidates: (next: Candidate[] | ((current: Candidate[]) => Candidate[])) => Promise<void>;
   toggleDownvote: (title: string) => Promise<void>;
   removeCandidate: (title: string, reason: string) => Promise<void>;
   restoreCandidate: (title: string) => Promise<void>;
@@ -418,8 +418,9 @@ export function useCandidatePool(): CandidatePoolApi {
   // by the merge flow so a failed save surfaces to the admin instead of being
   // reported as a successful merge (writePool rolls the optimistic state back).
   const replaceCandidates = useCallback(
-    async (next: Candidate[]) => {
-      const ok = await writePool(next);
+    async (next: Candidate[] | ((current: Candidate[]) => Candidate[])) => {
+      const value = typeof next === 'function' ? next(latestRef.current) : next;
+      const ok = await writePool(value);
       if (!ok) {
         throw new Error(
           "Couldn't save to the server — nothing was changed. Check your connection and try again.",

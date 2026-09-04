@@ -519,7 +519,7 @@ function RecCard({
               {rec.commonSenseAge}
             </span>
           )}
-          <ReleaseDate releaseDate={rec.releaseDate} />
+          <ReleaseDate compact releaseDate={rec.releaseDate} />
           {!rec.rottenTomatoes && !rec.imdb && <span className="text-xs">Ratings pending</span>}
           {!rec.commonSenseAge && <span className="text-xs">Age guidance unknown</span>}
           {!rec.streaming && <span className="text-xs">Availability not checked</span>}

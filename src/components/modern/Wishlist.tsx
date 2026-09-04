@@ -418,8 +418,8 @@ export default function ModernWishlist({
                 {m.rottenTomatoes && `🍅 ${m.rottenTomatoes}`}
                 {m.rottenTomatoes && m.imdb && ' · '}
                 {m.imdb && `★ ${m.imdb}`}
+                <span className="ml-2"><ReleaseDate compact releaseDate={m.releaseDate} /></span>
               </div>
-              <ReleaseDate releaseDate={m.releaseDate} />
             </button>
           ))}
         </div>

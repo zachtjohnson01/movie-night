@@ -56,7 +56,7 @@ export default function AuthBanner({
   if (status === 'signed-out') {
     return (
       <div
-        className="safe-top px-5 pt-2 pb-2 flex items-center justify-center gap-3 text-[11px] text-amber-glow/90 bg-amber-glow/10 border-b border-amber-glow/20"
+        className="sticky top-0 z-30 safe-top px-5 pt-2 pb-2 flex items-center justify-center gap-3 text-[11px] text-amber-glow/90 bg-amber-glow/10 border-b border-amber-glow/20"
         role="status"
       >
         <span>Sign in to add or edit movies.</span>
@@ -151,7 +151,7 @@ function SignedInBanner({
 
   return (
     <div
-      className="safe-top px-4 pt-2 pb-2 flex items-center gap-3 bg-ink-900 border-b border-ink-800/60 relative"
+      className="sticky top-0 z-30 safe-top px-4 pt-2 pb-2 flex items-center gap-3 bg-ink-900 border-b border-ink-800/60"
       role="banner"
     >
       {avatarUrl ? (

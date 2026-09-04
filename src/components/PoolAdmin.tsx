@@ -1,6 +1,7 @@
+import { scanPosterRepairs, applyPosterRepairs, type PosterRepairReport } from '../posterRepair';
 import CatalogMovieCard from './CatalogMovieCard';
 import ReleaseDate from './ReleaseDate';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import {
   ageBadgeClass,
@@ -20,6 +21,7 @@ import { scoreCandidate } from '../scoring';
 import { expandPoolDetailed, extractUnique, type ExpandProgress, type ExpansionReport } from '../recommendations';
 import {
   findDuplicateGroups,
+  combineConfirmedDuplicates,
   applyMerge,
   pickDefaultSurvivor,
   conflictingIds,
@@ -142,6 +144,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
   // what landed (empty array = ran but found nothing new).
   const [lastAdded, setLastAdded] = useState<string[] | null>(null);
   const [lastSkipped, setLastSkipped] = useState(0);
+  const [duplicateScanTrigger, setDuplicateScanTrigger] = useState(0);
   const [sort, setSort] = useState<'fit' | 'title' | 'newest'>('fit');
 
   const adjustExpandCount = useCallback((next: number) => {
@@ -196,6 +199,7 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
       const added = fresh.length > 0 ? await pool.appendCandidates(fresh) : [];
       setLastAdded(added.map((c) => c.title));
       setLastSkipped(fresh.length - added.length);
+      setDuplicateScanTrigger(value => value + 1);
     } catch (e) {
       setExpandError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -508,8 +512,9 @@ export default function PoolAdmin({ pool, movies, onBack }: Props) {
         <p className="px-4 text-sm leading-relaxed text-ink-400">Refresh details and availability for existing titles, or review duplicates.</p>
         <fieldset disabled={expanding} className="pb-3 disabled:opacity-50">
           <BulkOmdbSection pool={pool} />
+          <PosterRepairSection pool={pool} onEdit={setEditing} />
           <BulkStreamingSection pool={pool} />
-          <FindDuplicatesSection pool={pool} movies={movies} />
+          <FindDuplicatesSection pool={pool} movies={movies} scanTrigger={duplicateScanTrigger} />
         </fieldset>
       </details>
 
@@ -1456,9 +1461,11 @@ function Field({
 function FindDuplicatesSection({
   pool,
   movies,
+  scanTrigger = 0,
 }: {
   pool: CandidatePoolApi;
   movies: Movie[];
+  scanTrigger?: number;
 }) {
   // Snapshot the groups when the review opens so merges made mid-review don't
   // reshuffle the stepper under the admin. `null` = closed.
@@ -1478,13 +1485,49 @@ function FindDuplicatesSection({
       (c.imdbId != null && ids.has(c.imdbId)) || keys.has(dedupKey(c.title));
   }, [movies]);
 
+  const [scanning, setScanning] = useState(false);
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const handledTrigger = useRef(0);
+  const busyScan = useRef(false);
+  const runScan = useCallback(async (openReview: boolean) => {
+    if (busyScan.current) return;
+    busyScan.current = true;
+    setScanning(true);
+    setScanError(null);
+    try {
+      let next = pool.candidates;
+      let combined = 0;
+      const preview = combineConfirmedDuplicates(next, isInLibrary);
+      if (preview.combined > 0) {
+        await pool.replaceCandidates(current => {
+          const result = combineConfirmedDuplicates(current, isInLibrary);
+          next = result.candidates;
+          combined = result.combined;
+          return next;
+        });
+      }
+      const remaining = findDuplicateGroups(next);
+      setScanMessage(`${combined} confirmed duplicate ${combined === 1 ? 'record combined' : 'records combined'} · ${remaining.length} ${remaining.length === 1 ? 'group needs' : 'groups need'} review`);
+      if (openReview || remaining.length > 0) setSession(remaining);
+    } catch (error) {
+      setScanError(error instanceof Error ? error.message : 'Duplicate scan could not be saved.');
+    } finally { busyScan.current = false; setScanning(false); }
+  }, [pool, isInLibrary]);
+  useEffect(() => {
+    if (scanTrigger === 0 || handledTrigger.current === scanTrigger) return;
+    handledTrigger.current = scanTrigger;
+    void runScan(false);
+  }, [scanTrigger, runScan]);
+
   const count = groups.length;
 
   return (
     <div className="px-4 pt-1 pb-2">
       <button
         type="button"
-        onClick={() => setSession(groups)}
+        onClick={() => void runScan(true)}
+        disabled={scanning}
         aria-label={`Find duplicates, ${count} ${
           count === 1 ? 'group' : 'groups'
         }`}
@@ -1499,7 +1542,7 @@ function FindDuplicatesSection({
             count > 0 ? 'text-amber-glow' : 'text-ink-500'
           }`}
         />
-        <span>Find duplicates</span>
+        <span>{scanning ? 'Scanning duplicates…' : 'Find duplicates'}</span>
         <span
           className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[11px] font-bold tabular-nums ${
             count > 0 ? 'bg-amber-glow text-ink-950' : 'bg-ink-700 text-ink-400'
@@ -1509,13 +1552,15 @@ function FindDuplicatesSection({
         </span>
       </button>
 
+      {scanMessage && <p className="mt-2 text-xs text-ink-400" role="status">{scanMessage}</p>}
+      {scanError && <p className="mt-2 text-sm text-crimson-bright" role="alert">{scanError}</p>}
       {session && (
         <DuplicateReview
           groups={session}
           isInLibrary={isInLibrary}
           onMerge={(keeper, victims) =>
             pool.replaceCandidates(
-              applyMerge(pool.candidates, keeper, victims),
+              current => applyMerge(current, keeper, victims),
             )
           }
           onClose={() => setSession(null)}
@@ -1739,11 +1784,11 @@ function DuplicateReview({
                 </span>
                 <span>
                   <span className="font-bold">
-                    {group.sharesImdbId ? 'Shared IMDb id' : 'Title match only'}
+                    {group.confirmedIdentity ? 'Confirmed IMDb identity' : 'Possible title or identity match'}
                   </span>
-                  {group.sharesImdbId
-                    ? ' — very likely the same title.'
-                    : ' — confirm this is not a remake before merging.'}
+                  {group.confirmedIdentity
+                    ? ' — same IMDb record and compatible years.'
+                    : ' — check IMDb links, years, and sequel subtitles before merging. Conflicting records remain separate until reviewed.'}
                 </span>
               </div>
 
@@ -1848,7 +1893,7 @@ function DuplicateReview({
                 onClick={handleSkip}
                 className="min-h-[48px] rounded-2xl bg-ink-800 border border-ink-700 text-sm font-semibold text-ink-200 active:bg-ink-700 disabled:opacity-50"
               >
-                Skip
+                Keep separate
               </button>
               <button
                 type="button"
@@ -2195,6 +2240,40 @@ function ReadOnly({ label, value }: { label: string; value: string | null }) {
 }
 
 type BulkOmdbPhase = 'idle' | 'confirm' | 'running' | 'done' | 'cancelled';
+
+function PosterRepairSection({pool,onEdit}:{pool:CandidatePoolApi;onEdit:(candidate:Candidate)=>void}) {
+  const [busy,setBusy] = useState(false);
+  const [progress,setProgress] = useState({done:0,total:0});
+  const [result,setResult] = useState<(PosterRepairReport & {repaired:number;skipped:number}) | null>(null);
+  const [error,setError] = useState<string | null>(null);
+  const cancellation = useRef({cancelled:false});
+  useEffect(() => () => { cancellation.current.cancelled = true; },[]);
+  async function run() {
+    if (busy) return;
+    setBusy(true);setError(null);setResult(null);cancellation.current = {cancelled:false};
+    try {
+      const report = await scanPosterRepairs(pool.candidates,(done,total)=>setProgress({done,total}),cancellation.current);
+      let repaired = 0, skipped = 0;
+      if (report.patches.length) await pool.replaceCandidates(current => {
+        const applied = applyPosterRepairs(current,report.patches);
+        repaired = applied.repaired; skipped = applied.skipped;
+        return applied.candidates;
+      });
+      setResult({...report,repaired,skipped});
+    } catch { setError('Repairs could not be saved. No successful repair count is reported; reload and try again.'); }
+    finally {setBusy(false);}
+  }
+  return <section className="px-4 py-2 space-y-2">
+    <button type="button" disabled={busy || !['synced','empty'].includes(pool.status)} onClick={()=>void run()} className="w-full min-h-[48px] rounded-xl border border-ink-700 bg-ink-800 text-sm font-semibold text-ink-200 disabled:opacity-50">{busy ? `Checking posters and links… ${progress.done}/${progress.total}` : 'Check and repair posters & links'}</button>
+    {busy && <button type="button" onClick={()=>{cancellation.current.cancelled=true;}} className="min-h-[44px] text-sm text-ink-300">Stop after this movie</button>}
+    {error && <p role="alert" className="text-sm text-crimson-bright">{error}</p>}
+    {result && <div role="status" className="text-xs text-ink-300 space-y-2">
+      <p>{result.repaired} repaired · {result.unchanged} unchanged · {result.unresolved} unresolved · {result.failed} checks failed · {result.review.length} need review{result.skipped ? ` · ${result.skipped} changed during scan; skipped` : ''}{result.cancelled ? ' · stopped early' : ''}</p>
+      <p>Only exact title, year, and film matches are repaired. Family lists stay unchanged. Unavailable posters may be temporary; failing URLs are not deleted.</p>
+      {!!result.review.length && <details><summary className="min-h-[44px] flex items-center text-amber-glow cursor-pointer">Review uncertain links</summary><ul>{result.review.map((issue,index)=><li key={index} className="border-t border-ink-800 py-2"><p>{issue.reason}</p><button type="button" onClick={()=>onEdit(issue.candidate)} className="min-h-[44px] text-amber-glow">Review {issue.candidate.displayTitle ?? issue.candidate.title}</button></li>)}</ul></details>}
+    </div>}
+  </section>;
+}
 
 function BulkOmdbSection({ pool }: { pool: CandidatePoolApi }) {
   const [phase, setPhase] = useState<BulkOmdbPhase>('idle');

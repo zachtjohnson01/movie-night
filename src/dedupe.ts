@@ -24,6 +24,8 @@ export type DuplicateGroup = {
    * with the original), so the admin should look before merging.
    */
   sharesImdbId: boolean;
+  /** Whole group has one confirmed IMDb identity and no conflicting years. */
+  confirmedIdentity?: boolean;
 };
 
 /**
@@ -34,6 +36,7 @@ export type DuplicateGroup = {
  */
 const FILL_FIELDS: (keyof Candidate)[] = [
   'year',
+  'releaseDate',
   'imdbId',
   'imdb',
   'rottenTomatoes',
@@ -54,6 +57,23 @@ function isEmpty(v: unknown): boolean {
   return v == null || v === '' || (Array.isArray(v) && v.length === 0);
 }
 
+/** Review-only title evidence: punctuation, alternate display titles, Roman
+ * sequel numbers and a long numbered franchise title with/without subtitle.
+ * These signals NEVER authorize an automatic merge. */
+export function possibleTitleVariant(a: string, b: string): boolean {
+  const normalize = (title: string) => dedupKey(title).split(' ').map(token => ({ii:'2',iii:'3',iv:'4',v:'5',vi:'6'}[token] ?? token)).join(' ');
+  const x = normalize(a), y = normalize(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  const withoutNumbers = (title: string) => title.split(' ').filter(token => !/^\d+$/.test(token)).join(' ');
+  const xn = withoutNumbers(x), yn = withoutNumbers(y);
+  if (xn === yn && xn.split(' ').length >= 4) return true;
+  const numbers = (title: string) => title.match(/\b\d+\b/g)?.join(',') ?? '';
+  const shorter = x.length <= y.length ? x : y;
+  const longer = x.length <= y.length ? y : x;
+  return shorter.split(' ').length >= 4 && !!numbers(shorter) && numbers(shorter) === numbers(longer) && longer.startsWith(shorter + ' ');
+}
+
 /**
  * Group the live pool into sets of likely-duplicate candidates. Two rows land
  * in the same group when they share a `dedupKey(title)` OR a non-null
@@ -63,7 +83,7 @@ function isEmpty(v: unknown): boolean {
  * deliberately parked on the expansion ban list and shouldn't be re-merged.
  */
 export function findDuplicateGroups(candidates: Candidate[]): DuplicateGroup[] {
-  const live = candidates.filter((c) => c.removedAt == null);
+  const live = candidates.filter((c) => c.removedAt == null && c.removedReason == null);
 
   const parent = live.map((_, i) => i);
   const find = (i: number): number => {
@@ -97,6 +117,14 @@ export function findDuplicateGroups(candidates: Candidate[]): DuplicateGroup[] {
     }
   });
 
+  // Pairwise scan is bounded by the local catalog and uses token rules only;
+  // no provider lookup or fuzzy-confidence score can turn this into auto merge.
+  for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) {
+    const a = [live[i].title, live[i].displayTitle].filter((v): v is string => !!v);
+    const b = [live[j].title, live[j].displayTitle].filter((v): v is string => !!v);
+    if (a.some(x => b.some(y => possibleTitleVariant(x, y)))) union(i, j);
+  }
+
   const byRoot = new Map<number, number[]>();
   live.forEach((_, i) => {
     const r = find(i);
@@ -113,7 +141,8 @@ export function findDuplicateGroups(candidates: Candidate[]): DuplicateGroup[] {
       .map((m) => m.imdbId)
       .filter((x): x is string => x != null);
     const sharesImdbId = new Set(ids).size < ids.length;
-    groups.push({ key: dedupKey(members[0].title), members, sharesImdbId });
+    const confirmedIdentity = ids.length === members.length && new Set(ids).size === 1 && new Set(members.map(m => m.year).filter(y => y != null)).size <= 1;
+    groups.push({ key: dedupKey(members[0].title), members, sharesImdbId, confirmedIdentity });
   });
 
   // Strong-signal groups (shared IMDb id) first, then alphabetical by key —
@@ -294,4 +323,20 @@ export function applyMerge(
     }
     return c;
   });
+}
+
+
+/** Only wholly confirmed groups are combined; ambiguous chains stay for review.
+ * Soft removal retains every alias row for family title-based references. */
+export function combineConfirmedDuplicates(candidates: Candidate[], isInLibrary?: (c: Candidate) => boolean): { candidates: Candidate[]; combined: number } {
+  let next = candidates;
+  let combined = 0;
+  for (const group of findDuplicateGroups(candidates)) {
+    if (!group.confirmedIdentity) continue;
+    const index = pickDefaultSurvivor(group.members, isInLibrary);
+    const victims = group.members.filter((_, i) => i !== index);
+    next = applyMerge(next, group.members[index], victims);
+    combined += victims.length;
+  }
+  return { candidates: next, combined };
 }

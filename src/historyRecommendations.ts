@@ -4,6 +4,11 @@ import { DEFAULT_WEIGHTS, scoreCandidate, type ScoringWeights } from './scoring'
 
 export const HISTORY_THRESHOLD = 10;
 export const FAVORITE_HISTORY_WEIGHT = 1.25;
+export const QUEUE_HISTORY_WEIGHT = 0.5;
+/** Conservative blend: 50% personal at 10 watched, 75% at 30, capped. */
+export function personalBlendWeight(watchedCount: number): number {
+  return watchedCount < HISTORY_THRESHOLD ? 0 : Math.min(0.75, 0.5 + (watchedCount - HISTORY_THRESHOLD) * 0.0125);
+}
 const norm = (s: string) => s.normalize('NFKC').trim().replace(/\s+/g,' ').toLowerCase();
 const names = (items?: string[] | null) => [...new Set((items ?? []).map(norm).filter(s => s && s !== 'n/a'))];
 function number(value: string | null | undefined, max: number): number | null {
@@ -15,21 +20,26 @@ function features(movie: Movie | Candidate): Features {
   return { director:names(movie.directors),writer:names(movie.writers),studio:names([('studio' in movie ? movie.studio : movie.production) ?? '']),age:number(movie.commonSenseAge,18),rt:number(movie.rottenTomatoes,100),imdb:number(movie.imdb,10) };
 }
 const usable = (f: Features) => f.director.length + f.writer.length + f.studio.length > 0 || f.age != null || f.rt != null || f.imdb != null;
-export type HistoryProfile = { count: number; favoriteCount: number; ready: boolean; films: Array<{features:Features;weight:number}> };
+export type HistoryProfile = { count: number; favoriteCount: number; queueCount: number; ready: boolean; films: Array<{features:Features;weight:number}> };
+const signalWeight = (movie: Movie) => movie.favorite ? FAVORITE_HISTORY_WEIGHT : movie.watched ? 1 : QUEUE_HISTORY_WEIGHT;
 export function buildHistoryProfile(movies: Movie[]): HistoryProfile {
-  const unique = new Map<string,Movie>();
+  const unique = new Map<string,{ movie: Movie; watched: boolean }>();
+  const titleKey = (movie:Movie) => `${norm(movie.title)}:${movie.year ?? ''}`;
+  const knownIds = new Map(movies.filter(m=>m.imdbId).map(m=>[titleKey(m),m.imdbId!.toLowerCase()]));
   for(const movie of movies) {
-    if(!movie.watched) continue;
-    const key=movie.imdbId?.toLowerCase() ?? `${norm(movie.title)}:${movie.year ?? ''}`;
-    // Favorited duplicate wins once; duplicates never manufacture enough history.
-    if(!unique.has(key) || movie.favorite) unique.set(key,movie);
+    const key=movie.imdbId?.toLowerCase() ?? knownIds.get(titleKey(movie)) ?? titleKey(movie);
+    const old=unique.get(key);
+    // One film, strongest signal only. Watched status still counts toward
+    // activation when another duplicate supplies its favorite flag.
+    unique.set(key,{movie:!old || signalWeight(movie)>signalWeight(old.movie) ? movie : old.movie,watched:movie.watched || !!old?.watched});
   }
-  const films=[...unique.values()].map(movie=>({features:features(movie),weight:movie.favorite ? FAVORITE_HISTORY_WEIGHT : 1})).filter(m=>usable(m.features));
-  return {films,count:films.length,favoriteCount:films.filter(m=>m.weight>1).length,ready:films.length>=HISTORY_THRESHOLD};
+  const records=[...unique.values()].map(({movie,watched})=>({features:features(movie),weight:movie.favorite ? FAVORITE_HISTORY_WEIGHT : watched ? 1 : QUEUE_HISTORY_WEIGHT,watched})).filter(m=>usable(m.features));
+  const count=records.filter(m=>m.watched).length;
+  return {films:records.map(({features,weight})=>({features,weight})),count,queueCount:records.filter(m=>!m.watched).length,favoriteCount:records.filter(m=>m.weight>1).length,ready:count>=HISTORY_THRESHOLD};
 }
 /** Pairwise movie similarity, not a refit of global quality percentages.
  * Exact credits/studio and smooth age/review proximity learn the distribution
- * of watched titles. Watching is evidence of exposure, not a positive rating. */
+ * of favorite, watched and queued titles. Watching is evidence of exposure, not a positive rating. */
 function similarity(a: Features,b: Features):number {
   let total=0, weight=0;
   for(const [key,w] of [['director',3],['writer',2],['studio',2]] as const) {
@@ -52,7 +62,8 @@ export function rankHistoryPicks(candidates:Candidate[],movies:Movie[],limit=20,
   const preset=rankTopPicks(candidates,movies,candidates.length,weights);
   const profile=buildHistoryProfile(movies);
   if(!profile.ready)return preset.slice(0,limit);
-  return preset.map((c,index)=>({c,index,score:historyScore(c,profile)})).sort((a,b)=>b.score-a.score || a.index-b.index).slice(0,limit).map(({c,score})=>({...c,fitScore:Math.round(score)}));
+  const blend=personalBlendWeight(profile.count);
+  return preset.map((c,index)=>({c,index,score:blend*historyScore(c,profile)+(1-blend)*c.fitScore})).sort((a,b)=>b.score-a.score || a.index-b.index).slice(0,limit).map(({c,score})=>({...c,fitScore:Math.round(score)}));
 }
 
 /** Bounded local rank approximation, never written to shared weights. */

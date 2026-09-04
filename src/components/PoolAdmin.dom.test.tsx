@@ -3,6 +3,8 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import PoolAdmin from './PoolAdmin';
+import { scanPosterRepairs } from '../posterRepair';
+vi.mock('../posterRepair', async original => ({...await original<typeof import('../posterRepair')>(),scanPosterRepairs:vi.fn()}));
 import type { Candidate } from '../types';
 import type { CandidatePoolApi } from '../useCandidatePool';
 import { DEFAULT_WEIGHTS } from '../scoring';
@@ -87,7 +89,7 @@ describe('Manage pool', () => {
     const edit = screen.getByRole('button', {name: 'Edit Family movie'});
     expect(edit).toHaveTextContent('Film Studio');
     expect(edit).toHaveTextContent('2 wins');
-    expect(edit).toHaveTextContent('Upcoming');
+    expect(edit.querySelector('[aria-label^="Upcoming"]')).not.toBeNull();
     expect(edit).toHaveTextContent('95%');
     expect(edit.querySelector('img')).not.toBeNull();
     const downvote = screen.getByRole('button', {name: 'Downvote Family movie'});
@@ -99,6 +101,52 @@ describe('Manage pool', () => {
     expect(screen.queryByRole('button', {name:'Save'})).toBeNull();
     fireEvent.click(edit);
     expect(screen.getByRole('button', {name:'Save'})).toBeInTheDocument();
+  });
+
+  it('uses Find duplicates for numbered subtitle variants and offers Keep separate', async () => {
+    const p = pool([movie('How to Train Your Dragon: The Hidden World',{year:2019,imdbId:'tt2386490'}),movie('How to Train Your Dragon 3: The Hidden World',{year:2019,imdbId:null}),movie('How to Train Your Dragon 3',{year:2020,imdbId:'tt6726906'})]);
+    render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Find duplicates, 1 group'}));
+    expect(await screen.findByRole('button',{name:'Keep separate'})).toBeInTheDocument();
+    expect(p.replaceCandidates).not.toHaveBeenCalled();
+  });
+  it('combines confirmed IMDb copies with soft removal through the existing scan', async () => {
+    const p = pool([movie('Canonical',{imdbId:'tt1'}),movie('Alias',{imdbId:'tt1'})]);
+    vi.mocked(p.replaceCandidates).mockImplementation(async next => { p.candidates = typeof next === 'function' ? next(p.candidates) : next; });
+    render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Find duplicates, 1 group'}));
+    await screen.findByText('1 confirmed duplicate record combined · 0 groups need review');
+    expect(p.candidates).toHaveLength(2);
+    expect(p.candidates.filter(c => c.removedAt)).toHaveLength(1);
+    expect(p.removeCandidate).not.toHaveBeenCalled();
+  });
+  it('runs the same duplicate review after successful expansion without silently merging variants', async () => {
+    const p = pool([movie('Adventure Part III',{imdbId:'tt1'}),movie('Adventure Part 3',{imdbId:'tt2'})]);
+    vi.mocked(expandPoolDetailed).mockResolvedValue(report([]));
+    render(<PoolAdmin pool={p} movies={[]} onBack={() => {}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Expand pool'}));
+    expect(await screen.findByRole('button',{name:'Keep separate'})).toBeInTheDocument();
+    expect(p.replaceCandidates).not.toHaveBeenCalled();
+  });
+
+  it('reports persisted poster repairs and keeps uncertain links available for review', async () => {
+    const original=movie('Repairable',{poster:null});
+    const p=pool([original]);
+    vi.mocked(p.replaceCandidates).mockImplementation(async next=>{p.candidates=typeof next==='function'?next(p.candidates):next;});
+    vi.mocked(scanPosterRepairs).mockResolvedValue({checked:1,unchanged:0,unresolved:0,failed:0,cancelled:false,patches:[{original,imdbId:original.imdbId!,poster:'https://m.media-amazon.com/fixed.jpg'}],review:[]});
+    render(<PoolAdmin pool={p} movies={[]} onBack={()=>{}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Check and repair posters & links'}));
+    await screen.findByText(/1 repaired · 0 unchanged/);
+    expect(p.candidates[0].poster).toContain('fixed.jpg');
+  });
+  it('never claims repaired posters when the pool save fails', async () => {
+    const original=movie('Repairable');const p=pool([original]);
+    vi.mocked(p.replaceCandidates).mockRejectedValue(new Error('save'));
+    vi.mocked(scanPosterRepairs).mockResolvedValue({checked:1,unchanged:0,unresolved:0,failed:0,cancelled:false,patches:[{original,imdbId:original.imdbId!,poster:'https://m.media-amazon.com/fixed.jpg'}],review:[]});
+    render(<PoolAdmin pool={p} movies={[]} onBack={()=>{}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Check and repair posters & links'}));
+    await screen.findByRole('alert');
+    expect(screen.queryByText(/1 repaired/)).toBeNull();
   });
 
 });

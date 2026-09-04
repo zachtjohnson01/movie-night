@@ -13,7 +13,7 @@ it.each([false,true])('shows real poster, age, scores, studio and release date (
  expect(screen.getByText('94%')).toBeInTheDocument();
  expect(screen.getByText('8.2')).toBeInTheDocument();
  expect(screen.getByText('Studio')).toBeInTheDocument();
- expect(screen.getByText(/Jun 20, 2025/)).toBeInTheDocument();
+ expect(screen.getByLabelText(/Jun 20, 2025/)).toBeInTheDocument();
  fireEvent.click(screen.getByRole('button'));
  expect(onSelect).toHaveBeenCalledOnce();
 });

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import type { Candidate } from './types';
 import {
   findDuplicateGroups,
+  combineConfirmedDuplicates,
   mergeCandidates,
   applyMerge,
   pickDefaultSurvivor,
@@ -329,5 +330,41 @@ describe('completenessScore', () => {
     expect(completenessScore(linked)).toBeGreaterThan(
       completenessScore(unlinkedRich),
     );
+  });
+});
+
+
+describe('alternate title scan safety', () => {
+  it('finds the reported Dragon subtitle and sequel-number variants without auto-merging conflicting records', () => {
+    const records = [
+      cand({title:'How to Train Your Dragon: The Hidden World',year:2019,imdbId:'tt2386490'}),
+      cand({title:'How to Train Your Dragon 3: The Hidden World',year:2019}),
+      cand({title:'How to Train Your Dragon 3',year:2020,imdbId:'tt6726906'}),
+    ];
+    const groups = findDuplicateGroups(records);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toHaveLength(3);
+    expect(groups[0].confirmedIdentity).toBe(false);
+    expect(combineConfirmedDuplicates(records).combined).toBe(0);
+  });
+  it('recognizes display-title aliases and Roman sequel numerals as review evidence', () => {
+    const records = [cand({title:'Local title',displayTitle:'Adventure Part III',imdbId:'tt1'}),cand({title:'Adventure Part 3',imdbId:'tt2'})];
+    expect(findDuplicateGroups(records)).toHaveLength(1);
+    expect(combineConfirmedDuplicates(records).combined).toBe(0);
+  });
+  it('only combines wholly confirmed groups with compatible years and preserves alias rows', () => {
+    const records = [cand({title:'Original title',year:2019,imdbId:'tt1',releaseDate:'2019-02-01'}),cand({title:'Alias',year:2019,imdbId:'tt1',downvoted:true})];
+    const result = combineConfirmedDuplicates(records,c => c.title === 'Alias');
+    expect(result.combined).toBe(1);
+    expect(result.candidates).toHaveLength(2);
+    expect(result.candidates.find(c => c.title === 'Alias')).toMatchObject({releaseDate:'2019-02-01',downvoted:true});
+    expect(result.candidates.find(c => c.title === 'Original title')?.removedReason).toBe(MERGED_REASON);
+    expect(combineConfirmedDuplicates(result.candidates).combined).toBe(0);
+    expect(combineConfirmedDuplicates([records[0],{...records[1],year:2020}]).combined).toBe(0);
+  });
+  it('does not auto-merge a mixed chain just because a subset shares an IMDb ID', () => {
+    const records = [cand({title:'Film',imdbId:'tt1'}),cand({title:'Alias',imdbId:'tt1'}),cand({title:'Alias',imdbId:'tt2'})];
+    expect(findDuplicateGroups(records)[0].sharesImdbId).toBe(true);
+    expect(combineConfirmedDuplicates(records).combined).toBe(0);
   });
 });
