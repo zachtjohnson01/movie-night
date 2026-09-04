@@ -3,6 +3,7 @@ import type { Movie } from '../types';
 import { ageBadgeClass, getDisplayTitle, sortWishlist } from '../format';
 import BuildStamp from './BuildStamp';
 import MoviePoster from './MoviePoster';
+import ReleaseDate from './ReleaseDate';
 
 type Props = {
   movies: Movie[];
@@ -291,6 +292,7 @@ export default function Wishlist({
                       {getDisplayTitle(m)}
                     </div>
                     <MetricsRow movie={m} />
+                    <ReleaseDate releaseDate={m.releaseDate} />
                   </div>
                   {m.commonSenseAge && (
                     <span

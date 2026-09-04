@@ -15,6 +15,10 @@ function base(overrides: Partial<ScoreInput> = {}): ScoreInput {
 }
 
 describe('scoreCandidate', () => {
+  it('returns a finite score when all available signals have zero weight', () => {
+    expect(scoreCandidate(base({ imdb: '8.0', studio: 'Aardman' }), undefined,
+      {rt:0,imdb:0,studio:0,csm:5,awards:15,director:40,writer:40})).toBe(0);
+  });
   it('returns 0 when no signals are present', () => {
     expect(scoreCandidate(base())).toBe(0);
   });

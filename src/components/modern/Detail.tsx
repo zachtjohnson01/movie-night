@@ -19,7 +19,6 @@ import {
   BG,
   BG_3,
   BORDER,
-  CRIMSON,
   DISPLAY,
   INK,
   INK_2,
@@ -31,6 +30,7 @@ import {
 } from './palette';
 import ModernPoster from './ModernPoster';
 import ClassicDetail from '../Detail';
+import MarkWatched from '../MarkWatched';
 import CreatorPills from '../CreatorPills';
 import ReleaseDate from '../ReleaseDate';
 import { useCreatorCatalog } from '../../creatorCatalog';
@@ -74,7 +74,7 @@ type Props =
       library?: Movie[];
       onBack: () => void;
       onAddToWishlist: (movie: Movie) => void | Promise<void>;
-      onMarkWatchedTonight: (movie: Movie) => void | Promise<void>;
+      onMarkWatchedTonight: (movie: Movie, date?: string | null) => void | Promise<void>;
       onMarkWatchedUndated: (movie: Movie) => void | Promise<void>;
       onSelectMovie?: (title: string) => void;
     };
@@ -187,8 +187,8 @@ function ModernView({
       : 'Watched · date unknown'
     : 'In the queue';
 
-  async function markWatchedTonight() {
-    await onUpdate({ ...movie, watched: true, dateWatched: todayIso() });
+  async function markWatchedTonight(date: string | null) {
+    await onUpdate({ ...movie, watched: true, dateWatched: date });
   }
   async function toggleFavorite() {
     await onUpdate({ ...movie, favorite: !movie.favorite });
@@ -676,29 +676,7 @@ function ModernView({
             gap: 10,
           }}
         >
-          <button
-            type="button"
-            disabled={movie.watched}
-            onClick={() => void markWatchedTonight()}
-            style={{
-              flex: 1,
-              minHeight: 52,
-              borderRadius: 14,
-              background: movie.watched ? BG_3 : CRIMSON,
-              color: movie.watched ? INK_2 : '#fff',
-              border: movie.watched ? `1px solid ${BORDER}` : 'none',
-              fontFamily: SANS,
-              fontSize: 15,
-              fontWeight: 700,
-              cursor: movie.watched ? 'default' : 'pointer',
-            }}
-          >
-            {movie.watched
-              ? movie.dateWatched
-                ? `Watched ${formatDate(movie.dateWatched)}`
-                : 'Already watched'
-              : 'Mark watched tonight'}
-          </button>
+          <MarkWatched onSave={markWatchedTonight} disabledLabel={movie.watched ? movie.dateWatched ? `Watched ${formatDate(movie.dateWatched)}` : 'Already watched' : undefined} />
         </div>
       )}
 

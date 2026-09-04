@@ -1,15 +1,18 @@
+import { useHistoryRecommendations } from '../useHistoryRecommendations';
+import HistoryRecommendationStatus from './HistoryRecommendationStatus';
 import ReleaseDate from './ReleaseDate';
 import { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import type { Candidate, Movie } from '../types';
 import { ageBadgeClass } from '../format';
 import type { CandidatePoolApi } from '../useCandidatePool';
-import { countEffectiveCandidates, expandPool, extractUnique, rankTopPicks, type RankedPick } from '../recommendations';
+import { countEffectiveCandidates, expandPool, extractUnique, type RankedPick } from '../recommendations';
 import { type ScoringWeights } from '../scoring';
 
 type Props = {
   movies: Movie[];
   pool: CandidatePoolApi;
   isOwner: boolean;
+  familyKey?: string;
   onSelectPick: (c: Candidate) => void;
   reloadMovies: () => void;
 };
@@ -26,6 +29,7 @@ export default function Recommendations({
   movies,
   pool,
   isOwner,
+  familyKey,
   onSelectPick,
   reloadMovies,
 }: Props) {
@@ -49,10 +53,8 @@ export default function Recommendations({
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const picks = useMemo(
-    () => rankTopPicks(pool.candidates, movies, TOP_N, pool.weights),
-    [pool.candidates, movies, pool.weights],
-  );
+  const historyResult = useHistoryRecommendations(pool.candidates, movies, pool.weights, isOwner, familyKey, TOP_N);
+  const picks = historyResult.picks;
 
   const effectiveCount = useMemo(
     () => countEffectiveCandidates(pool.candidates, movies),
@@ -141,7 +143,7 @@ export default function Recommendations({
             </h1>
             <p className="mt-2 text-xs text-ink-400 leading-relaxed">
               from {effectiveCount} candidates
-              {isOwner && <> · {describeWeights(pool.weights)}</>}
+              {isOwner && <> · Preset: {describeWeights(pool.weights)}</>}
             </p>
           </div>
           <button
@@ -159,6 +161,7 @@ export default function Recommendations({
           </button>
         </div>
       </header>
+      <HistoryRecommendationStatus result={historyResult} isOwner={isOwner} />
 
       <div className="pt-2">
         {loading && (

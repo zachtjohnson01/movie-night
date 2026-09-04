@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 import Anthropic from '@anthropic-ai/sdk';
@@ -283,7 +284,18 @@ const GENERATION_DEADLINE_MS = 30_000;
  * loop can emit. Returns the concatenated assistant text; parseCandidates
  * pulls the JSON array out of it.
  */
-export type GenerationResult = { text: string; status: 'complete' | 'time_limit' | 'incomplete' | 'error'; sourceUrls: string[]; webSearchRequests: number | null };
+export type GenerationResult = { text: string; status: 'complete' | 'time_limit' | 'incomplete' | 'error'; sourceUrls: string[]; webSearchRequests: number | null; reason: string; stopReason: string | null };
+
+export function generationErrorReason(error: unknown, aborted: boolean): string {
+  if (aborted) return 'deadline';
+  if (typeof Anthropic.APIError === 'function' && error instanceof Anthropic.APIError) {
+    if (error.status === 429) return 'rate_limit';
+    if (error.status === 401 || error.status === 403) return 'service_auth';
+    if (typeof error.status === 'number') return 'provider_error';
+  }
+  if (typeof Anthropic.APIConnectionError === 'function' && error instanceof Anthropic.APIConnectionError) return 'network';
+  return 'service_error';
+}
 
 export async function generateCandidates(
   apiKey: string,
@@ -308,6 +320,8 @@ export async function generateCandidates(
 
   let text = '';
   let status: GenerationResult['status'] = 'incomplete';
+  let reason = 'search_continuation_limit';
+  let stopReason: string | null = null;
   const sourceUrls = new Set<string>();
   let webSearchRequests: number | null = null;
   try {
@@ -337,8 +351,9 @@ export async function generateCandidates(
       let message: Anthropic.Messages.Message;
       try {
         message = await stream.finalMessage();
-      } catch {
+      } catch (error) {
         status = controller.signal.aborted ? 'time_limit' : 'error';
+        reason = generationErrorReason(error, controller.signal.aborted);
         // Deadline (or network) abort — keep whatever this round streamed.
         if (roundText) text = roundText;
         break;
@@ -359,21 +374,29 @@ export async function generateCandidates(
         .filter((b): b is Anthropic.Messages.TextBlock => b.type === 'text')
         .map((b) => b.text)
         .join('');
+      stopReason = ['end_turn', 'max_tokens', 'pause_turn', 'stop_sequence', 'refusal', 'tool_use'].includes(message.stop_reason ?? '') ? message.stop_reason : 'other';
       if (message.stop_reason !== 'pause_turn') {
         status = message.stop_reason === 'end_turn' ? 'complete' : 'incomplete';
+        reason = message.stop_reason === 'end_turn' ? 'complete' : message.stop_reason === 'max_tokens' ? 'model_output_limit' : message.stop_reason === 'refusal' ? 'model_refusal' : 'model_stopped';
         break;
       }
       // A continuation may complete text but must not spend another search budget.
       tools.length = 0;
       messages.push({ role: 'assistant', content: message.content });
     }
-  } catch {
+  } catch (error) {
     status = controller.signal.aborted ? 'time_limit' : 'error';
+        reason = generationErrorReason(error, controller.signal.aborted);
   } finally {
     clearTimeout(deadline);
   }
-  if (status === 'complete' && !parseCandidates(text).length && !/^\s*(?:```json\s*)?\[\s*\]\s*(?:```)?\s*$/.test(text)) status = 'incomplete';
-  return { text, status, sourceUrls: [...sourceUrls], webSearchRequests };
+  if (status === 'complete') {
+    try {
+      const decoded = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, ''));
+      if (!Array.isArray(decoded)) throw new Error('invalid');
+    } catch { status = 'incomplete'; reason = 'invalid_output'; }
+  }
+  return { text, status, reason, stopReason, sourceUrls: [...sourceUrls], webSearchRequests };
 }
 
 
@@ -593,6 +616,22 @@ export async function generateBaselineCandidates(
 }
 
 
+// Strict allowlist: client telemetry is an owner-reported aggregate, not proof
+// of database saves. No request bodies, titles, prompts, URLs, or credentials.
+export function validateClientReport(body: unknown): Record<string, unknown> | null {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
+  const b = body as Record<string, unknown>;
+  if (Object.keys(b).some(key => !['action', 'runId', 'mode', 'status', 'counts'].includes(key))) return null;
+  if (b.action !== 'report' || typeof b.runId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(b.runId)) return null;
+  if (!['baseline','enhanced'].includes(String(b.mode)) || !['complete','partial'].includes(String(b.status))) return null;
+  if (!b.counts || typeof b.counts !== 'object' || Array.isArray(b.counts)) return null;
+  const allowed = ['raw','checked','unmatched','errors','duplicates','verified','lookupNetwork','lookupNotConfigured','lookupNotFound','lookupUnknown'];
+  const counts = b.counts as Record<string, unknown>;
+  if (Object.keys(counts).some(key => !allowed.includes(key))) return null;
+  if (allowed.some(key => !Number.isInteger(counts[key]) || Number(counts[key]) < 0 || Number(counts[key]) > 10000)) return null;
+  return { event: 'pool_expansion_client', runId: b.runId, mode: b.mode, status: b.status, counts };
+}
+
 export default async function handler(
   req: VercelRequest,
   res: VercelResponse,
@@ -611,6 +650,14 @@ export default async function handler(
     return res.status(auth.status).json({ error: auth.error });
   }
 
+  const body = req.body || {};
+  if (body.action === 'report') {
+    const report = validateClientReport(body);
+    if (!report) return res.status(400).json({ error: 'Invalid expansion report' });
+    console.info('[pool-expansion]', report);
+    return res.json({ received: true });
+  }
+
   if (!ANTHROPIC_API_KEY) {
     return res.status(503).json({
       error:
@@ -618,7 +665,6 @@ export default async function handler(
     });
   }
 
-  const body = req.body || {};
   const filterStrings = (v: unknown) =>
     Array.isArray(v) ? v.filter((t: unknown): t is string => typeof t === 'string') : [];
   const poolTitles: string[] = filterStrings(body.poolTitles);
@@ -643,9 +689,10 @@ export default async function handler(
     : buildPrompt(poolTitles, libraryTitles, candidateTarget, directors, writers, studios, focus);
 
   const started = Date.now();
+  const runId = randomUUID();
   try {
     const result: GenerationResult = mode === 'baseline'
-      ? { text: await generateBaselineCandidates(ANTHROPIC_API_KEY, prompt), status: 'incomplete', sourceUrls: [], webSearchRequests: null }
+      ? { text: await generateBaselineCandidates(ANTHROPIC_API_KEY, prompt), status: 'incomplete', reason: 'legacy_completion_unknown', stopReason: null, sourceUrls: [], webSearchRequests: null }
       : await generateCandidates(ANTHROPIC_API_KEY, prompt);
     // The legacy generator does not expose its completion reason or search usage.
     // Do not imply that an empty legacy result means the catalog is exhausted.
@@ -678,15 +725,16 @@ export default async function handler(
     // Return the full over-requested batch (not just batchSize): the client
     // enriches these against OMDB and keeps the first batchSize that verify,
     // so it needs the extras to absorb titles OMDB can't confirm.
+    console.info('[pool-expansion]', { event: 'pool_expansion_discovery', runId, mode, focus, status: result.status, reason: result.reason, stopReason: result.stopReason, requested: batchSize, candidateTarget, rawGenerated: parsed.length, returned: items.length, skippedExisting, duplicatesWithinBatch, sourceCount: result.sourceUrls.length, webSearchRequests: result.webSearchRequests, elapsedMs: Date.now() - started });
     return res.json({
       items,
-      metrics: { mode, completionObserved: mode !== 'baseline', rawGenerated: parsed.length, skippedExisting, duplicatesWithinBatch, elapsedMs: Date.now() - started, requested: batchSize, candidateTarget, returned: items.length, status: result.status, sourceUrls: result.sourceUrls, webSearchRequests: result.webSearchRequests, focus },
+      metrics: { runId, reason: result.reason, stopReason: result.stopReason, mode, completionObserved: mode !== 'baseline', rawGenerated: parsed.length, skippedExisting, duplicatesWithinBatch, elapsedMs: Date.now() - started, requested: batchSize, candidateTarget, returned: items.length, status: result.status, sourceUrls: result.sourceUrls, webSearchRequests: result.webSearchRequests, focus },
       rawCount: parsed.length,
     });
   } catch (e) {
-    console.error('[pool-expand] fetch error', e);
+    console.info('[pool-expansion]', { event: 'pool_expansion_discovery', runId, mode, focus, status: 'error', reason: 'service_error', elapsedMs: Date.now() - started });
     return res
       .status(500)
-      .json({ error: `Could not reach recommendations service` });
+      .json({ error: 'Could not reach recommendations service', runId, reason: 'service_error' });
   }
 }

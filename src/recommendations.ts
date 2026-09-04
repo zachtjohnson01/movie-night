@@ -1,5 +1,5 @@
 import type { Candidate, Movie } from './types';
-import { dedupKey, enrichCandidate, enrichCandidateVerified, normalizeTitle, type CandidateOmdbPatch } from './omdb';
+import { dedupKey, OmdbError, enrichCandidate, enrichCandidateVerified, normalizeTitle, type CandidateOmdbPatch } from './omdb';
 import { DEFAULT_WEIGHTS, scoreCandidate, type ScoreContext, type ScoringWeights } from './scoring';
 import { supabase } from './supabase';
 import { parseNameList } from './format';
@@ -150,7 +150,8 @@ export type ExpansionReport = {
   duplicates: number;
   verified: number;
   status: 'complete' | 'partial';
-  api: { requested?: number; candidateTarget?: number; returned?: number; rawGenerated?: number; skippedExisting?: number; duplicatesWithinBatch?: number; elapsedMs?: number; status?: string; completionObserved?: boolean; sourceUrls?: string[]; focus?: string };
+  lookupErrors?: { network: number; notConfigured: number; notFound: number; unknown: number };
+  api: { runId?: string; reason?: string; stopReason?: string | null; requested?: number; candidateTarget?: number; returned?: number; rawGenerated?: number; skippedExisting?: number; duplicatesWithinBatch?: number; elapsedMs?: number; status?: string; completionObserved?: boolean; sourceUrls?: string[]; focus?: string };
 };
 
 export async function expandPool(
@@ -187,7 +188,7 @@ export async function expandPoolDetailed(
   }
   const data = await resp.json() as { items?: RawCandidateFromApi[]; metrics?: ExpansionReport['api'] };
   const raw = Array.isArray(data.items) ? data.items : [];
-  const report: ExpansionReport = { mode, candidates: [], raw: raw.length, checked: 0, unmatched: 0, errors: 0, duplicates: 0, verified: 0, status: 'complete', api: data.metrics ?? {} };
+  const report: ExpansionReport = { mode, candidates: [], raw: raw.length, checked: 0, unmatched: 0, errors: 0, duplicates: 0, verified: 0, status: 'complete', lookupErrors: { network: 0, notConfigured: 0, notFound: 0, unknown: 0 }, api: data.metrics ?? {} };
   const titleBan = new Set([...poolTitles, ...libraryTitles].map(normalizeTitle));
   const knownIds = new Set((options.existingMovies ?? []).flatMap(m => m.imdbId ? [m.imdbId.toLowerCase()] : []));
   const knownIdentities = new Set((options.existingMovies ?? []).map(m => `${normalizeTitle(m.title)}:${m.year ?? ''}`));
@@ -208,8 +209,10 @@ export async function expandPoolDetailed(
       report.checked++;
       try {
         omdb = mode === 'baseline' ? await enrichCandidate(r.title) : await enrichCandidateVerified(r.title, { year: r.year, imdbId: r.imdbId });
-      } catch {
+      } catch (error) {
         report.errors++;
+        const key = error instanceof OmdbError ? ({ network: 'network', 'not-configured': 'notConfigured', 'not-found': 'notFound', unknown: 'unknown' } as const)[error.kind] : 'unknown';
+        report.lookupErrors![key]++;
         onProgress?.({ stage: 'enriching', done: report.checked, total: raw.length, kept: report.candidates.length });
         continue;
       }
@@ -236,6 +239,27 @@ export async function expandPoolDetailed(
   await Promise.all(Array.from({ length: Math.min(OMDB_CONCURRENCY, raw.length) }, worker));
   report.verified = report.candidates.length;
   if (report.errors || (report.api.status && report.api.status !== 'complete')) report.status = 'partial';
+  await reportExpansionTelemetry(report, token);
   onProgress?.({ stage: 'done', added: report.verified });
   return report;
+}
+
+
+/** Best effort only: aggregate verification counts, never movie data or saves. */
+export async function reportExpansionTelemetry(report: ExpansionReport, token: string): Promise<void> {
+  if (!report.api.runId || !/^[0-9a-f-]{36}$/i.test(report.api.runId)) return;
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const deadline = new Promise<void>(resolve => { timeout = setTimeout(() => { controller.abort(); resolve(); }, 1500); });
+    await Promise.race([fetch('/api/recommendations', {
+      method: 'POST', signal: controller.signal,
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: 'report', runId: report.api.runId, mode: report.mode, status: report.status,
+        counts: { raw: report.raw, checked: report.checked, unmatched: report.unmatched, errors: report.errors, duplicates: report.duplicates, verified: report.verified,
+          lookupNetwork: report.lookupErrors?.network ?? 0, lookupNotConfigured: report.lookupErrors?.notConfigured ?? 0,
+          lookupNotFound: report.lookupErrors?.notFound ?? 0, lookupUnknown: report.lookupErrors?.unknown ?? 0 } }),
+    }).then(() => undefined), deadline]);
+  } catch { /* Diagnostic delivery must never invalidate the expansion result. */ }
+  finally { if (timeout) clearTimeout(timeout); }
 }

@@ -7,11 +7,11 @@ import ReleaseDate from './ReleaseDate';
 
 /** Catalog variant of the regular movie rows: shared posters, age colors,
  * score formatting and release-date presentation, without a personal rank. */
-export default function CatalogMovieCard({ movie, onSelect, modern = false }: {
-  movie: Movie; onSelect: () => void; modern?: boolean;
+export default function CatalogMovieCard({ movie, onSelect, modern = false, ariaLabel }: {
+  movie: Movie; onSelect: () => void; modern?: boolean; ariaLabel?: string;
 }) {
   const age = ageTone(movie.commonSenseAge);
-  return <button type="button" onClick={onSelect}
+  return <button type="button" onClick={onSelect} aria-label={ariaLabel}
     className="flex w-full min-h-[96px] gap-3 px-2 py-4 text-left active:bg-ink-900 transition-colors"
     style={modern ? {fontFamily:SANS,color:INK,borderBottom:`1px solid ${BORDER}`} : undefined}>
     {modern ? <ModernPoster movie={movie} size={54} /> : <MoviePoster movie={movie} size="thumb" />}

@@ -33,4 +33,25 @@ describe('authenticated comparison modes', () => {
     expect(prompts).toHaveLength(count);
     owner.allowed = true;
   });
+  it('accepts only authenticated sanitized reports without AI or logging user payloads', async () => {
+    owner.allowed = true;
+    const count = prompts.length;
+    const log = vi.spyOn(console,'info').mockImplementation(() => {});
+    const payload = {action:'report',runId:'12345678-1234-4123-8123-123456789abc',mode:'enhanced',status:'partial',counts:{raw:5,checked:4,unmatched:1,errors:1,duplicates:1,verified:2,lookupNetwork:1,lookupNotConfigured:0,lookupNotFound:0,lookupUnknown:0}};
+    let result: unknown; let code = 200;
+    const res = {setHeader:vi.fn(),status:(n:number)=>{code=n;return res;},json:(v:unknown)=>{result=v;return res;}};
+    const send = (body: unknown) => handler({method:'POST',headers:{authorization:'Bearer private-token'},body} as VercelRequest,res as unknown as VercelResponse);
+    await send(payload);
+    expect(code).toBe(200); expect(result).toEqual({received:true}); expect(prompts).toHaveLength(count);
+    expect(JSON.stringify(log.mock.calls)).not.toContain('private-token');
+    const logged = log.mock.calls.length;
+    await send({...payload,titles:['private title']});
+    expect(code).toBe(400); expect(log.mock.calls).toHaveLength(logged);
+    await send({...payload,runId:'bad'}); expect(code).toBe(400);
+    await send({...payload,counts:{...payload.counts,raw:-1}}); expect(code).toBe(400);
+    owner.allowed = false; await send(payload);
+    expect(code).toBe(403); expect(log.mock.calls).toHaveLength(logged);
+    owner.allowed = true; log.mockRestore();
+  });
+
 });

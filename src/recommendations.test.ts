@@ -18,6 +18,8 @@ vi.mock('./omdb', async (importOriginal) => {
 
 import {
   countEffectiveCandidates,
+  reportExpansionTelemetry,
+  type ExpansionReport,
   expandPool,
   expandPoolDetailed,
   extractUnique,
@@ -279,4 +281,33 @@ describe('expandPool', () => {
     expect(enrichCandidate).toHaveBeenCalledWith('Remake', {year: 2020, imdbId: undefined});
   });
 
+});
+
+
+describe('expansion diagnostics', () => {
+  const diagnostic: ExpansionReport = { mode:'enhanced',candidates:[cand({title:'Private movie'})],raw:2,checked:2,unmatched:0,errors:1,duplicates:0,verified:1,status:'partial',lookupErrors:{network:1,notConfigured:0,notFound:0,unknown:0},api:{runId:'12345678-1234-4123-8123-123456789abc',reason:'deadline'} };
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
+  it('sends only aggregate metrics and never movie data', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ok:true});
+    vi.stubGlobal('fetch',fetchMock);
+    await reportExpansionTelemetry(diagnostic,'token');
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.counts.lookupNetwork).toBe(1);
+    expect(body.runId).toBe(diagnostic.api.runId);
+    expect(JSON.stringify(body)).not.toContain('Private movie');
+    expect(body.candidates).toBeUndefined();
+  });
+  it('does not turn telemetry failure into an expansion failure', async () => {
+    vi.stubGlobal('fetch',vi.fn().mockRejectedValue(new Error('network')));
+    await expect(reportExpansionTelemetry(diagnostic,'token')).resolves.toBeUndefined();
+  });
+  it('bounds a stalled diagnostic request', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockImplementation(() => new Promise(() => {}));
+    vi.stubGlobal('fetch',fetchMock);
+    const pending = reportExpansionTelemetry(diagnostic,'token');
+    await vi.advanceTimersByTimeAsync(1500);
+    await expect(pending).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+  });
 });

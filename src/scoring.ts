@@ -118,12 +118,13 @@ export function scoreCandidate(
   const wri = writerAffinity(c, context);
   if (wri != null) parts.push({ weight: weights.writer, value: wri });
 
+  const totalWeight = parts.reduce((sum, part) => sum + part.weight, 0);
   const base =
-    parts.length === 0
+    totalWeight <= 0
       ? 0
       : Math.round(
           parts.reduce((s, p) => s + p.weight * p.value, 0) /
-            parts.reduce((s, p) => s + p.weight, 0),
+            totalWeight,
         );
 
   return c.downvoted ? base - DOWNVOTE_PENALTY : base;
