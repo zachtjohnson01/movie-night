@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHistoryProfile, historyScore, rankHistoryPicks, approximateHistoryWeights, personalBlendWeight } from './historyRecommendations';
+import { buildHistoryProfile, historyScore, rankHistoryPicks, approximateHistoryWeights, personalBlendWeight, normalizeHistorySettings, DEFAULT_HISTORY_SETTINGS, historySettingsError } from './historyRecommendations';
 import { rankTopPicks } from './recommendations';
 import { emptyMovie } from './format';
 import { DEFAULT_WEIGHTS } from './scoring';
@@ -66,4 +66,27 @@ it('ramps personal contribution conservatively and retains preset contribution',
  const candidate=film('Only',{imdb:'8.1',rottenTomatoes:'85%'});
  const preset=rankTopPicks([candidate],history)[0].fitScore;
  expect(rankHistoryPicks([candidate],history)[0].fitScore).toBe(Math.round(0.5*historyScore(candidate,buildHistoryProfile(history))+0.5*preset));
+});
+
+it('uses highest applicable configured signal once and retains watched threshold with zero influence',()=>{
+ const settings={favorite:0.25,watched:2,queue:0,presetPercent:0};
+ const profile=buildHistoryProfile([...history.map(m=>({...m,favorite:true})),watched(50,{watched:false})],settings);
+ expect(profile.count).toBe(10);expect(profile.ready).toBe(true);expect(profile.favoriteCount).toBe(10);
+ expect(profile.films[0].weight).toBe(2);expect(profile.films[10].weight).toBe(0);
+ const zeroWatched=buildHistoryProfile(history,{favorite:1,watched:0,queue:0,presetPercent:25});
+ expect(zeroWatched.count).toBe(10);expect(zeroWatched.films.every(m=>m.weight===0)).toBe(true);
+});
+it('queue zero has no effect on similarity and fixed preset zero/100 gives exact endpoints',()=>{
+ const queue=watched(50,{watched:false,production:'B',directors:['B'],writers:['B']});const candidate=film('Only',{imdb:'8',rottenTomatoes:'95%'});
+ const settings={...DEFAULT_HISTORY_SETTINGS,queue:0,presetPercent:0};
+ expect(historyScore(candidate,buildHistoryProfile([...history,queue],settings))).toBe(historyScore(candidate,buildHistoryProfile(history,settings)));
+ expect(rankHistoryPicks([candidate],history,20,DEFAULT_WEIGHTS,settings)[0].fitScore).toBe(Math.round(historyScore(candidate,buildHistoryProfile(history,settings))));
+ expect(rankHistoryPicks([candidate],history,20,DEFAULT_WEIGHTS,{...settings,presetPercent:100})).toEqual(rankTopPicks([candidate],history));
+});
+it('validates finite ranges, accepts individual zeros, and rejects an all-disabled model',()=>{
+ expect(normalizeHistorySettings({favorite:NaN,watched:-1,queue:9,presetPercent:Infinity})).toEqual(DEFAULT_HISTORY_SETTINGS);
+ expect(normalizeHistorySettings({favorite:0,watched:0,queue:0,presetPercent:100})).toEqual({favorite:0,watched:0,queue:0,presetPercent:100});
+ expect(historySettingsError({favorite:0,watched:0,queue:0,presetPercent:0})).toMatch(/At least one/);
+ expect(normalizeHistorySettings({favorite:0,watched:0,queue:0,presetPercent:0})).toEqual(DEFAULT_HISTORY_SETTINGS);
+ expect(historySettingsError(DEFAULT_HISTORY_SETTINGS)).toBeNull();
 });

@@ -66,7 +66,7 @@ export default function ModernRecommendations({
   >({ kind: 'idle' });
   const [error, setError] = useState<string | null>(null);
 
-  const historyResult = useHistoryRecommendations(pool.candidates, movies, pool.weights, isOwner, familyKey, TOP_N);
+  const historyResult = useHistoryRecommendations(pool.candidates, movies, pool.weights, isOwner, familyKey, TOP_N, pool.historySettings);
   const picks = historyResult.picks;
   const libraryTitles = useMemo(() => movies.map((m) => m.title), [movies]);
   const libraryDirectors = useMemo(() => extractUnique(movies.flatMap((m) => m.directors ?? [])), [movies]);
@@ -196,7 +196,7 @@ export default function ModernRecommendations({
         </div>
       </div>
 
-      <HistoryRecommendationStatus result={historyResult} isOwner={isOwner} />
+      <HistoryRecommendationStatus result={historyResult} isOwner={isOwner} onSave={pool.updateHistorySettings} />
       <div style={{ marginTop: 18 }}>
         {loading && (
           <>

@@ -2,6 +2,29 @@ import type { Candidate, Movie } from './types';
 import { rankTopPicks, type RankedPick } from './recommendations';
 import { DEFAULT_WEIGHTS, scoreCandidate, type ScoringWeights } from './scoring';
 
+export type HistorySettings = { favorite: number; watched: number; queue: number; presetPercent: number };
+export const DEFAULT_HISTORY_SETTINGS: HistorySettings = { favorite: 1.25, watched: 1, queue: 0.5, presetPercent: 25 };
+export function historySettingsError(value: unknown): string | null {
+  if (!value || typeof value !== 'object') return 'Recommendation settings are required.';
+  const input = value as Record<string, unknown>;
+  for (const key of ['favorite','watched','queue','presetPercent'] as const) {
+    const n = input[key], max = key === 'presetPercent' ? 100 : 5;
+    if (typeof n !== 'number' || !Number.isFinite(n) || n < 0 || n > max) return `${key} must be between 0 and ${max}.`;
+  }
+  return input.favorite === 0 && input.watched === 0 && input.queue === 0 && input.presetPercent === 0 ? 'At least one recommendation signal must be greater than zero.' : null;
+}
+/** Corrupt persisted fields fall back individually; an entirely disabled
+ * model falls back to the safe defaults. UI can reject via historySettingsError. */
+export function normalizeHistorySettings(value: unknown): HistorySettings {
+  const input = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const out = {...DEFAULT_HISTORY_SETTINGS};
+  for (const key of ['favorite','watched','queue','presetPercent'] as const) {
+    const n = input[key];
+    if (typeof n === 'number' && Number.isFinite(n) && n >= 0 && n <= (key === 'presetPercent' ? 100 : 5)) out[key] = n;
+  }
+  return out.favorite === 0 && out.watched === 0 && out.queue === 0 && out.presetPercent === 0 ? {...DEFAULT_HISTORY_SETTINGS} : out;
+}
+
 export const HISTORY_THRESHOLD = 10;
 export const FAVORITE_HISTORY_WEIGHT = 1.25;
 export const QUEUE_HISTORY_WEIGHT = 0.5;
@@ -21,9 +44,10 @@ function features(movie: Movie | Candidate): Features {
 }
 const usable = (f: Features) => f.director.length + f.writer.length + f.studio.length > 0 || f.age != null || f.rt != null || f.imdb != null;
 export type HistoryProfile = { count: number; favoriteCount: number; queueCount: number; ready: boolean; films: Array<{features:Features;weight:number}> };
-const signalWeight = (movie: Movie) => movie.favorite ? FAVORITE_HISTORY_WEIGHT : movie.watched ? 1 : QUEUE_HISTORY_WEIGHT;
-export function buildHistoryProfile(movies: Movie[]): HistoryProfile {
-  const unique = new Map<string,{ movie: Movie; watched: boolean }>();
+const signalWeight = (movie: Movie, settings: HistorySettings) => Math.max(movie.favorite ? settings.favorite : 0, movie.watched ? settings.watched : settings.queue);
+export function buildHistoryProfile(movies: Movie[], settings?: HistorySettings): HistoryProfile {
+  const config = normalizeHistorySettings(settings);
+  const unique = new Map<string,{ movie: Movie; watched: boolean; favorite: boolean; weight: number }>();
   const titleKey = (movie:Movie) => `${norm(movie.title)}:${movie.year ?? ''}`;
   const knownIds = new Map(movies.filter(m=>m.imdbId).map(m=>[titleKey(m),m.imdbId!.toLowerCase()]));
   for(const movie of movies) {
@@ -31,11 +55,12 @@ export function buildHistoryProfile(movies: Movie[]): HistoryProfile {
     const old=unique.get(key);
     // One film, strongest signal only. Watched status still counts toward
     // activation when another duplicate supplies its favorite flag.
-    unique.set(key,{movie:!old || signalWeight(movie)>signalWeight(old.movie) ? movie : old.movie,watched:movie.watched || !!old?.watched});
+    const weight = signalWeight(movie,config);
+    unique.set(key,{movie:!old || weight>old.weight ? movie : old.movie,watched:movie.watched || !!old?.watched,favorite:movie.favorite || !!old?.favorite,weight:Math.max(weight,old?.weight ?? 0)});
   }
-  const records=[...unique.values()].map(({movie,watched})=>({features:features(movie),weight:movie.favorite ? FAVORITE_HISTORY_WEIGHT : watched ? 1 : QUEUE_HISTORY_WEIGHT,watched})).filter(m=>usable(m.features));
+  const records=[...unique.values()].map(({movie,watched,favorite,weight})=>({features:features(movie),weight,watched,favorite})).filter(m=>usable(m.features));
   const count=records.filter(m=>m.watched).length;
-  return {films:records.map(({features,weight})=>({features,weight})),count,queueCount:records.filter(m=>!m.watched).length,favoriteCount:records.filter(m=>m.weight>1).length,ready:count>=HISTORY_THRESHOLD};
+  return {films:records.map(({features,weight})=>({features,weight})),count,queueCount:records.filter(m=>!m.watched).length,favoriteCount:records.filter(m=>m.favorite).length,ready:count>=HISTORY_THRESHOLD};
 }
 /** Pairwise movie similarity, not a refit of global quality percentages.
  * Exact credits/studio and smooth age/review proximity learn the distribution
@@ -58,17 +83,17 @@ export function historyScore(candidate:Candidate,profile:HistoryProfile):number 
   const c=features(candidate);const totalWeight=profile.films.reduce((s,m)=>s+m.weight,0);
   return (totalWeight ? 100*profile.films.reduce((s,m)=>s+m.weight*similarity(c,m.features),0)/totalWeight : 0) - (candidate.downvoted ? 1000 : 0);
 }
-export function rankHistoryPicks(candidates:Candidate[],movies:Movie[],limit=20,weights:ScoringWeights=DEFAULT_WEIGHTS):RankedPick[] {
+export function rankHistoryPicks(candidates:Candidate[],movies:Movie[],limit=20,weights:ScoringWeights=DEFAULT_WEIGHTS,settings?:HistorySettings):RankedPick[] {
   const preset=rankTopPicks(candidates,movies,candidates.length,weights);
-  const profile=buildHistoryProfile(movies);
+  const profile=buildHistoryProfile(movies,settings);
   if(!profile.ready)return preset.slice(0,limit);
-  const blend=personalBlendWeight(profile.count);
+  const blend=settings ? 1-normalizeHistorySettings(settings).presetPercent/100 : personalBlendWeight(profile.count);
   return preset.map((c,index)=>({c,index,score:blend*historyScore(c,profile)+(1-blend)*c.fitScore})).sort((a,b)=>b.score-a.score || a.index-b.index).slice(0,limit).map(({c,score})=>({...c,fitScore:Math.round(score)}));
 }
 
 /** Bounded local rank approximation, never written to shared weights. */
-export function approximateHistoryWeights(candidates:Candidate[],movies:Movie[],initial:ScoringWeights=DEFAULT_WEIGHTS) {
-  const target=rankHistoryPicks(candidates,movies,60,initial).filter(c=>!c.downvoted);
+export function approximateHistoryWeights(candidates:Candidate[],movies:Movie[],initial:ScoringWeights=DEFAULT_WEIGHTS,settings?:HistorySettings) {
+  const target=rankHistoryPicks(candidates,movies,60,initial,settings).filter(c=>!c.downvoted);
   if(target.length<2)return null;
   const watched=movies; // Approximate the existing preset context, not the learned profile.
   const context={knownDirectors:[...new Set(watched.flatMap(m=>m.directors ?? []))],knownWriters:[...new Set(watched.flatMap(m=>m.writers ?? []))]};

@@ -159,4 +159,15 @@ describe('Manage pool', () => {
     expect(screen.queryByText(/1 repaired/)).toBeNull();
   });
 
+  it('shows source-backed intended-title evidence and both canonical and display titles without merging automatically', async () => {
+    const p=pool([movie('Minions 3',{displayTitle:'Old Minions entry',year:2016,imdbId:'tt6173116'}),movie('Minions & Monsters',{year:2026,imdbId:'tt9999'})]);
+    render(<PoolAdmin pool={p} movies={[]} onBack={()=>{}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Find duplicates, 1 group'}));
+    await screen.findByText('Possible intended title — review required');
+    expect(screen.getByRole('link',{name:'Universal Pictures release announcement'})).toHaveAttribute('href','https://www.universalpicturesathome.com/press-release/minions-monsters-press-release');
+    expect(screen.getByText('Catalog title: Minions 3')).toBeInTheDocument();
+    expect(screen.getByText(/Missing links or posters alone do not establish a duplicate/)).toBeInTheDocument();
+    expect(p.replaceCandidates).not.toHaveBeenCalled();
+  });
+
 });

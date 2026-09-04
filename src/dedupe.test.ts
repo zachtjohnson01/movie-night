@@ -394,7 +394,7 @@ describe('franchise installment regression', () => {
     expect(possibleTitleVariant(base+' 2: The Hidden World',base+' 3: The Hidden World')).toBe(false);
     expect(possibleTitleVariant(base+' 3: The Hidden World',base+': The Hidden World')).toBe(true);
   });
-  it('does not merge Pets installments or invent Minions semantic aliases', () => {
+  it('keeps Pets installments separate and uses evidence, not fuzzy stems, for Minions aliases', () => {
     expect(possibleTitleVariant('Pets','Pets 2')).toBe(false);
     expect(possibleTitleVariant('The Secret Life of Pets','The Secret Life of Pets 2')).toBe(false);
     expect(possibleTitleVariant('Minions 3','Minions & Monsters')).toBe(false);
@@ -404,7 +404,27 @@ describe('franchise installment regression', () => {
       cand({title:'Minions 3',year:2016,imdbId:'tt6173116'}),
       cand({title:'Minions & Monsters',year:2026}),
     ];
-    expect(findDuplicateGroups(records)).toHaveLength(0);
+    const groups = findDuplicateGroups(records);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toEqual(records.slice(2));
+    expect(groups[0].aliasEvidence?.[0].sourceUrl).toContain('universalpicturesathome.com');
+    expect(combineConfirmedDuplicates(records).combined).toBe(0);
   });
 
+});
+
+
+describe('source-backed numbered title suggestions', () => {
+  it('reviews Minions 3 against Monsters without pulling in other Minions films', () => {
+    const records = [cand({title:'Minions',year:2015}),cand({title:'Minions 2',year:2022}),cand({title:'Minions: The Rise of Gru',year:2022}),cand({title:'Minions 3',year:2016,imdbId:'tt6173116'}),cand({title:'Minions & Monsters',year:2026,imdbId:'tt-m'} )];
+    const groups = findDuplicateGroups(records);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members.map(c=>c.title)).toEqual(['Minions 3','Minions & Monsters']);
+    expect(groups[0].confirmedIdentity).toBe(false);
+    expect(groups[0].aliasEvidence?.[0].explanation).toContain('collection');
+    expect(combineConfirmedDuplicates(records).combined).toBe(0);
+  });
+  it('does not group unrelated titles because both have missing posters or links', () => {
+    expect(findDuplicateGroups([cand({title:'Unknown A'}),cand({title:'Unknown B'})])).toHaveLength(0);
+  });
 });

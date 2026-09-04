@@ -53,7 +53,7 @@ export default function Recommendations({
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  const historyResult = useHistoryRecommendations(pool.candidates, movies, pool.weights, isOwner, familyKey, TOP_N);
+  const historyResult = useHistoryRecommendations(pool.candidates, movies, pool.weights, isOwner, familyKey, TOP_N, pool.historySettings);
   const picks = historyResult.picks;
 
   const effectiveCount = useMemo(
@@ -161,7 +161,7 @@ export default function Recommendations({
           </button>
         </div>
       </header>
-      <HistoryRecommendationStatus result={historyResult} isOwner={isOwner} />
+      <HistoryRecommendationStatus result={historyResult} isOwner={isOwner} onSave={pool.updateHistorySettings} />
 
       <div className="pt-2">
         {loading && (

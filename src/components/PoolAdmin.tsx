@@ -1794,6 +1794,12 @@ function DuplicateReview({
                 </span>
               </div>
 
+              {!!group.aliasEvidence?.length && <div className="mb-4 space-y-2 rounded-xl border border-amber-glow/30 p-3 text-xs text-ink-300">
+                <p className="font-semibold text-amber-glow">Possible intended title — review required</p>
+                {group.aliasEvidence.map(evidence => <div key={evidence.sourceUrl}><p>{evidence.explanation}</p><a className="inline-flex min-h-[44px] items-center text-amber-glow underline" href={evidence.sourceUrl} target="_blank" rel="noreferrer">{evidence.sourceLabel}</a></div>)}
+                <p>Missing links or posters alone do not establish a duplicate. Keep records separate if the identities differ.</p>
+              </div>}
+
               {group.members.length > 2 && (
                 <p className="mb-3 text-[11px] text-ink-500 leading-relaxed">
                   Tap a record to keep it. Toggle the others to choose which
@@ -1994,6 +2000,7 @@ function DupeCard({
             <div className="text-sm font-semibold text-ink-100 leading-snug pt-6 break-words">
               {c.displayTitle ?? c.title}
             </div>
+        {c.displayTitle && c.displayTitle !== c.title && <p className="mt-1 break-words text-xs leading-relaxed text-ink-400">Catalog title: {c.title}</p>}
             <div className="mt-0.5 text-[11px] font-mono tabular-nums text-ink-500">
               {c.year ?? '—'}
             </div>
