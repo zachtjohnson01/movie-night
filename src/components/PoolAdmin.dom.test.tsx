@@ -110,6 +110,16 @@ describe('Manage pool', () => {
     expect(await screen.findByRole('button',{name:'Keep separate'})).toBeInTheDocument();
     expect(p.replaceCandidates).not.toHaveBeenCalled();
   });
+  it('allows excluding the default keeper without resetting other selections', async () => {
+    const p = pool([movie('Adventure Part III',{imdbId:'tt1'}),movie('Adventure Part 3',{imdbId:'tt2'}),movie('Adventure Part 3',{imdbId:null})]);
+    render(<PoolAdmin pool={p} movies={[]} onBack={()=>{}} />);
+    fireEvent.click(screen.getByRole('button',{name:'Find duplicates, 1 group'}));
+    const toggles=await screen.findAllByRole('button',{name:'Included in merge'});
+    expect(toggles).toHaveLength(3);
+    fireEvent.click(toggles[0]);
+    expect(screen.getAllByRole('button',{name:'Included in merge'})).toHaveLength(2);
+    expect(screen.getByRole('button',{name:'Merge 1 in'})).toBeInTheDocument();
+  });
   it('combines confirmed IMDb copies with soft removal through the existing scan', async () => {
     const p = pool([movie('Canonical',{imdbId:'tt1'}),movie('Alias',{imdbId:'tt1'})]);
     vi.mocked(p.replaceCandidates).mockImplementation(async next => { p.candidates = typeof next === 'function' ? next(p.candidates) : next; });

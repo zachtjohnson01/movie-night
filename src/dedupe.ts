@@ -65,10 +65,18 @@ export function possibleTitleVariant(a: string, b: string): boolean {
   const x = normalize(a), y = normalize(b);
   if (!x || !y) return false;
   if (x === y) return true;
+  const numbers = (title: string) => title.match(/\b\d+\b/g)?.join(',') ?? '';
+  const xNumbers = numbers(x), yNumbers = numbers(y);
+  // An explicit different installment is never an alias. In particular,
+  // stripping 2 and 3 must not bridge an entire franchise via union-find.
+  if (xNumbers && yNumbers && xNumbers !== yNumbers) return false;
   const withoutNumbers = (title: string) => title.split(' ').filter(token => !/^\d+$/.test(token)).join(' ');
   const xn = withoutNumbers(x), yn = withoutNumbers(y);
-  if (xn === yn && xn.split(' ').length >= 4) return true;
-  const numbers = (title: string) => title.match(/\b\d+\b/g)?.join(',') ?? '';
+  // The only omitted-number match is an embedded number with a subtitle:
+  // "Dragon 3 The Hidden World" ↔ "Dragon The Hidden World". A trailing
+  // number ("Dragon" ↔ "Dragon 3") denotes a different installment.
+  const numbered = xNumbers && !yNumbers ? x : yNumbers && !xNumbers ? y : null;
+  if (numbered && /\b\d+\s+\D/.test(numbered) && xn === yn && xn.split(' ').length >= 4) return true;
   const shorter = x.length <= y.length ? x : y;
   const longer = x.length <= y.length ? y : x;
   return shorter.split(' ').length >= 4 && !!numbers(shorter) && numbers(shorter) === numbers(longer) && longer.startsWith(shorter + ' ');

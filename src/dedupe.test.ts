@@ -3,6 +3,7 @@ import type { Candidate } from './types';
 import {
   findDuplicateGroups,
   combineConfirmedDuplicates,
+  possibleTitleVariant,
   mergeCandidates,
   applyMerge,
   pickDefaultSurvivor,
@@ -367,4 +368,43 @@ describe('alternate title scan safety', () => {
     expect(findDuplicateGroups(records)[0].sharesImdbId).toBe(true);
     expect(combineConfirmedDuplicates(records).combined).toBe(0);
   });
+});
+
+
+describe('franchise installment regression', () => {
+  it('groups only the three third-film records, leaving Dragon 1 and 2 separate', () => {
+    const original = cand({title:'How to Train Your Dragon',year:2010,imdbId:'tt0892769'});
+    const sequel = cand({title:'How to Train Your Dragon 2',year:2014,imdbId:'tt1646971'});
+    const third = [
+      cand({title:'How to Train Your Dragon: The Hidden World',year:2019,imdbId:'tt2386490'}),
+      cand({title:'How to Train Your Dragon 3: The Hidden World',year:2019,imdbId:null}),
+      cand({title:'How to Train Your Dragon 3',year:2020,imdbId:'tt6726906'}),
+    ];
+    const groups = findDuplicateGroups([original,sequel,...third]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].members).toEqual(third);
+    expect(groups[0].confirmedIdentity).toBe(false);
+    expect(combineConfirmedDuplicates([original,sequel,...third]).combined).toBe(0);
+  });
+  it('never strips trailing installment numbers or collapses conflicting numbered subtitles', () => {
+    const base = 'How to Train Your Dragon';
+    expect(possibleTitleVariant(base,base+' 2')).toBe(false);
+    expect(possibleTitleVariant(base+' 2',base+' 3')).toBe(false);
+    expect(possibleTitleVariant(base+' II',base+' III')).toBe(false);
+    expect(possibleTitleVariant(base+' 2: The Hidden World',base+' 3: The Hidden World')).toBe(false);
+    expect(possibleTitleVariant(base+' 3: The Hidden World',base+': The Hidden World')).toBe(true);
+  });
+  it('does not merge Pets installments or invent Minions semantic aliases', () => {
+    expect(possibleTitleVariant('Pets','Pets 2')).toBe(false);
+    expect(possibleTitleVariant('The Secret Life of Pets','The Secret Life of Pets 2')).toBe(false);
+    expect(possibleTitleVariant('Minions 3','Minions & Monsters')).toBe(false);
+    const records = [
+      cand({title:'The Secret Life of Pets',year:2016,imdbId:'tt2709768'}),
+      cand({title:'The Secret Life of Pets 2',year:2019,imdbId:'tt5113040'}),
+      cand({title:'Minions 3',year:2016,imdbId:'tt6173116'}),
+      cand({title:'Minions & Monsters',year:2026}),
+    ];
+    expect(findDuplicateGroups(records)).toHaveLength(0);
+  });
+
 });
